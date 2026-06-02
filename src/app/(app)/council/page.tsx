@@ -117,6 +117,17 @@ export default function CouncilPage() {
           collectionsFound: analysis?.collectionsFound,
           coverage: analysis?.coverage,
           catalogSource: analysis?.catalogSource,
+          collectionsAnalyzed: analysis?.collectionsAnalyzed,
+          noType: analysis?.catalogStats?.noType,
+          tagsCoverage: analysis?.catalogStats?.tagsCoverage,
+          topTypes: analysis?.catalogStats?.topTypes?.map((t) => t.type),
+          missingMeta: analysis?.metrics?.missingMetaDescriptions,
+          imagesNoAlt: analysis?.metrics?.imagesWithoutAlt,
+          priorityProducts: analysis?.priorityProducts?.slice(0, 6).map((p) => ({
+            title: p.title,
+            reason: p.reason,
+            contentScore: p.contentScore,
+          })),
           issuesSummary: analysis?.issues?.slice(0, 8).map((i) => `${i.area} (${i.severity}) — ${i.fix}`),
           scoresSummary: analysis
             ? `SEO ${analysis.scores.seo}, confiance ${analysis.scores.trust}, conversion ${analysis.scores.conversion}, Merchant ${analysis.scores.merchant}, contenu ${analysis.scores.content}`

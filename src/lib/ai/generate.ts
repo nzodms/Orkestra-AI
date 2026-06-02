@@ -54,10 +54,21 @@ function contextBlock(ctx: CouncilContext): string {
   if (ctx.competitors?.length) lines.push(`Concurrents : ${ctx.competitors.join(", ")}`);
   if (ctx.productsFound != null)
     lines.push(`Scan public : ${ctx.productsFound} produits trouvés, ${ctx.productsEnriched ?? 0} enrichis via products.json, ${ctx.productsAnalyzed ?? 0} analysés en HTML (couverture ${ctx.coverage ?? "n/a"}, source ${ctx.catalogSource ?? "n/a"}).`);
-  if (ctx.weakDescriptions != null) lines.push(`Fiches à description faible : ${ctx.weakDescriptions}.`);
-  if (ctx.weakTitles != null) lines.push(`Titres produits faibles : ${ctx.weakTitles}.`);
+  if (ctx.collectionsFound != null) lines.push(`Collections : ${ctx.collectionsFound} trouvées, ${ctx.collectionsAnalyzed ?? 0} analysées.`);
+  if (ctx.weakDescriptions != null) lines.push(`Fiches à description absente/courte : ${ctx.weakDescriptions}.`);
+  if (ctx.weakTitles != null) lines.push(`Titres produits faibles/génériques : ${ctx.weakTitles}.`);
+  if (ctx.noType != null) lines.push(`Produits sans product_type : ${ctx.noType}.`);
+  if (ctx.tagsCoverage != null) lines.push(`Couverture tags : ${ctx.tagsCoverage}% du catalogue.`);
+  if (ctx.missingMeta != null) lines.push(`Meta descriptions manquantes (échantillon) : ${ctx.missingMeta}.`);
+  if (ctx.imagesNoAlt != null) lines.push(`Images sans alt text : ${ctx.imagesNoAlt}.`);
+  if (ctx.topTypes?.length) lines.push(`Types produits fréquents : ${ctx.topTypes.join(", ")}.`);
   if (ctx.englishCount != null) lines.push(`Textes anglais détectés : ${ctx.englishCount}.`);
   if (ctx.missingLegal?.length) lines.push(`Pages légales manquantes : ${ctx.missingLegal.join(", ")}.`);
+  if (ctx.priorityProducts?.length)
+    lines.push(
+      `Produits prioritaires à optimiser (score contenu /100) :\n` +
+        ctx.priorityProducts.slice(0, 6).map((p) => `  - ${p.title} (${p.contentScore}, ${p.reason})`).join("\n")
+    );
   if (ctx.issuesSummary?.length) lines.push(`Problèmes détectés :\n- ${ctx.issuesSummary.slice(0, 8).join("\n- ")}`);
   if (ctx.scoresSummary) lines.push(`Scores : ${ctx.scoresSummary}.`);
   return lines.join("\n");
@@ -89,15 +100,24 @@ export async function runCouncil(
     return { result: scaffold, meta: { live: false, generatedAt: nowIso(), fallbackReason: "Aucune clé OpenAI connectée" } };
   }
 
+  const hasScan = ctx.productsFound != null;
   const system =
-    "Tu es Orkestra, copilote e-commerce multi-IA spécialisé Shopify. Réponds en français, en markdown structuré (titres ##/###, listes, gras), de façon concrète et actionnable. " +
-    "Appuie-toi STRICTEMENT sur les données réelles de la boutique fournies (scan public, mémoire boutique). Cite des chiffres réels quand ils sont disponibles. Ne sois pas générique.";
+    "Tu es Orkestra, copilote e-commerce multi-IA spécialisé Shopify. Tu réponds en français, en markdown structuré (## / ###, listes, gras), de façon dense, précise et directement actionnable.\n" +
+    "RÈGLE ABSOLUE : tu n'as PAS le droit de répondre de manière générique. Chaque recommandation DOIT s'appuyer sur une donnée réelle du scan fournie (chiffre, nom de collection, nom de produit prioritaire, problème détecté) — ou alors tu indiques explicitement « donnée non disponible dans le scan ».\n" +
+    "Interdits : phrases vagues du type « ajoutez du maillage interne », « optimisez vos fiches », « créez du contenu » SANS préciser OÙ, COMBIEN, POURQUOI, un EXEMPLE concret, le MODULE Orkestra (SEO Studio / Merchant Shield / Section Builder) et l'IMPACT attendu.\n" +
+    "Pour toute correction (collection ou produit), propose du concret prêt à coller : title, meta description, H1, structure H2/H3, FAQ (questions réelles), maillage interne vers les vraies collections.\n" +
+    "Adapte le vocabulaire à la niche détectée (ex. luminaires : pièce salon/chambre/cuisine/escalier, hauteur d'installation, type d'ampoule, matériau, ambiance lumineuse).\n" +
+    "Distingue toujours : DIAGNOSTIC (ce que montre le scan), CORRECTION (le contenu proposé), ACTION (quoi faire + module Orkestra).";
+  const structure = hasScan
+    ? "\n\nStructure imposée de la réponse :\n## Résumé du scan\n## ✅ Ce qui va bien\n## 🔧 Problèmes détectés (avec chiffres)\n## 🛍️ Produits prioritaires (cite les produits prioritaires fournis + action par produit)\n## 📁 Collections prioritaires (donne 1-2 corrections concrètes : title/meta/H1/FAQ/maillage)\n## ⚡ Quick wins\n## 🗓️ Plan 7 jours\n## 🗓️ Plan 30 jours\n## 🚀 Actions Orkestra"
+    : "";
   const prompt =
     `Mode : ${MODE_LABEL[mode]}\n\n` +
-    `=== Données de la boutique ===\n${contextBlock(ctx) || "(peu de données — reste prudent)"}\n\n` +
-    `=== Demande de l'utilisateur ===\n${question}`;
+    `=== Données réelles du scan & de la boutique ===\n${contextBlock(ctx) || "(aucune donnée de scan — précise-le et reste prudent)"}\n` +
+    structure +
+    `\n\n=== Demande de l'utilisateur ===\n${question}`;
 
-  const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.5, maxTokens: 2000 });
+  const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.4, maxTokens: 2400 });
   if (!r.ok) {
     return { result: scaffold, meta: { live: false, generatedAt: nowIso(), fallbackReason: r.message } };
   }
