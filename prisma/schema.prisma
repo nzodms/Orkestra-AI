@@ -1,0 +1,155 @@
+// ──────────────────────────────────────────────────────────────────────────
+// Orkestra AI — Schéma de base de données (Prisma + PostgreSQL)
+//
+// V1 : l'app tourne sur un store mock côté client. Ce schéma est la cible de
+// persistance prête à brancher (npx prisma migrate dev). Les clés API sont
+// stockées CHIFFRÉES (AES-256-GCM) — voir src/lib/crypto.ts.
+// ──────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  theme     String   @default("light")
+  locale    String   @default("fr")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stores       Store[]
+  apiKeys      ApiKey[]
+  generations  Generation[]
+}
+
+model Store {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name         String
+  shopifyUrl   String?
+  // Token Admin API Shopify — CHIFFRÉ (iv:tag:data en base64)
+  shopifyToken String?
+  onboarded    Boolean  @default(false)
+
+  brandMemory  BrandMemory?
+  generations  Generation[]
+  audits       MerchantAudit[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model BrandMemory {
+  id            String   @id @default(cuid())
+  storeId       String   @unique
+  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  niche         String?
+  country       String   @default("France")
+  language      String   @default("Français")
+  positioning   String   @default("premium")
+
+  writingStyle  String?
+  formality     String   @default("vouvoiement")
+  shippingDelay String?
+  returnPolicy  String?
+
+  // Listes stockées en JSON pour la flexibilité V1
+  wordsToAvoid      Json @default("[]")
+  promises          Json @default("[]")
+  guarantees        Json @default("[]")
+  collections       Json @default("[]")
+  productTypes      Json @default("[]")
+  primaryKeywords   Json @default("[]")
+  secondaryKeywords Json @default("[]")
+  competitors       Json @default("[]")
+  internalLinks     Json @default("[]")
+  seoRules          Json @default("[]")
+  styleRules        Json @default("[]")
+
+  updatedAt DateTime @updatedAt
+}
+
+enum AIProvider {
+  openai
+  anthropic
+  gemini
+  openrouter
+  mistral
+}
+
+model ApiKey {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  provider  AIProvider
+  // Clé CHIFFRÉE (AES-256-GCM). Jamais stockée ni renvoyée en clair.
+  encIv     String
+  encTag    String
+  encData   String
+  // Version masquée pour l'affichage UI (ex: "sk-...AB12")
+  maskedKey String
+  model     String
+  status    String     @default("connected")
+  lastTestedAt DateTime?
+
+  createdAt DateTime   @default(now())
+
+  @@unique([userId, provider])
+}
+
+enum GenerationKind {
+  seo_product
+  seo_collection
+  seo_faq
+  seo_meta
+  seo_blog
+  section
+  merchant_audit
+  council
+  email
+  quote
+}
+
+model Generation {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId   String
+  store     Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  kind      GenerationKind
+  title     String
+  status    String         @default("completed")
+  score     Int?
+  // Modèles IA utilisés (JSON array de provider)
+  models    Json           @default("[]")
+  // Entrée + résultat structuré
+  input     Json?
+  result    Json?
+
+  createdAt DateTime       @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model MerchantAudit {
+  id        String   @id @default(cuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  score     Int
+  // Liste des MerchantIssue (JSON)
+  issues    Json     @default("[]")
+  createdAt DateTime @default(now())
+}

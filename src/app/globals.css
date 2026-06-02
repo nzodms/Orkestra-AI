@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --bg: #f7f8fb;
+  --surface: #ffffff;
+  --border: #e9ebf0;
+  --text: #171a21;
+  --text-muted: #67728a;
+}
+
+.dark {
+  --bg: #0c0e14;
+  --surface: #14171f;
+  --border: #232732;
+  --text: #f2f4f8;
+  --text-muted: #8590a5;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: rgba(109, 94, 242, 0.2);
+}
+
+/* Scrollbar premium */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c7cbff;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border bg-[var(--surface)] shadow-card;
+  }
+  .input {
+    @apply w-full rounded-xl border bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--text)]
+      placeholder:text-ink-400 outline-none transition
+      focus:border-brand-400 focus:ring-4 focus:ring-brand-500/10;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-[var(--text)];
+  }
+  .hint {
+    @apply text-xs text-[var(--text-muted)];
+  }
+}
+
+.bg-grid {
+  background-image: radial-gradient(circle at 1px 1px, rgba(109, 94, 242, 0.12) 1px, transparent 0);
+  background-size: 22px 22px;
+}
