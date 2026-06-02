@@ -2,56 +2,68 @@ import { NextResponse } from "next/server";
 import { encryptSecret, maskApiKey } from "@/lib/crypto";
 import { PROVIDERS } from "@/lib/providers";
 import { isMockMode } from "@/lib/ai/adapter";
+import { testOpenAIKey } from "@/lib/ai/openai";
+import { saveKey } from "@/lib/server/keyStore";
 import type { AIProviderId } from "@/lib/types";
 
 // ──────────────────────────────────────────────────────────────────────────
 // POST /api/keys/test
 //
-// Reçoit { provider, apiKey }. Valide le format, (en mode live) ferait un
-// ping minimal au provider, chiffre la clé (AES-256-GCM) et NE renvoie qu'une
-// version masquée. La clé en clair ne quitte jamais le serveur.
-//
-// En V1 (mock), on valide le préfixe et on simule un succès. Le blob chiffré
-// est prêt à être persisté en base (table api_keys) côté production.
+// OpenAI : vrai ping (GET /models) pour valider la clé, puis stockage CHIFFRÉ
+// côté serveur. Renvoie un `keyId` opaque + la version masquée — JAMAIS la clé
+// en clair. Les autres providers : validation de préfixe + stockage (live à venir).
 // ──────────────────────────────────────────────────────────────────────────
+
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
-    const { provider, apiKey } = (await req.json()) as {
-      provider: AIProviderId;
-      apiKey: string;
-    };
+    const { provider, apiKey } = (await req.json()) as { provider: AIProviderId; apiKey: string };
 
     const meta = PROVIDERS[provider];
-    if (!meta) {
-      return NextResponse.json({ ok: false, error: "Provider inconnu." }, { status: 400 });
+    if (!meta) return NextResponse.json({ ok: false, error: "Provider inconnu." }, { status: 400 });
+    if (!apiKey || apiKey.trim().length < 8) return NextResponse.json({ ok: false, error: "Clé trop courte." }, { status: 400 });
+
+    const key = apiKey.trim();
+
+    // ── OpenAI : vrai test de connexion ──
+    if (provider === "openai") {
+      const test = await testOpenAIKey(key);
+      if (!test.ok) {
+        return NextResponse.json({ ok: false, error: test.message, code: test.code });
+      }
+      const model = test.models.includes("gpt-4o") ? "gpt-4o" : test.models[0] || meta.defaultModel;
+      const stored = await saveKey({
+        provider,
+        encrypted: encryptSecret(key),
+        maskedKey: maskApiKey(key),
+        model,
+        status: "connected",
+      });
+      return NextResponse.json({ ok: true, keyId: stored.id, maskedKey: stored.maskedKey, model, live: true });
     }
-    if (!apiKey || apiKey.trim().length < 8) {
-      return NextResponse.json({ ok: false, error: "Clé trop courte." }, { status: 400 });
-    }
 
-    // Validation légère du préfixe (n'échoue pas dur pour rester tolérant).
-    const prefixOk = !meta.keyPrefix || apiKey.trim().startsWith(meta.keyPrefix);
-
-    // Chiffrement — prêt à persister. (Non loggé, non renvoyé.)
-    const encrypted = encryptSecret(apiKey.trim());
-    void encrypted; // TODO: persister en base via Prisma (table api_keys)
-
-    if (!isMockMode()) {
-      // TODO V1.1 : ping réel du provider pour valider la clé avant succès.
-    }
-
+    // ── Autres providers : validation légère + stockage (live à venir) ──
+    const prefixOk = !meta.keyPrefix || key.startsWith(meta.keyPrefix);
     if (!prefixOk) {
       return NextResponse.json({
         ok: false,
         error: `Cette clé ne ressemble pas à une clé ${meta.name} (préfixe attendu : ${meta.keyPrefix}).`,
       });
     }
-
+    const stored = await saveKey({
+      provider,
+      encrypted: encryptSecret(key),
+      maskedKey: maskApiKey(key),
+      model: meta.defaultModel,
+      status: "connected",
+    });
     return NextResponse.json({
       ok: true,
-      maskedKey: maskApiKey(apiKey),
+      keyId: stored.id,
+      maskedKey: stored.maskedKey,
       model: meta.defaultModel,
+      live: false,
       mocked: isMockMode(),
     });
   } catch {

@@ -153,3 +153,28 @@ model MerchantAudit {
   issues    Json     @default("[]")
   createdAt DateTime @default(now())
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Stockage BYOK autonome (V1 sans auth).
+//
+// Chaque clé API est stockée CHIFFRÉE (AES-256-GCM) et identifiée par un `id`
+// opaque (cuid) renvoyé au client. Le navigateur ne conserve que cet `id` + la
+// version masquée — jamais la clé en clair. Le déchiffrement n'a lieu que côté
+// serveur, au moment de l'appel IA.
+// ──────────────────────────────────────────────────────────────────────────
+model ApiKeyStore {
+  id           String   @id @default(cuid())
+  provider     String
+  // Clé CHIFFRÉE (AES-256-GCM)
+  encIv        String
+  encTag       String
+  encData      String
+  // Version masquée pour l'affichage (ex: "sk-...AB12")
+  maskedKey    String
+  model        String
+  status       String   @default("connected")
+  lastTestedAt DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([provider])
+}

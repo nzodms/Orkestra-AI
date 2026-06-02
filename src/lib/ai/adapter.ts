@@ -61,20 +61,28 @@ async function mockComplete(
 }
 
 /**
- * Implémentation live — à brancher avec les SDK officiels.
- * Laissée volontairement en TODO pour la V1 BYOK.
+ * Implémentation live. OpenAI est branché ; les autres providers retombent en
+ * mock (à brancher dans les PR suivantes : OpenRouter, Claude, Gemini).
  */
 async function liveComplete(
   provider: AIProviderId,
   req: CompletionRequest
 ): Promise<CompletionResponse> {
-  // TODO V1.1 : brancher openai / @anthropic-ai/sdk / @google/generative-ai
-  // selon `provider`, en utilisant req.apiKey (déjà déchiffrée).
-  // Exemple structure :
-  //   switch (provider) {
-  //     case "openai": return callOpenAI(req);
-  //     case "anthropic": return callAnthropic(req);
-  //     ...
-  //   }
+  if (provider === "openai" && req.apiKey) {
+    const { chatComplete } = await import("./openai");
+    const r = await chatComplete({
+      apiKey: req.apiKey,
+      model: req.model,
+      system: req.system,
+      prompt: req.prompt,
+      temperature: req.temperature,
+    });
+    if (r.ok) {
+      return { provider, text: r.text, model: r.model, tokens: r.tokens, mocked: false };
+    }
+    // En cas d'erreur OpenAI, on retombe proprement sur le mock.
+    return mockComplete(provider, req);
+  }
+  // TODO PR suivantes : OpenRouter, Anthropic, Gemini.
   return mockComplete(provider, req);
 }

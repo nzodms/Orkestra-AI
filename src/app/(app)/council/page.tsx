@@ -7,7 +7,7 @@ import { PROVIDERS } from "@/lib/providers";
 import { PageHeader, Card, Badge, ScoreRing, Progress } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import { Markdown } from "@/components/ui/Markdown";
-import type { CouncilMode, CouncilResult, CouncilTurn, GenerationRecord, AIProviderId, SiteReview, ModuleId } from "@/lib/types";
+import type { CouncilMode, CouncilResult, CouncilTurn, GenerationRecord, AIProviderId, SiteReview, ModuleId, GenMeta } from "@/lib/types";
 import {
   MessagesSquare, Send, Sparkles, Search, Code2, ShieldCheck, Mail, FileText,
   TrendingUp, Swords, MessageCircle, Copy, Check, Wand2, Scissors, FileCode2,
@@ -92,6 +92,7 @@ export default function CouncilPage() {
         mode: useMode,
         question: q,
         providers,
+        keyRefs: { openai: connections.openai?.keyId },
         context: {
           brandName: brand.storeName || undefined,
           niche: brand.niche || undefined,
@@ -116,6 +117,10 @@ export default function CouncilPage() {
           collectionsFound: analysis?.collectionsFound,
           coverage: analysis?.coverage,
           catalogSource: analysis?.catalogSource,
+          issuesSummary: analysis?.issues?.slice(0, 8).map((i) => `${i.area} (${i.severity}) — ${i.fix}`),
+          scoresSummary: analysis
+            ? `SEO ${analysis.scores.seo}, confiance ${analysis.scores.trust}, conversion ${analysis.scores.conversion}, Merchant ${analysis.scores.merchant}, contenu ${analysis.scores.content}`
+            : undefined,
           previousQuestion: directive ? undefined : lastUserQuestion,
           directive,
         },
@@ -125,7 +130,7 @@ export default function CouncilPage() {
     setLoading(false);
     if (data.ok) {
       const result = data.result as CouncilResult;
-      addCouncilTurn({ id: crypto.randomUUID(), role: "council", mode: useMode, result });
+      addCouncilTurn({ id: crypto.randomUUID(), role: "council", mode: useMode, result, meta: data.meta });
       const rec: GenerationRecord = {
         id: crypto.randomUUID(),
         type: "council",
@@ -206,7 +211,7 @@ export default function CouncilPage() {
                   turn.role === "user" ? (
                     <UserBubble key={turn.id} turn={turn} />
                   ) : (
-                    <CouncilTurnCard key={turn.id} result={turn.result!} onAction={(d) => lastUserQuestion && runCouncil(lastUserQuestion, d)} />
+                    <CouncilTurnCard key={turn.id} result={turn.result!} meta={turn.meta} onAction={(d) => lastUserQuestion && runCouncil(lastUserQuestion, d)} />
                   )
                 )
               )}
@@ -303,9 +308,10 @@ function UserBubble({ turn }: { turn: CouncilTurn }) {
 }
 
 // ── Carte d'un tour de réponse (synthèse finale + onglets IA) ───────────────
-function CouncilTurnCard({ result, onAction }: { result: CouncilResult; onAction: (d: Directive) => void }) {
+function CouncilTurnCard({ result, meta, onAction }: { result: CouncilResult; meta?: GenMeta; onAction: (d: Directive) => void }) {
   const [tab, setTab] = useState<"final" | string>("final");
   const current = result.providerAnswers.find((p) => p.provider === tab);
+  const time = meta ? new Date(meta.generatedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "";
 
   return (
     <div className="min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-card">
@@ -316,11 +322,18 @@ function CouncilTurnCard({ result, onAction }: { result: CouncilResult; onAction
             <Sparkles className="h-4 w-4" />
           </div>
           <span className="text-sm font-bold">Réponse finale recommandée</span>
-          <Badge tone="brand">Fusion multi-IA</Badge>
+          {meta?.live ? <Badge tone="good">OpenAI live</Badge> : <Badge tone="neutral">Mode démo</Badge>}
         </div>
         <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
           <Badge tone="good">Qualité {result.qualityScore}</Badge>
         </div>
+      </div>
+
+      {/* Bandeau méta : réel vs démo */}
+      <div className="border-b border-[var(--border)] bg-[var(--bg)] px-4 py-1.5 text-[11px] text-[var(--text-muted)]">
+        {meta?.live
+          ? `Réponse générée avec OpenAI · ${meta.model}${meta.tokens ? ` · ${meta.tokens} tokens` : ""} · ${time}`
+          : `Réponse simulée (template contextualisé)${meta?.fallbackReason ? ` · ${meta.fallbackReason}` : ""}`}
       </div>
 
       {/* Tabs */}

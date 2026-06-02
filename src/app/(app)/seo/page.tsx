@@ -5,7 +5,7 @@ import { useOrkestra, connectedProviders } from "@/lib/store";
 import { getPreset } from "@/lib/niche";
 import { PageHeader, Card, Badge, Field, ScoreRing } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
-import type { ProductSeoResult, SeoLevel, GenerationRecord } from "@/lib/types";
+import type { ProductSeoResult, SeoLevel, GenerationRecord, GenMeta } from "@/lib/types";
 import {
   Sparkles, FileText, FolderOpen, HelpCircle, Tag, ImageIcon, Newspaper, Link2, Search, Copy, Check,
 } from "lucide-react";
@@ -29,6 +29,7 @@ export default function SeoStudioPage() {
   const [active, setActive] = useState("seo-product");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ProductSeoResult | null>(null);
+  const [meta, setMeta] = useState<GenMeta | null>(null);
   const [form, setForm] = useState({
     productName: "",
     url: "",
@@ -51,15 +52,31 @@ export default function SeoStudioPage() {
   async function generate() {
     setLoading(true);
     setResult(null);
+    setMeta(null);
     const res = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "seo-product", input: form }),
+      body: JSON.stringify({
+        kind: "seo-product",
+        input: form,
+        keyRefs: { openai: connections.openai?.keyId },
+        context: {
+          brandName: brand.storeName || undefined,
+          niche: brand.niche || undefined,
+          positioning: brand.positioning,
+          language: brand.language,
+          collections: brand.collections,
+          productTypes: brand.productTypes,
+          primaryKeywords: brand.primaryKeywords,
+          competitors: brand.competitors,
+        },
+      }),
     });
     const data = await res.json();
     setLoading(false);
     if (data.ok) {
       setResult(data.result);
+      setMeta(data.meta || null);
       const rec: GenerationRecord = {
         id: crypto.randomUUID(),
         type: "seo-product",
@@ -202,7 +219,19 @@ export default function SeoStudioPage() {
             </Card>
           )}
           {loading && <SkeletonResult />}
-          {result && <SeoResult result={result} />}
+          {result && (
+            <>
+              <div className="mb-2 flex items-center gap-2 text-xs">
+                {meta?.live ? <Badge tone="good">OpenAI live</Badge> : <Badge tone="neutral">Mode démo</Badge>}
+                <span className="text-[var(--text-muted)]">
+                  {meta?.live
+                    ? `Généré avec OpenAI · ${meta.model}${meta.tokens ? ` · ${meta.tokens} tokens` : ""}`
+                    : `Fiche simulée${meta?.fallbackReason ? ` · ${meta.fallbackReason}` : ""}`}
+                </span>
+              </div>
+              <SeoResult result={result} />
+            </>
+          )}
         </div>
       </div>
     </>

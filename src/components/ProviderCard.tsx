@@ -45,8 +45,10 @@ export function ProviderCard({ id }: { id: AIProviderId }) {
         setConnection(id, {
           connected: true,
           status: "connected",
+          keyId: data.keyId ?? null,
+          live: Boolean(data.live),
           maskedKey: data.maskedKey,
-          model: meta.defaultModel,
+          model: data.model || meta.defaultModel,
           lastTestedAt: new Date().toISOString(),
         });
         setKey("");
@@ -75,9 +77,12 @@ export function ProviderCard({ id }: { id: AIProviderId }) {
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold">{meta.name}</h3>
               {conn.connected ? (
-                <Badge tone="good">
-                  <CheckCircle2 className="h-3 w-3" /> Connecté
-                </Badge>
+                <>
+                  <Badge tone="good">
+                    <CheckCircle2 className="h-3 w-3" /> Connecté
+                  </Badge>
+                  {conn.live ? <Badge tone="brand">Live</Badge> : <Badge tone="neutral">Démo</Badge>}
+                </>
               ) : conn.status === "error" ? (
                 <Badge tone="bad">
                   <XCircle className="h-3 w-3" /> Erreur
@@ -103,7 +108,16 @@ export function ProviderCard({ id }: { id: AIProviderId }) {
             variant="ghost"
             size="sm"
             icon={<Trash2 className="h-4 w-4" />}
-            onClick={() => removeConnection(id)}
+            onClick={async () => {
+              if (conn.keyId) {
+                await fetch("/api/keys/delete", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ keyId: conn.keyId }),
+                }).catch(() => {});
+              }
+              removeConnection(id);
+            }}
           >
             Supprimer
           </Button>

@@ -25,6 +25,10 @@ export interface AIProviderMeta {
 
 export interface AIConnection {
   provider: AIProviderId;
+  /** Identifiant opaque de la clé stockée côté serveur (jamais la clé réelle). */
+  keyId?: string | null;
+  /** Indique si ce provider est réellement appelé en live (OpenAI en V1). */
+  live?: boolean;
   /** Clé masquée pour affichage, jamais la clé réelle */
   maskedKey: string | null;
   connected: boolean;
@@ -337,6 +341,16 @@ export interface StoreAnalysis {
   notes?: string[];
 }
 
+/** Métadonnées d'une génération : réelle (live) ou simulée (mock). */
+export interface GenMeta {
+  live: boolean;
+  provider?: string;
+  model?: string;
+  tokens?: number;
+  generatedAt: string;
+  fallbackReason?: string;
+}
+
 export interface CouncilResult {
   finalAnswer: string;
   qualityScore: number;
@@ -359,4 +373,5 @@ export interface CouncilTurn {
   question?: string;
   // role === "council"
   result?: CouncilResult;
+  meta?: GenMeta;
 }

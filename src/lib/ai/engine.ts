@@ -397,6 +397,8 @@ export interface CouncilContext {
   collectionsFound?: number;
   coverage?: string;
   catalogSource?: string;
+  issuesSummary?: string[];
+  scoresSummary?: string;
   /** Question précédente, pour la continuité de conversation. */
   previousQuestion?: string;
   /** Directive issue d'un bouton d'action. */
