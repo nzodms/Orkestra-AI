@@ -339,7 +339,7 @@ export default function OnboardingPage() {
                     <>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                         {[
-                          { label: "Produits", big: analysis.productsFound ?? 0, sub: `${analysis.productsAnalyzed ?? 0} analysés` },
+                          { label: "Produits", big: analysis.productsFound ?? 0, sub: `${analysis.productsEnriched ?? 0} enrichis · ${analysis.productsAnalyzed ?? 0} HTML` },
                           { label: "Collections", big: analysis.collectionsFound ?? 0, sub: `${analysis.collectionsAnalyzed ?? 0} analysées` },
                           { label: "Pages analysées", big: analysis.pagesAnalyzed, sub: `${analysis.pagesFound ?? 0} pages trouvées` },
                           { label: "Textes anglais", big: analysis.englishTexts?.length ?? analysis.metrics.englishTextsDetected, sub: "à corriger" },
@@ -379,6 +379,45 @@ export default function OnboardingPage() {
                           </span>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {/* Analyse catalogue (products.json) */}
+                  {analysis?.catalogStats && (
+                    <div>
+                      <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-400">
+                        Analyse catalogue · {analysis.catalogStats.productsEnriched} produits enrichis
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 text-xs">
+                        <Badge tone={analysis.catalogStats.noDescription + analysis.catalogStats.shortDescriptions > 0 ? "warn" : "good"}>
+                          {analysis.catalogStats.noDescription + analysis.catalogStats.shortDescriptions} descriptions faibles
+                        </Badge>
+                        <Badge tone={analysis.catalogStats.weakTitles > 0 ? "warn" : "good"}>{analysis.catalogStats.weakTitles} titres faibles</Badge>
+                        <Badge tone={analysis.catalogStats.noType > 0 ? "warn" : "good"}>{analysis.catalogStats.noType} sans type</Badge>
+                        <Badge tone={analysis.catalogStats.tagsCoverage >= 60 ? "good" : "neutral"}>tags {analysis.catalogStats.tagsCoverage}%</Badge>
+                        {analysis.catalogStats.priceAvg != null && <Badge tone="neutral">panier moyen ~{analysis.catalogStats.priceAvg}€</Badge>}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Produits prioritaires à optimiser */}
+                  {analysis?.priorityProducts && analysis.priorityProducts.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-ink-400">Produits prioritaires à optimiser</div>
+                      {analysis.priorityProducts.slice(0, 5).map((p, i) => (
+                        <div key={i} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] p-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">{p.title}</div>
+                            <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                              <Badge tone={p.contentScore < 40 ? "bad" : p.contentScore < 70 ? "warn" : "good"}>contenu {p.contentScore}</Badge>
+                              <span className="truncate">{p.reason}</span>
+                            </div>
+                          </div>
+                          <Link href="/seo" className="shrink-0">
+                            <Button variant="ghost" size="sm" icon={<Wrench className="h-3.5 w-3.5" />}>Optimiser</Button>
+                          </Link>
+                        </div>
+                      ))}
                     </div>
                   )}
 

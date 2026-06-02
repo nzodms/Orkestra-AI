@@ -8,6 +8,8 @@ import type {
   LegalCheck,
   PageAudit,
   ReviewIssue,
+  CatalogStats,
+  PriorityProduct,
 } from "./types";
 import { detectNiche, NICHES, type NicheKey } from "./niche";
 
@@ -129,6 +131,7 @@ export interface CatalogData {
   collections: string[];
   pages: string[];
   productTypes: string[];
+  productObjects: ProductJson[];
   source: string;
 }
 
@@ -174,17 +177,19 @@ async function discoverViaSitemap(base: string): Promise<{ products: string[]; c
   return { products: [...products], collections: [...collections], pages: [...pages] };
 }
 
-interface ProductJson {
+export interface ProductJson {
   title?: string;
   handle?: string;
   product_type?: string;
   vendor?: string;
   tags?: string[] | string;
   body_html?: string;
+  images?: { src?: string; alt?: string | null }[];
+  variants?: { price?: string; available?: boolean }[];
 }
 
-/** Découverte via /products.json (fallback / enrichissement). */
-async function discoverViaProductsJson(base: string): Promise<{ urls: string[]; types: string[] } | null> {
+/** Découverte via /products.json (fallback + enrichissement profond). */
+async function discoverViaProductsJson(base: string): Promise<{ urls: string[]; types: string[]; products: ProductJson[] } | null> {
   const all: ProductJson[] = [];
   for (let page = 1; page <= MAX_PRODUCTS_JSON_PAGES; page++) {
     const txt = await fetchText(`${base}/products.json?limit=250&page=${page}`, "application/json");
@@ -202,7 +207,7 @@ async function discoverViaProductsJson(base: string): Promise<{ urls: string[]; 
   if (!all.length) return null;
   const urls = all.filter((p) => p.handle).map((p) => `${base}/products/${p.handle}`);
   const types = [...new Set(all.map((p) => (p.product_type || "").trim()).filter(Boolean))].slice(0, 8);
-  return { urls, types };
+  return { urls, types, products: all };
 }
 
 async function discoverCatalog(
@@ -224,10 +229,12 @@ async function discoverCatalog(
     if (sm.products.length) sources.push("sitemap");
   }
 
+  let productObjects: ProductJson[] = [];
   const pj = await discoverViaProductsJson(base);
   if (pj) {
     pj.urls.forEach((u) => products.add(u));
     productTypes = pj.types;
+    productObjects = pj.products;
     sources.push("products.json");
   }
 
@@ -239,8 +246,88 @@ async function discoverCatalog(
     collections: [...collections],
     pages: [...pages],
     productTypes,
+    productObjects,
     source,
   };
+}
+
+// ── Analyse catalogue depuis products.json ──────────────────────────────────
+
+function stripHtml(html?: string): string {
+  if (!html) return "";
+  return html.replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/gi, " ").replace(/\s+/g, " ").trim();
+}
+
+function analyzeCatalog(base: string, items: ProductJson[]): { stats: CatalogStats; priority: PriorityProduct[] } {
+  let shortDescriptions = 0, noDescription = 0, weakTitles = 0, noType = 0, fewTags = 0, imagesNoAlt = 0, withTags = 0;
+  const typeCount = new Map<string, number>();
+  const vendors = new Set<string>();
+  const prices: number[] = [];
+  const scored: PriorityProduct[] = [];
+
+  for (const p of items) {
+    const title = (p.title || "").trim();
+    const desc = stripHtml(p.body_html);
+    const descWords = desc ? desc.split(" ").filter(Boolean).length : 0;
+    const tags = Array.isArray(p.tags) ? p.tags : typeof p.tags === "string" ? p.tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
+    const type = (p.product_type || "").trim();
+    const imgNoAlt = (p.images || []).filter((im) => !im.alt || im.alt.trim() === "").length;
+
+    const titleWeak = !title || title.length < 12 || (type && title.toLowerCase() === type.toLowerCase());
+    const noDesc = descWords === 0;
+    const shortDesc = descWords > 0 && descWords < 40;
+
+    if (noDesc) noDescription++;
+    if (shortDesc) shortDescriptions++;
+    if (titleWeak) weakTitles++;
+    if (!type) noType++; else typeCount.set(type, (typeCount.get(type) || 0) + 1);
+    if (tags.length < 2) fewTags++; else withTags++;
+    imagesNoAlt += imgNoAlt;
+    if (p.vendor) vendors.add(p.vendor.trim());
+    const price = parseFloat(p.variants?.[0]?.price || "");
+    if (!isNaN(price) && price > 0) prices.push(price);
+
+    // Score contenu produit (0–100).
+    let score = 100;
+    if (noDesc) score -= 35;
+    else if (shortDesc) score -= 18;
+    if (titleWeak) score -= 15;
+    if (!type) score -= 10;
+    if (tags.length < 2) score -= 10;
+    if (imgNoAlt > 0) score -= 8;
+    score = Math.max(10, score);
+
+    const reason = noDesc ? "Description absente" : shortDesc ? "Description trop courte" : titleWeak ? "Titre faible / générique" : !type ? "Type produit manquant" : tags.length < 2 ? "Tags insuffisants" : "Alt text manquants";
+    scored.push({
+      title: title || p.handle || "Produit",
+      handle: p.handle || "",
+      url: p.handle ? `${base}/products/${p.handle}` : base,
+      reason,
+      contentScore: score,
+    });
+  }
+
+  const topTypes = [...typeCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([type, count]) => ({ type, count }));
+  const priceAvg = prices.length ? Math.round(prices.reduce((s, x) => s + x, 0) / prices.length) : undefined;
+
+  const stats: CatalogStats = {
+    productsEnriched: items.length,
+    shortDescriptions,
+    noDescription,
+    weakTitles,
+    noType,
+    fewTags,
+    imagesNoAlt,
+    tagsCoverage: items.length ? Math.round((withTags / items.length) * 100) : 0,
+    topTypes,
+    vendors: [...vendors].slice(0, 6),
+    priceMin: prices.length ? Math.min(...prices) : undefined,
+    priceMax: prices.length ? Math.max(...prices) : undefined,
+    priceAvg,
+  };
+
+  const priority = scored.sort((a, b) => a.contentScore - b.contentScore).slice(0, 8);
+  return { stats, priority };
 }
 
 // ── Détection texte anglais ─────────────────────────────────────────────────
@@ -471,10 +558,13 @@ export async function crawlStore(
   const niche = detectNiche(
     `${inputs.niche ?? ""} ${inputs.brandName ?? ""} ${homeAudit.title ?? ""} ${catalog.productTypes.join(" ")} ${homeText.slice(0, 400)} ${base}`
   );
+  // Analyse catalogue enrichie via products.json (si disponible).
+  const catalogAnalysis = catalog.productObjects.length ? analyzeCatalog(base, catalog.productObjects) : null;
   const analysis = assembleAnalysis({
     base, niche, inputs, pages, englishTexts, legal, sections,
     productsFound, productsAnalyzed, collectionsFound, collectionsAnalyzed, pagesFound,
     catalogSource: catalog.source, productTypes: catalog.productTypes,
+    catalogStats: catalogAnalysis?.stats, priorityProducts: catalogAnalysis?.priority,
     partial, notes, homeText,
   });
   const profile = assembleProfile({ niche, inputs, catalog, analysis });
@@ -514,6 +604,8 @@ interface AssembleArgs {
   pagesFound: number;
   catalogSource: string;
   productTypes: string[];
+  catalogStats?: CatalogStats;
+  priorityProducts?: PriorityProduct[];
   partial: boolean;
   notes: string[];
   homeText: string;
@@ -555,12 +647,14 @@ function assembleAnalysis(a: AssembleArgs): StoreAnalysis {
 
   // Métriques : on extrapole les signaux de l'échantillon au catalogue trouvé.
   const collWeakRatio = collections.length ? collectionsWithoutSeo / collections.length : 1;
+  const cs = a.catalogStats;
+  const productsToOptimize = cs ? cs.noDescription + cs.shortDescriptions + cs.weakTitles : a.productsFound || products.length;
   const metrics: DashboardMetrics = {
-    productsToOptimize: a.productsFound || products.length,
+    productsToOptimize,
     collectionsWithoutSeo: a.collectionsFound ? Math.round(a.collectionsFound * collWeakRatio) : collectionsWithoutSeo,
     englishTextsDetected: englishCount,
     missingMetaDescriptions: metaMissing,
-    imagesWithoutAlt,
+    imagesWithoutAlt: cs && cs.imagesNoAlt > imagesWithoutAlt ? cs.imagesNoAlt : imagesWithoutAlt,
   };
 
   // Couverture du scan = part du catalogue analysée en détail.
@@ -592,6 +686,9 @@ function assembleAnalysis(a: AssembleArgs): StoreAnalysis {
     coverage,
     catalogSource: a.catalogSource,
     productTypesDetected: a.productTypes,
+    productsEnriched: a.catalogStats?.productsEnriched,
+    catalogStats: a.catalogStats,
+    priorityProducts: a.priorityProducts,
     englishTexts: a.englishTexts,
     legalPages: a.legal,
     homepageSections: a.sections,
@@ -625,6 +722,10 @@ function buildSynthesis(
 
   const quickWins: string[] = [];
   if (d.englishCount > 0) quickWins.push(`Traduire ${d.englishCount} libellé(s) anglais (éditeur de langue Shopify).`);
+  if (a.catalogStats) {
+    const weak = a.catalogStats.noDescription + a.catalogStats.shortDescriptions;
+    if (weak > 0) quickWins.push(`Enrichir ${weak} fiche(s) à description faible (commencer par les produits prioritaires).`);
+  }
   quickWins.push("Réécrire les meta titles/descriptions manquantes ou faibles.");
   quickWins.push(`Ajouter 150–300 mots de texte SEO sur les collections principales (${preset.collections.slice(0, 2).join(", ")}).`);
   if (!a.sections.includes("Réassurance")) quickWins.push("Ajouter un bandeau de réassurance en haut de la home.");
@@ -769,6 +870,52 @@ function buildIssues(
     }
   }
 
+  // ── Problèmes catalogue précis (products.json) ──
+  const cs = a.catalogStats;
+  if (cs) {
+    const weakDesc = cs.noDescription + cs.shortDescriptions;
+    if (weakDesc > 0) {
+      issues.push({
+        area: `Descriptions produits faibles (${weakDesc}/${cs.productsEnriched})`,
+        severity: weakDesc > cs.productsEnriched * 0.3 ? "critique" : "important",
+        explanation: `${cs.noDescription} produit(s) sans description et ${cs.shortDescriptions} avec une description trop courte (sur ${cs.productsEnriched} enrichis via products.json).`,
+        impact: "SEO et conversion faibles ; risque de contenu jugé pauvre par Google.",
+        fix: "Enrichir les fiches prioritaires (200+ mots : bénéfices, dimensions, matériaux, usage, FAQ) dans le SEO Studio.",
+        module: "seo",
+      });
+    }
+    if (cs.weakTitles > 0) {
+      issues.push({
+        area: `Titres produits faibles (${cs.weakTitles})`,
+        severity: "important",
+        explanation: `${cs.weakTitles} titre(s) trop courts ou génériques, sans mots-clés d'usage ou de pièce.`,
+        impact: "Moins de visibilité sur les requêtes longue traîne.",
+        fix: "Réécrire les titres avec mot-clé + usage/pièce/matériau dans le SEO Studio.",
+        module: "seo",
+      });
+    }
+    if (cs.noType > 0) {
+      issues.push({
+        area: `Type produit manquant (${cs.noType})`,
+        severity: "mineur",
+        explanation: `${cs.noType} produit(s) sans product_type clair.`,
+        impact: "Catégorisation et flux Merchant Center moins fiables.",
+        fix: "Renseigner le type produit pour chaque fiche (utile au SEO et au flux Shopping).",
+        module: "merchant",
+      });
+    }
+    if (cs.tagsCoverage < 60) {
+      issues.push({
+        area: "Tags peu exploités",
+        severity: "mineur",
+        explanation: `Seuls ${cs.tagsCoverage}% des produits ont au moins 2 tags.`,
+        impact: "Filtres, maillage et recommandations sous-exploités.",
+        fix: "Ajouter des tags cohérents (style, pièce, matériau, usage) pour structurer le catalogue.",
+        module: "seo",
+      });
+    }
+  }
+
   // Maillage / contenu informationnel (longue traîne)
   if (a.productsFound > 20) {
     issues.push({
@@ -792,10 +939,14 @@ function assembleProfile(p: { niche: NicheKey; inputs: CrawlInputs; catalog: Cat
   const name = p.inputs.brandName?.trim() || "Cette boutique";
   const foundLegal = (p.analysis.legalPages || []).filter((l) => l.found).map((l) => l.label);
 
+  const cs = p.analysis.catalogStats;
   const understanding =
     `${name} : scan public réel (source ${p.analysis.catalogSource}). ` +
-    `${p.analysis.productsFound ?? 0} produit(s) trouvés (${p.analysis.productsAnalyzed ?? 0} analysés en détail), ` +
+    `${p.analysis.productsFound ?? 0} produit(s) trouvés` +
+    `${p.analysis.productsEnriched ? `, ${p.analysis.productsEnriched} enrichis via products.json` : ""}, ` +
+    `${p.analysis.productsAnalyzed ?? 0} analysés en HTML. ` +
     `${p.analysis.collectionsFound ?? 0} collection(s) trouvées (${p.analysis.collectionsAnalyzed ?? 0} analysées). ` +
+    (cs ? `${cs.noDescription + cs.shortDescriptions} fiche(s) à description faible, ${cs.weakTitles} titre(s) faible(s). ` : "") +
     `Couverture : ${p.analysis.coverage}. ${p.analysis.englishTexts?.length ?? 0} texte(s) anglais repéré(s). ` +
     `Pages de confiance trouvées : ${foundLegal.length ? foundLegal.join(", ") : "aucune détectée"}. ` +
     `Niche estimée : ${p.inputs.niche?.trim() || preset.label}. Opportunités prioritaires : SEO collections/fiches, meta, FAQ, maillage interne et réassurance.`;

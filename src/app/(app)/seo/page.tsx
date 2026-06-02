@@ -22,7 +22,7 @@ const WORKFLOWS = [
 ];
 
 export default function SeoStudioPage() {
-  const { connections, brand, addGeneration } = useOrkestra();
+  const { connections, brand, analysis, addGeneration } = useOrkestra();
   const providers = connectedProviders(connections);
   // Placeholders adaptés à la niche de la boutique active (ou neutres si vide).
   const { preset } = getPreset({ niche: brand.niche, brandName: brand.storeName });
@@ -108,6 +108,23 @@ export default function SeoStudioPage() {
         {/* Form */}
         <Card>
           <h3 className="mb-4 text-sm font-semibold">Fiche produit SEO</h3>
+          {analysis?.priorityProducts && analysis.priorityProducts.length > 0 && (
+            <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3">
+              <div className="mb-2 text-xs font-semibold text-[var(--text-muted)]">Produits prioritaires détectés par le scan — cliquez pour pré-remplir</div>
+              <div className="flex flex-wrap gap-1.5">
+                {analysis.priorityProducts.slice(0, 6).map((p, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setForm((f) => ({ ...f, productName: p.title }))}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs transition hover:border-brand-300 hover:bg-ink-50 dark:hover:bg-ink-900"
+                  >
+                    <Badge tone={p.contentScore < 40 ? "bad" : p.contentScore < 70 ? "warn" : "good"}>{p.contentScore}</Badge>
+                    <span className="max-w-[160px] truncate">{p.title}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Nom du produit">

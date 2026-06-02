@@ -277,6 +277,32 @@ export interface ScanSynthesis {
   modules: string[];
 }
 
+/** Statistiques catalogue calculées depuis /products.json. */
+export interface CatalogStats {
+  productsEnriched: number;
+  shortDescriptions: number;
+  noDescription: number;
+  weakTitles: number;
+  noType: number;
+  fewTags: number;
+  imagesNoAlt: number;
+  tagsCoverage: number; // % de produits avec >= 2 tags
+  topTypes: { type: string; count: number }[];
+  vendors: string[];
+  priceMin?: number;
+  priceMax?: number;
+  priceAvg?: number;
+}
+
+/** Produit prioritaire à optimiser (issu de l'analyse catalogue). */
+export interface PriorityProduct {
+  title: string;
+  handle: string;
+  url: string;
+  reason: string;
+  contentScore: number;
+}
+
 /** Résultat d'analyse de la boutique active — source de vérité du dashboard. */
 export interface StoreAnalysis {
   scores: StoreScores;
@@ -299,6 +325,9 @@ export interface StoreAnalysis {
   /** Source principale du catalogue : sitemap / products.json / crawl home / fallback. */
   catalogSource?: string;
   productTypesDetected?: string[];
+  productsEnriched?: number;
+  catalogStats?: CatalogStats;
+  priorityProducts?: PriorityProduct[];
   englishTexts?: EnglishHit[];
   legalPages?: LegalCheck[];
   homepageSections?: string[];

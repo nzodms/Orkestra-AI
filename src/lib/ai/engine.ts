@@ -391,6 +391,9 @@ export interface CouncilContext {
   pagesAnalyzed?: number;
   productsFound?: number;
   productsAnalyzed?: number;
+  productsEnriched?: number;
+  weakDescriptions?: number;
+  weakTitles?: number;
   collectionsFound?: number;
   coverage?: string;
   catalogSource?: string;
@@ -588,7 +591,9 @@ export function isReviewIntent(question: string): boolean {
 
 function scanContextLine(ctx: CouncilContext): string {
   if (ctx.productsFound == null) return "";
-  return `> 📊 Analyse basée sur ${ctx.productsAnalyzed ?? 0} produit(s) analysé(s) sur ${ctx.productsFound} trouvé(s)${ctx.catalogSource ? ` via ${ctx.catalogSource}` : ""} (couverture ${ctx.coverage ?? "n/a"}).\n\n`;
+  const enriched = ctx.productsEnriched ? ` · ${ctx.productsEnriched} enrichis via products.json` : "";
+  const weak = ctx.weakDescriptions ? ` ${ctx.weakDescriptions} fiche(s) ont une description faible.` : "";
+  return `> 📊 Scan : ${ctx.productsFound} produit(s) trouvés${enriched} · ${ctx.productsAnalyzed ?? 0} analysés en HTML${ctx.catalogSource ? ` (source ${ctx.catalogSource}` : ""}${ctx.catalogSource ? `, couverture ${ctx.coverage ?? "n/a"})` : ""}.${weak}\n\n`;
 }
 
 function seoAnswer(ctx: CouncilContext): string {

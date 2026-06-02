@@ -82,10 +82,11 @@ export default function MemoryPage() {
             <span>Dernier scan : {relativeDate(analysis.lastScanAt)}</span>
           </div>
           {analysis.productsFound != null && (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
               {[
                 { label: "Produits trouvés", v: analysis.productsFound },
-                { label: "Produits analysés", v: analysis.productsAnalyzed ?? 0 },
+                { label: "Enrichis (JSON)", v: analysis.productsEnriched ?? 0 },
+                { label: "Analysés (HTML)", v: analysis.productsAnalyzed ?? 0 },
                 { label: "Collections trouvées", v: analysis.collectionsFound ?? 0 },
                 { label: "Collections analysées", v: analysis.collectionsAnalyzed ?? 0 },
               ].map((s) => (
@@ -94,6 +95,17 @@ export default function MemoryPage() {
                   <div className="text-[10px] text-[var(--text-muted)]">{s.label}</div>
                 </div>
               ))}
+            </div>
+          )}
+          {analysis.catalogStats && (
+            <div className="flex flex-wrap gap-1.5 text-xs">
+              <Badge tone="neutral">{analysis.catalogStats.noDescription + analysis.catalogStats.shortDescriptions} descriptions faibles</Badge>
+              <Badge tone="neutral">{analysis.catalogStats.weakTitles} titres faibles</Badge>
+              <Badge tone="neutral">{analysis.catalogStats.noType} sans type</Badge>
+              <Badge tone="neutral">tags {analysis.catalogStats.tagsCoverage}%</Badge>
+              {analysis.catalogStats.topTypes.length > 0 && (
+                <Badge tone="brand">types : {analysis.catalogStats.topTypes.map((t) => t.type).slice(0, 3).join(", ")}</Badge>
+              )}
             </div>
           )}
         </div>
@@ -197,6 +209,28 @@ export default function MemoryPage() {
               <Link href="/council?mode=seo&q=Fais une analyse compl%C3%A8te de ma boutique avec les corrections prioritaires.">
                 <Button variant="secondary" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Voir la review complète dans AI Council</Button>
               </Link>
+            </div>
+          </Card>
+        )}
+
+        {analysis?.priorityProducts && analysis.priorityProducts.length > 0 && (
+          <Card className="lg:col-span-2">
+            <CardHeader icon={<Tag className="h-[18px] w-[18px]" />} title="Produits prioritaires à optimiser" subtitle="Triés par score de contenu (products.json)" />
+            <div className="grid gap-2 sm:grid-cols-2">
+              {analysis.priorityProducts.map((p, i) => (
+                <div key={i} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] p-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{p.title}</div>
+                    <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                      <Badge tone={p.contentScore < 40 ? "bad" : p.contentScore < 70 ? "warn" : "good"}>contenu {p.contentScore}</Badge>
+                      <span className="truncate">{p.reason}</span>
+                    </div>
+                  </div>
+                  <Link href="/seo" className="shrink-0">
+                    <Button variant="ghost" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Optimiser</Button>
+                  </Link>
+                </div>
+              ))}
             </div>
           </Card>
         )}
