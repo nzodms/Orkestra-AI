@@ -33,6 +33,11 @@ export interface SaveKeyInput {
 
 const usePrisma = () => Boolean(process.env.DATABASE_URL);
 
+/** Backend actif : "prisma" (persistant) ou "memory" (non persistant). */
+export function keyStoreBackend(): "prisma" | "memory" {
+  return usePrisma() ? "prisma" : "memory";
+}
+
 // ── Backend in-memory ───────────────────────────────────────────────────────
 type MemRow = StoredKeyMeta & { enc: EncryptedSecret };
 const mem: Map<string, MemRow> = (globalThis as any).__orkestraKeys ?? new Map();

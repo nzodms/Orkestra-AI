@@ -11,10 +11,20 @@ import crypto from "crypto";
 
 const ALGO = "aes-256-gcm";
 
+/** True si la clé maîtresse de chiffrement est configurée. */
+export function hasMasterKey(): boolean {
+  return Boolean(process.env.ENCRYPTION_MASTER_KEY);
+}
+
 function getMasterKey(): Buffer {
   const raw = process.env.ENCRYPTION_MASTER_KEY;
   if (!raw) {
     // Fallback dev uniquement — en prod ENCRYPTION_MASTER_KEY est obligatoire.
+    if (process.env.NODE_ENV === "production") {
+      console.warn(
+        "[Orkestra] ENCRYPTION_MASTER_KEY manquante en production : les clés API seraient chiffrées avec une clé par défaut NON sécurisée."
+      );
+    }
     return crypto.createHash("sha256").update("orkestra-dev-master-key").digest();
   }
   return crypto.createHash("sha256").update(raw).digest();

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { encryptSecret, maskApiKey } from "@/lib/crypto";
+import { encryptSecret, maskApiKey, hasMasterKey } from "@/lib/crypto";
 import { PROVIDERS } from "@/lib/providers";
 import { isMockMode } from "@/lib/ai/adapter";
 import { testOpenAIKey } from "@/lib/ai/openai";
@@ -25,6 +25,16 @@ export async function POST(req: Request) {
     if (!apiKey || apiKey.trim().length < 8) return NextResponse.json({ ok: false, error: "Clé trop courte." }, { status: 400 });
 
     const key = apiKey.trim();
+
+    // En production, refuser de stocker une clé sans clé de chiffrement dédiée.
+    if (process.env.NODE_ENV === "production" && !hasMasterKey()) {
+      return NextResponse.json({
+        ok: false,
+        error:
+          "Configuration serveur incomplète : ENCRYPTION_MASTER_KEY manquante. Définissez-la dans les variables d'environnement pour stocker vos clés API de façon sécurisée.",
+        code: "missing_master_key",
+      });
+    }
 
     // ── OpenAI : vrai test de connexion ──
     if (provider === "openai") {
