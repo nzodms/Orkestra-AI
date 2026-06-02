@@ -42,6 +42,7 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(1);
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   const connected = connectedProviders(connections);
 
@@ -52,17 +53,50 @@ export default function OnboardingPage() {
     setStep((s) => Math.max(1, s - 1));
   }
 
-  async function runScan() {
-    setScanning(true);
-    await new Promise((r) => setTimeout(r, 1800));
-    // Détection dynamique basée UNIQUEMENT sur les infos saisies par l'utilisateur.
+  function fallbackSimulation(message: string) {
     const detected = buildDetectedProfile(brand);
     updateBrand(detected);
-    // Scan public : analyse "vue visiteur" basée sur l'URL publique + infos saisies.
-    setAnalysis(buildAnalysis({ ...brand, ...detected }, "public"));
-    setStoreScanned(true);
-    setScanning(false);
-    setScanned(true);
+    setAnalysis(buildAnalysis({ ...brand, ...detected }, "simulation"));
+    setScanError(message);
+  }
+
+  async function runScan() {
+    setScanning(true);
+    setScanError(null);
+    try {
+      // Crawl public RÉEL de l'URL storefront (vue visiteur, sans API Shopify).
+      const res = await fetch("/api/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: brand.publicUrl,
+          niche: brand.niche,
+          brandName: brand.storeName,
+          language: brand.language,
+          positioning: brand.positioning,
+          country: brand.country,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok && data.analysis) {
+        if (data.profile) updateBrand(data.profile);
+        setAnalysis(data.analysis);
+        if (data.analysis.partial) {
+          setScanError("Scan public partiel — certaines pages n'ont pas pu être analysées.");
+        }
+      } else {
+        fallbackSimulation(
+          (data.error ? data.error + " " : "") +
+            "Analyse simulée à partir de vos informations. Vous pourrez relancer un scan public plus tard."
+        );
+      }
+    } catch {
+      fallbackSimulation("Scan public indisponible (réseau). Analyse simulée à partir de vos informations.");
+    } finally {
+      setStoreScanned(true);
+      setScanned(true);
+      setScanning(false);
+    }
   }
 
   function finish() {
@@ -285,9 +319,52 @@ export default function OnboardingPage() {
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/40">
                     <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
                       <span className="grid h-7 w-7 place-items-center rounded-full bg-emerald-500 text-white animate-pop"><Check className="h-4 w-4" /></span>
-                      Scan public terminé · {brand.niche}
+                      Scan terminé · {brand.niche}
                     </div>
+                    {analysis && (
+                      <p className="mt-1 pl-9 text-xs text-emerald-700/80 dark:text-emerald-300/70">Confiance : {analysis.confidence}</p>
+                    )}
                   </div>
+
+                  {/* Bannière erreur / partiel / fallback */}
+                  {scanError && (
+                    <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30">
+                      <Globe className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                      <p className="text-xs text-amber-800 dark:text-amber-200">{scanError}</p>
+                    </div>
+                  )}
+
+                  {/* Statistiques du crawl réel */}
+                  {analysis && analysis.pagesAnalyzed != null && (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {[
+                        { label: "Pages analysées", v: analysis.pagesAnalyzed },
+                        { label: "Produits détectés", v: analysis.productsFound ?? 0 },
+                        { label: "Collections détectées", v: analysis.collectionsFound ?? 0 },
+                        { label: "Textes anglais", v: analysis.englishTexts?.length ?? analysis.metrics.englishTextsDetected },
+                      ].map((st) => (
+                        <div key={st.label} className="rounded-xl bg-[var(--bg)] p-3 text-center">
+                          <div className="text-lg font-bold">{st.v}</div>
+                          <div className="text-[11px] text-[var(--text-muted)]">{st.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Pages légales trouvées / manquantes */}
+                  {analysis?.legalPages && analysis.legalPages.length > 0 && (
+                    <div>
+                      <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-400">Pages légales & confiance</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {analysis.legalPages.map((l) => (
+                          <span key={l.key} className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs ${l.found ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" : "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-300"}`}>
+                            {l.found ? <Check className="h-3 w-3" /> : <span className="text-[10px] font-bold">✕</span>}
+                            {l.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Scores du scan */}
                   {analysis && (

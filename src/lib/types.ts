@@ -228,6 +228,40 @@ export interface SiteReview {
   issues: ReviewIssue[];
 }
 
+/** Un texte anglais repéré sur une boutique francophone. */
+export interface EnglishHit {
+  text: string;
+  suggestion: string;
+  source: string;
+  impact: string;
+}
+
+/** Présence d'une page légale / élément de confiance. */
+export interface LegalCheck {
+  key: string;
+  label: string;
+  found: boolean;
+  url?: string;
+  essential: boolean;
+}
+
+/** Analyse d'une page individuelle crawlée. */
+export interface PageAudit {
+  url: string;
+  type: "home" | "collection" | "product";
+  title?: string;
+  metaDescription?: string;
+  h1?: string;
+  wordCount?: number;
+  hasFaq?: boolean;
+  hasReviews?: boolean;
+  hasShipping?: boolean;
+  hasBenefits?: boolean;
+  hasCta?: boolean;
+  imagesWithoutAlt?: number;
+  englishCount?: number;
+}
+
 /** Résultat d'analyse de la boutique active — source de vérité du dashboard. */
 export interface StoreAnalysis {
   scores: StoreScores;
@@ -238,6 +272,16 @@ export interface StoreAnalysis {
   confidence: string;
   lastScanAt: string;
   source: "manuel" | "scan" | "simulation" | "public";
+  // ── Données issues du crawl public réel (optionnelles) ──
+  pagesAnalyzed?: number;
+  productsFound?: number;
+  collectionsFound?: number;
+  englishTexts?: EnglishHit[];
+  legalPages?: LegalCheck[];
+  homepageSections?: string[];
+  pages?: PageAudit[];
+  partial?: boolean;
+  notes?: string[];
 }
 
 export interface CouncilResult {

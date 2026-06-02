@@ -263,11 +263,18 @@ export interface MerchantContext {
   niche?: string;
   language?: string;
   collections?: string[];
+  /** Nombre réel de textes anglais détectés par le scan public. */
+  englishCount?: number;
+  /** Score Merchant réel issu du scan (override le calcul). */
+  scoreHint?: number;
+  /** Pages légales essentielles manquantes (libellés). */
+  missingLegal?: string[];
 }
 
 export function generateMerchantAudit(ctx: MerchantContext = {}): MerchantAudit {
   const lang = ctx.language || "française";
   const cols = ctx.collections?.length ? ctx.collections : ["vos collections"];
+  const hasEnglish = ctx.englishCount != null;
   const issues: MerchantAudit["issues"] = [
     {
       id: "m1",
@@ -284,7 +291,9 @@ export function generateMerchantAudit(ctx: MerchantContext = {}): MerchantAudit 
       id: "m2",
       category: "Cohérence langue",
       severity: "critique",
-      title: `Textes en anglais détectés sur une boutique ${lang === "française" ? "FR" : lang}`,
+      title: hasEnglish
+        ? `${ctx.englishCount} texte(s) en anglais détecté(s) par le scan`
+        : `Textes en anglais détectés sur une boutique ${lang === "française" ? "FR" : lang}`,
       explanation:
         "Des libellés thème en anglais (« Add to cart », « Sold out ») nuisent à la confiance et à la conformité.",
       fix: "Traduisez les libellés via l'éditeur de langue Shopify (Paramètres → Langues → Modifier).",
@@ -335,7 +344,10 @@ export function generateMerchantAudit(ctx: MerchantContext = {}): MerchantAudit 
       resolved: false,
     },
   ];
-  // Score basé sur la sévérité des problèmes ouverts.
+  // Score réel du scan si disponible, sinon basé sur la sévérité des problèmes.
+  if (ctx.scoreHint != null) {
+    return { score: Math.max(20, Math.min(99, Math.round(ctx.scoreHint))), issues };
+  }
   const open = issues.filter((i) => !i.resolved);
   const penalty = open.reduce(
     (acc, i) => acc + (i.severity === "critique" ? 18 : i.severity === "important" ? 9 : 3),
@@ -373,6 +385,10 @@ export interface CouncilContext {
   competitors?: string[];
   promises?: string[];
   guarantees?: string[];
+  /** Données réelles issues du scan public (si une analyse existe). */
+  englishCount?: number;
+  missingLegal?: string[];
+  pagesAnalyzed?: number;
   /** Question précédente, pour la continuité de conversation. */
   previousQuestion?: string;
   /** Directive issue d'un bouton d'action. */
@@ -890,11 +906,11 @@ Analyse adaptée à votre niche **${niche}**. Voici l'état des lieux, page par 
 - Alt text d'images souvent absents (ajouter le mot-clé, ex. « ${kws[0]} »).
 
 ### 🌐 Traduction & cohérence
-- Textes anglais résiduels du thème détectés (libellés panier).
+- ${ctx.englishCount != null ? `${ctx.englishCount} texte(s) anglais détecté(s) par le scan public` : "Textes anglais résiduels du thème détectés (libellés panier)"}.
 - Vérifier les erreurs de traduction et la cohérence de marque.
 
 ### 🛡️ Conformité & confiance (Merchant Center)
-- Politique de retour/livraison et mentions légales à compléter et rendre visibles.
+- ${ctx.missingLegal?.length ? `Pages manquantes détectées : ${ctx.missingLegal.join(", ")}.` : "Politique de retour/livraison et mentions légales à compléter et rendre visibles."}
 - Page contact à enrichir (plusieurs moyens + délai de réponse).
 - Risque **misrepresentation** à surveiller (promotions, cohérence prix).
 

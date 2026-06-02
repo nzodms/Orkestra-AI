@@ -44,7 +44,7 @@ const ACTIONS: { label: string; icon: React.ElementType; directive: Directive | 
 ];
 
 export default function CouncilPage() {
-  const { connections, brand, addGeneration, councilMessages, addCouncilTurn, clearCouncil } = useOrkestra();
+  const { connections, brand, analysis, addGeneration, councilMessages, addCouncilTurn, clearCouncil } = useOrkestra();
   const providers = connectedProviders(connections);
   const [mode, setMode] = useState<CouncilMode>("seo");
   const [question, setQuestion] = useState("");
@@ -105,6 +105,9 @@ export default function CouncilPage() {
           competitors: brand.competitors,
           promises: brand.promises,
           guarantees: brand.guarantees,
+          englishCount: analysis?.englishTexts?.length,
+          missingLegal: analysis?.legalPages?.filter((l) => l.essential && !l.found).map((l) => l.label),
+          pagesAnalyzed: analysis?.pagesAnalyzed,
           previousQuestion: directive ? undefined : lastUserQuestion,
           directive,
         },

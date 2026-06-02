@@ -14,7 +14,7 @@ const SEV: Record<MerchantSeverity, { tone: "bad" | "warn" | "neutral"; icon: Re
 };
 
 export default function MerchantPage() {
-  const { resolvedIssues, toggleIssue, brand } = useOrkestra();
+  const { resolvedIssues, toggleIssue, brand, analysis } = useOrkestra();
   const [audit, setAudit] = useState<MerchantAudit | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -30,6 +30,10 @@ export default function MerchantPage() {
           niche: brand.niche || undefined,
           language: brand.language,
           collections: brand.collections,
+          // Données réelles issues du scan public (si disponibles).
+          englishCount: analysis?.englishTexts?.length,
+          scoreHint: analysis?.scores.merchant,
+          missingLegal: analysis?.legalPages?.filter((l) => l.essential && !l.found).map((l) => l.label),
         },
       }),
     });
