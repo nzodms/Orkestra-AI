@@ -33,7 +33,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, result: generateSection(body.input as SectionInput) });
 
     case "merchant-audit":
-      return NextResponse.json({ ok: true, result: generateMerchantAudit() });
+      return NextResponse.json({ ok: true, result: generateMerchantAudit(body.context || {}) });
 
     case "council":
       return NextResponse.json({

@@ -108,30 +108,33 @@ export default function SeoStudioPage() {
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Nom du produit">
-                <input className="input" value={form.productName} onChange={(e) => set("productName", e.target.value)} placeholder="Sac à dos urbain imperméable" />
+                <input className="input" value={form.productName} onChange={(e) => set("productName", e.target.value)} placeholder="Suspension salle à manger laiton" />
               </Field>
               <Field label="Collection associée">
-                <input className="input" value={form.collection} onChange={(e) => set("collection", e.target.value)} placeholder="Sacs à dos" />
+                <input className="input" value={form.collection} onChange={(e) => set("collection", e.target.value)} placeholder={brand.collections[0] || "Suspensions"} list="ork-collections" />
+                <datalist id="ork-collections">
+                  {brand.collections.map((c) => <option key={c} value={c} />)}
+                </datalist>
               </Field>
             </div>
             <Field label="Caractéristiques" hint="Séparées par des virgules">
-              <input className="input" value={form.features} onChange={(e) => set("features", e.target.value)} placeholder="Toile recyclée, 20L, port USB" />
+              <input className="input" value={form.features} onChange={(e) => set("features", e.target.value)} placeholder="Laiton brossé, Ø 40 cm, ampoule E27, variateur compatible" />
             </Field>
             <Field label="Bénéfices" hint="Séparés par des virgules">
-              <input className="input" value={form.benefits} onChange={(e) => set("benefits", e.target.value)} placeholder="Confort, imperméable, durable" />
+              <input className="input" value={form.benefits} onChange={(e) => set("benefits", e.target.value)} placeholder="Ambiance chaleureuse, design élégant, lumière douce" />
             </Field>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Matériaux / dimensions">
-                <input className="input" value={form.materials} onChange={(e) => set("materials", e.target.value)} placeholder="Toile recyclée, 45×30 cm" />
+                <input className="input" value={form.materials} onChange={(e) => set("materials", e.target.value)} placeholder="Laiton & verre, Ø 40 × H 35 cm" />
               </Field>
               <Field label="Prix">
-                <input className="input" value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="89 €" />
+                <input className="input" value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="149 €" />
               </Field>
               <Field label="Public cible">
-                <input className="input" value={form.audience} onChange={(e) => set("audience", e.target.value)} placeholder="Citadins actifs" />
+                <input className="input" value={form.audience} onChange={(e) => set("audience", e.target.value)} placeholder="Amateurs de décoration intérieure" />
               </Field>
               <Field label="Mots-clés souhaités">
-                <input className="input" value={form.keywords} onChange={(e) => set("keywords", e.target.value)} placeholder="sac à dos urbain, sac imperméable" />
+                <input className="input" value={form.keywords} onChange={(e) => set("keywords", e.target.value)} placeholder={brand.primaryKeywords.slice(0, 2).join(", ") || "suspension salle à manger, luminaire design"} />
               </Field>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">

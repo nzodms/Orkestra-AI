@@ -1,16 +1,18 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 import { useOrkestra, connectedProviders } from "@/lib/store";
 import { PROVIDERS } from "@/lib/providers";
 import { PageHeader, Card, Badge, ScoreRing, Progress } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import { Markdown } from "@/components/ui/Markdown";
-import type { CouncilMode, CouncilResult, CouncilTurn, GenerationRecord, AIProviderId } from "@/lib/types";
+import type { CouncilMode, CouncilResult, CouncilTurn, GenerationRecord, AIProviderId, SiteReview, ModuleId } from "@/lib/types";
 import {
   MessagesSquare, Send, Sparkles, Search, Code2, ShieldCheck, Mail, FileText,
   TrendingUp, Swords, MessageCircle, Copy, Check, Wand2, Scissors, FileCode2,
   Trash2, Layers, Clock, ListChecks, CheckCircle2, AlertCircle, ArrowDown,
+  Home, ListOrdered, Wrench, ArrowRight,
 } from "lucide-react";
 
 const MODES: { id: CouncilMode; label: string; icon: React.ElementType }[] = [
@@ -75,6 +77,15 @@ export default function CouncilPage() {
         context: {
           brandName: brand.storeName || undefined,
           niche: brand.niche || undefined,
+          positioning: brand.positioning,
+          language: brand.language,
+          collections: brand.collections,
+          productTypes: brand.productTypes,
+          primaryKeywords: brand.primaryKeywords,
+          secondaryKeywords: brand.secondaryKeywords,
+          competitors: brand.competitors,
+          promises: brand.promises,
+          guarantees: brand.guarantees,
           previousQuestion: directive ? undefined : lastUserQuestion,
           directive,
         },
@@ -137,7 +148,7 @@ export default function CouncilPage() {
       <div className="grid min-w-0 gap-5 lg:grid-cols-3">
         {/* ── Conversation (cœur du produit) ── */}
         <div className="flex min-w-0 flex-col lg:col-span-2">
-          <Card className="flex min-h-[600px] flex-col p-0">
+          <Card className="flex h-[calc(100vh-15rem)] max-h-[820px] min-h-[460px] flex-col p-0">
             {/* Connected AIs bar */}
             <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -304,6 +315,7 @@ function CouncilTurnCard({ result, onAction }: { result: CouncilResult; onAction
             <div className="min-w-0 break-words">
               <Markdown content={result.finalAnswer} />
             </div>
+            {result.review && <ReviewBlock review={result.review} />}
             {/* Actions */}
             <div className="mt-5 flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
               {ACTIONS.map((a) => {
@@ -422,6 +434,80 @@ function CouncilSidebar({ result, mode }: { result: CouncilResult; mode: Council
         </ul>
       </Card>
     </>
+  );
+}
+
+// ── Bloc review structuré (homepage order, structure produit, problèmes) ─────
+const MODULE_ROUTE: Record<ModuleId, string> = {
+  dashboard: "/dashboard", seo: "/seo", sections: "/sections", council: "/council",
+  merchant: "/merchant", assistant: "/assistant", memory: "/memory", history: "/history", settings: "/settings",
+};
+const SEV_TONE: Record<string, "bad" | "warn" | "neutral"> = { critique: "bad", important: "warn", mineur: "neutral" };
+
+function ReviewBlock({ review }: { review: SiteReview }) {
+  return (
+    <div className="mt-5 space-y-4 border-t border-[var(--border)] pt-5">
+      {/* Ordres recommandés */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-[var(--border)] p-3.5">
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-[var(--text)]"><Home className="h-3.5 w-3.5 text-brand-600" /> Ordre des sections recommandé (Home)</div>
+          <ol className="space-y-1">
+            {review.homepageOrder.map((step, i) => (
+              <li key={i} className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                <span className="grid h-4 w-4 shrink-0 place-items-center rounded bg-brand-50 text-[9px] font-bold text-brand-700 dark:bg-brand-950 dark:text-brand-300">{i + 1}</span>
+                {step}
+              </li>
+            ))}
+          </ol>
+        </div>
+        <div className="rounded-xl border border-[var(--border)] p-3.5">
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-[var(--text)]"><ListOrdered className="h-3.5 w-3.5 text-brand-600" /> Structure idéale d&apos;une page produit</div>
+          <ol className="space-y-1">
+            {review.productPageStructure.map((step, i) => (
+              <li key={i} className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                <span className="grid h-4 w-4 shrink-0 place-items-center rounded bg-brand-50 text-[9px] font-bold text-brand-700 dark:bg-brand-950 dark:text-brand-300">{i + 1}</span>
+                {step}
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+
+      {/* Problèmes détectés */}
+      <div>
+        <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><Wrench className="h-4 w-4 text-brand-600" /> Problèmes détectés ({review.issues.length})</div>
+        <div className="space-y-2.5">
+          {review.issues.map((issue, i) => (
+            <div key={i} className="rounded-xl border border-[var(--border)] p-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold">{issue.area}</span>
+                    <Badge tone={SEV_TONE[issue.severity]}>{issue.severity}</Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-[var(--text-muted)]">{issue.explanation}</p>
+                </div>
+              </div>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <div className="rounded-lg bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                  <span className="font-semibold">Impact :</span> {issue.impact}
+                </div>
+                <div className="rounded-lg bg-brand-50 px-2.5 py-2 text-xs text-brand-900 dark:bg-brand-950/40 dark:text-brand-200">
+                  <span className="font-semibold">Correction :</span> {issue.fix}
+                </div>
+              </div>
+              <div className="mt-2.5">
+                <Link href={MODULE_ROUTE[issue.module]}>
+                  <Button variant="secondary" size="sm" icon={<Wrench className="h-3.5 w-3.5" />}>
+                    Corriger avec Orkestra <ArrowRight className="h-3.5 w-3.5" />
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

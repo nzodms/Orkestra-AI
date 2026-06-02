@@ -5,7 +5,7 @@ import { PageHeader, Card, CardHeader, Badge } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
 import {
-  Brain, Store, Tag, FolderOpen, Palette, ShieldCheck, Link2, Users, Globe, Sparkles,
+  Brain, Store, Tag, FolderOpen, Palette, ShieldCheck, Link2, Users, Globe, Sparkles, Lightbulb,
 } from "lucide-react";
 
 function Chips({ items, empty }: { items: string[]; empty: string }) {
@@ -42,6 +42,25 @@ export default function MemoryPage() {
           </Link>
         }
       />
+
+      {/* Ce qu'Orkestra a compris */}
+      <Card className="mb-4 border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40">
+        <div className="flex items-start gap-3">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white">
+            <Lightbulb className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold">Ce qu&apos;Orkestra a compris de votre boutique</h3>
+            {brand.understanding ? (
+              <p className="mt-1.5 text-sm leading-relaxed text-[var(--text-muted)]">{brand.understanding}</p>
+            ) : (
+              <p className="mt-1.5 text-sm text-[var(--text-muted)]">
+                Lancez un scan de votre boutique depuis l&apos;onboarding pour qu&apos;Orkestra analyse votre niche, vos collections et vos opportunités.
+              </p>
+            )}
+          </div>
+        </div>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

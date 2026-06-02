@@ -65,6 +65,8 @@ export interface BrandMemory {
   internalLinks: { label: string; url: string }[];
   seoRules: string[];
   styleRules: string[];
+  /** Synthèse « Ce qu'Orkestra a compris de votre boutique » (généré au scan). */
+  understanding: string;
 }
 
 export interface StoreScores {
@@ -203,6 +205,23 @@ export interface CouncilScores {
   seo?: number;
 }
 
+export interface ReviewIssue {
+  area: string;
+  severity: MerchantSeverity;
+  explanation: string;
+  impact: string;
+  fix: string;
+  /** Module Orkestra vers lequel pointe le bouton « Corriger avec Orkestra ». */
+  module: ModuleId;
+}
+
+export interface SiteReview {
+  summary: string;
+  homepageOrder: string[];
+  productPageStructure: string[];
+  issues: ReviewIssue[];
+}
+
 export interface CouncilResult {
   finalAnswer: string;
   qualityScore: number;
@@ -212,6 +231,8 @@ export interface CouncilResult {
   nextActions: string[];
   synthesisReasons: string[];
   providerAnswers: CouncilProviderAnswer[];
+  /** Présent uniquement pour une demande de review/analyse de site. */
+  review?: SiteReview;
 }
 
 /** Un tour de conversation dans l'AI Council (persisté). */

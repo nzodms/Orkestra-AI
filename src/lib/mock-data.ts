@@ -60,8 +60,8 @@ export const DEMO_HISTORY: GenerationRecord[] = [
   {
     id: "g1",
     type: "seo-product",
-    title: "Fiche SEO — Sac à dos urbain imperméable",
-    store: "Maison Lurel",
+    title: "Fiche SEO — Suspension salle à manger laiton",
+    store: "Lumio",
     createdAt: new Date(Date.now() - 1000 * 60 * 42).toISOString(),
     models: ["openai", "anthropic"],
     status: "completed",
@@ -72,7 +72,7 @@ export const DEMO_HISTORY: GenerationRecord[] = [
     id: "g2",
     type: "section",
     title: "Section Hero premium animée",
-    store: "Maison Lurel",
+    store: "Lumio",
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
     models: ["anthropic"],
     status: "completed",
@@ -83,7 +83,7 @@ export const DEMO_HISTORY: GenerationRecord[] = [
     id: "g3",
     type: "merchant-audit",
     title: "Audit Merchant Center complet",
-    store: "Maison Lurel",
+    store: "Lumio",
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 26).toISOString(),
     models: ["gemini", "openai"],
     status: "completed",
@@ -93,8 +93,8 @@ export const DEMO_HISTORY: GenerationRecord[] = [
   {
     id: "g4",
     type: "council",
-    title: "AI Council — Stratégie d'acquisition Q3",
-    store: "Maison Lurel",
+    title: "AI Council — Plan SEO collections luminaires",
+    store: "Lumio",
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 50).toISOString(),
     models: ["openai", "anthropic", "gemini"],
     status: "completed",
@@ -125,14 +125,67 @@ export const DEFAULT_BRAND_MEMORY: BrandMemory = {
   internalLinks: [],
   seoRules: [],
   styleRules: [],
+  understanding: "",
 };
 
-// Résultat simulé d'un scan de boutique (détection niche/collections/etc.)
+// Promesses & garanties par défaut (appliquées au scan si l'utilisateur n'a rien saisi).
+export const LUMIO_PROMISES = [
+  "Design élégant",
+  "Livraison gratuite",
+  "Paiement sécurisé",
+  "Qualité durable",
+  "Ambiance chaleureuse",
+];
+export const LUMIO_GUARANTEES = ["Garantie 2 ans", "Retours gratuits sous 14 jours", "Paiement 100% sécurisé"];
+
+// Résultat simulé d'un scan de boutique (détection niche/collections/etc.).
+// Cohérent avec Lumio — boutique de luminaires & décoration intérieure.
 export const DEMO_SCAN_RESULT: Partial<BrandMemory> = {
-  niche: "Maroquinerie & accessoires urbains",
-  collections: ["Sacs à dos", "Sacoches", "Portefeuilles", "Accessoires"],
-  productTypes: ["Sac à dos", "Sacoche", "Portefeuille", "Trousse"],
-  primaryKeywords: ["sac à dos urbain", "maroquinerie premium", "sacoche cuir"],
-  secondaryKeywords: ["sac imperméable", "accessoire homme", "cadeau cuir"],
-  competitors: ["Bellroy", "Cabaïa", "Faguo"],
+  niche: "Luminaires & décoration intérieure",
+  collections: [
+    "Lustres",
+    "Suspensions",
+    "Plafonniers",
+    "Lampes de chevet",
+    "Luminaires escalier",
+    "Plafonniers ventilateurs",
+  ],
+  productTypes: [
+    "Lustre salon",
+    "Suspension salle à manger",
+    "Plafonnier moderne",
+    "Lampe de chevet design",
+    "Luminaire escalier",
+    "Plafonnier ventilateur",
+  ],
+  primaryKeywords: [
+    "lustre salon",
+    "suspension luminaire",
+    "suspension salle à manger",
+    "plafonnier moderne",
+  ],
+  secondaryKeywords: [
+    "lampe de chevet design",
+    "luminaire escalier",
+    "lustre design",
+    "plafonnier LED",
+  ],
+  competitors: ["Lustria", "Lumeers", "Maisons du Monde", "Leroy Merlin", "La Redoute Intérieurs"],
+  writingStyle: "Premium, clair, inspirant, professionnel, orienté bénéfices",
+  internalLinks: [
+    { label: "Collection Suspensions", url: "/collections/suspensions" },
+    { label: "Guide : choisir son lustre de salon", url: "/blogs/guides/choisir-lustre-salon" },
+    { label: "FAQ livraison & retours", url: "/pages/faq" },
+  ],
+  seoRules: [
+    "Cibler des requêtes françaises autour des luminaires (lustre, suspension, plafonnier).",
+    "Une meta unique par collection et par fiche produit.",
+    "Maillage interne blog → collections → produits.",
+  ],
+  styleRules: [
+    "Ton élégant et rassurant, orienté ambiance et bénéfices.",
+    "Mettre en avant le rendu lumineux et l'atmosphère créée.",
+  ],
+  understanding:
+    "Lumio est une boutique française spécialisée dans les luminaires décoratifs et design : lustres, suspensions, plafonniers et lampes de chevet. Le positionnement semble premium, avec un besoin fort d'optimisation SEO sur les pages collections, les fiches produits, les meta descriptions, les FAQ et le maillage interne. Les contenus doivent rester élégants, rassurants, orientés bénéfices et adaptés aux recherches françaises autour des luminaires.",
 };

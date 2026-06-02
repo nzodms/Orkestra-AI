@@ -14,7 +14,7 @@ const SEV: Record<MerchantSeverity, { tone: "bad" | "warn" | "neutral"; icon: Re
 };
 
 export default function MerchantPage() {
-  const { resolvedIssues, toggleIssue } = useOrkestra();
+  const { resolvedIssues, toggleIssue, brand } = useOrkestra();
   const [audit, setAudit] = useState<MerchantAudit | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -23,7 +23,15 @@ export default function MerchantPage() {
     const res = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "merchant-audit" }),
+      body: JSON.stringify({
+        kind: "merchant-audit",
+        context: {
+          brandName: brand.storeName || undefined,
+          niche: brand.niche || undefined,
+          language: brand.language,
+          collections: brand.collections,
+        },
+      }),
     });
     const data = await res.json();
     setLoading(false);

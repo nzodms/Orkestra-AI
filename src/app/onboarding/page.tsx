@@ -4,12 +4,12 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useOrkestra, connectedProviders } from "@/lib/store";
 import { PROVIDER_ORDER } from "@/lib/providers";
-import { DEMO_SCAN_RESULT } from "@/lib/mock-data";
+import { DEMO_SCAN_RESULT, LUMIO_PROMISES, LUMIO_GUARANTEES } from "@/lib/mock-data";
 import { ProviderCard } from "@/components/ProviderCard";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/primitives";
 import type { Positioning } from "@/lib/types";
-import { Sparkles, Check, ArrowRight, ArrowLeft, Store, Palette, Plug, ScanSearch, Loader2 } from "lucide-react";
+import { Sparkles, Check, ArrowRight, ArrowLeft, Store, Palette, Plug, ScanSearch } from "lucide-react";
 
 const STEPS = [
   { id: 1, label: "Boutique", icon: Store },
@@ -46,7 +46,14 @@ export default function OnboardingPage() {
   async function runScan() {
     setScanning(true);
     await new Promise((r) => setTimeout(r, 1800));
-    updateBrand(DEMO_SCAN_RESULT);
+    // On applique les données détectées sans écraser ce que l'utilisateur a saisi.
+    updateBrand({
+      ...DEMO_SCAN_RESULT,
+      storeName: brand.storeName || "Lumio",
+      promises: brand.promises.length ? brand.promises : LUMIO_PROMISES,
+      guarantees: brand.guarantees.length ? brand.guarantees : LUMIO_GUARANTEES,
+      writingStyle: brand.writingStyle || DEMO_SCAN_RESULT.writingStyle || "",
+    });
     setStoreScanned(true);
     setScanning(false);
     setScanned(true);
@@ -77,22 +84,24 @@ export default function OnboardingPage() {
               <div key={s.id} className="flex flex-1 items-center">
                 <div className="flex flex-col items-center gap-1.5">
                   <div
-                    className={`grid h-10 w-10 place-items-center rounded-xl border transition ${
+                    className={`grid h-10 w-10 place-items-center rounded-xl border transition-all duration-300 ${
                       done
                         ? "border-brand-600 bg-brand-600 text-white"
                         : active
-                        ? "border-brand-400 bg-brand-50 text-brand-600 dark:bg-brand-950"
+                        ? "scale-110 border-brand-400 bg-brand-50 text-brand-600 ring-4 ring-brand-500/15 dark:bg-brand-950"
                         : "border-[var(--border)] text-ink-400"
                     }`}
                   >
-                    {done ? <Check className="h-5 w-5" /> : <Icon className="h-5 w-5" />}
+                    {done ? <Check key="done" className="h-5 w-5 animate-pop" /> : <Icon className="h-5 w-5" />}
                   </div>
-                  <span className={`text-xs ${active ? "font-semibold text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
+                  <span className={`text-xs transition-colors ${active ? "font-semibold text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
                     {s.label}
                   </span>
                 </div>
                 {i < STEPS.length - 1 && (
-                  <div className={`mx-2 h-0.5 flex-1 rounded ${step > s.id ? "bg-brand-600" : "bg-[var(--border)]"}`} />
+                  <div className="mx-2 h-0.5 flex-1 overflow-hidden rounded bg-[var(--border)]">
+                    <div className={`h-full rounded bg-brand-600 transition-all duration-500 ${step > s.id ? "w-full" : "w-0"}`} />
+                  </div>
                 )}
               </div>
             );
@@ -102,7 +111,7 @@ export default function OnboardingPage() {
         <div className="card p-6 sm:p-8">
           {/* Step 1 */}
           {step === 1 && (
-            <div className="space-y-5 animate-fade-in">
+            <div className="space-y-5 animate-step-in">
               <div>
                 <h2 className="text-xl font-bold">Parlez-nous de votre boutique</h2>
                 <p className="mt-1 text-sm text-[var(--text-muted)]">
@@ -111,13 +120,13 @@ export default function OnboardingPage() {
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Nom de la boutique">
-                  <input className="input" value={brand.storeName} onChange={(e) => updateBrand({ storeName: e.target.value })} placeholder="Maison Lurel" />
+                  <input className="input" value={brand.storeName} onChange={(e) => updateBrand({ storeName: e.target.value })} placeholder="Lumio" />
                 </Field>
                 <Field label="URL Shopify">
                   <input className="input" value={brand.shopifyUrl} onChange={(e) => updateBrand({ shopifyUrl: e.target.value })} placeholder="maboutique.myshopify.com" />
                 </Field>
                 <Field label="Niche">
-                  <input className="input" value={brand.niche} onChange={(e) => updateBrand({ niche: e.target.value })} placeholder="Maroquinerie premium" />
+                  <input className="input" value={brand.niche} onChange={(e) => updateBrand({ niche: e.target.value })} placeholder="Luminaires & décoration intérieure" />
                 </Field>
                 <Field label="Pays / langue cible">
                   <input className="input" value={brand.country} onChange={(e) => updateBrand({ country: e.target.value })} placeholder="France / Français" />
@@ -125,19 +134,23 @@ export default function OnboardingPage() {
               </div>
               <Field label="Positionnement">
                 <div className="flex flex-wrap gap-2">
-                  {POSITIONINGS.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => updateBrand({ positioning: p.id })}
-                      className={`rounded-xl border px-3.5 py-2 text-sm font-medium transition ${
-                        brand.positioning === p.id
-                          ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300"
-                          : "border-[var(--border)] text-[var(--text-muted)] hover:border-brand-300"
-                      }`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
+                  {POSITIONINGS.map((p) => {
+                    const sel = brand.positioning === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => updateBrand({ positioning: p.id })}
+                        className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-sm font-medium transition-all duration-200 hover:-translate-y-0.5 active:scale-95 ${
+                          sel
+                            ? "scale-[1.03] border-brand-500 bg-brand-50 text-brand-700 shadow-soft dark:bg-brand-950 dark:text-brand-300"
+                            : "border-[var(--border)] text-[var(--text-muted)] hover:border-brand-300"
+                        }`}
+                      >
+                        {sel && <Check className="h-3.5 w-3.5 animate-pop" />}
+                        {p.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </Field>
             </div>
@@ -145,7 +158,7 @@ export default function OnboardingPage() {
 
           {/* Step 2 */}
           {step === 2 && (
-            <div className="space-y-5 animate-fade-in">
+            <div className="space-y-5 animate-step-in">
               <div>
                 <h2 className="text-xl font-bold">Votre ton de marque</h2>
                 <p className="mt-1 text-sm text-[var(--text-muted)]">
@@ -157,19 +170,23 @@ export default function OnboardingPage() {
               </Field>
               <Field label="Niveau de formalité">
                 <div className="flex gap-2">
-                  {(["tutoiement", "vouvoiement"] as const).map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => updateBrand({ formality: f })}
-                      className={`rounded-xl border px-4 py-2 text-sm font-medium capitalize transition ${
-                        brand.formality === f
-                          ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300"
-                          : "border-[var(--border)] text-[var(--text-muted)]"
-                      }`}
-                    >
-                      {f}
-                    </button>
-                  ))}
+                  {(["tutoiement", "vouvoiement"] as const).map((f) => {
+                    const sel = brand.formality === f;
+                    return (
+                      <button
+                        key={f}
+                        onClick={() => updateBrand({ formality: f })}
+                        className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-sm font-medium capitalize transition-all duration-200 hover:-translate-y-0.5 active:scale-95 ${
+                          sel
+                            ? "scale-[1.03] border-brand-500 bg-brand-50 text-brand-700 shadow-soft dark:bg-brand-950 dark:text-brand-300"
+                            : "border-[var(--border)] text-[var(--text-muted)] hover:border-brand-300"
+                        }`}
+                      >
+                        {sel && <Check className="h-3.5 w-3.5 animate-pop" />}
+                        {f}
+                      </button>
+                    );
+                  })}
                 </div>
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -180,7 +197,7 @@ export default function OnboardingPage() {
                   <input className="input" value={brand.shippingDelay} onChange={(e) => updateBrand({ shippingDelay: e.target.value })} />
                 </Field>
                 <Field label="Promesses principales" hint="Séparées par des virgules">
-                  <input className="input" defaultValue={brand.promises.join(", ")} onBlur={(e) => updateBrand({ promises: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="Qualité durable, fabrication soignée" />
+                  <input className="input" defaultValue={brand.promises.join(", ")} onBlur={(e) => updateBrand({ promises: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="Design élégant, livraison gratuite, qualité durable" />
                 </Field>
                 <Field label="Politique de retour">
                   <input className="input" value={brand.returnPolicy} onChange={(e) => updateBrand({ returnPolicy: e.target.value })} />
@@ -194,7 +211,7 @@ export default function OnboardingPage() {
 
           {/* Step 3 */}
           {step === 3 && (
-            <div className="space-y-5 animate-fade-in">
+            <div className="space-y-5 animate-step-in">
               <div>
                 <h2 className="text-xl font-bold">Connectez vos IA</h2>
                 <p className="mt-1 text-sm text-[var(--text-muted)]">
@@ -211,7 +228,7 @@ export default function OnboardingPage() {
 
           {/* Step 4 */}
           {step === 4 && (
-            <div className="space-y-5 animate-fade-in">
+            <div className="space-y-5 animate-step-in">
               <div>
                 <h2 className="text-xl font-bold">Connectez et scannez votre boutique</h2>
                 <p className="mt-1 text-sm text-[var(--text-muted)]">
@@ -232,9 +249,10 @@ export default function OnboardingPage() {
                   {scanning ? "Analyse de votre boutique en cours…" : "Scanner ma boutique"}
                 </Button>
               ) : (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900 dark:bg-emerald-950/40 animate-fade-in">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900 dark:bg-emerald-950/40 animate-scale-in">
                   <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                    <Check className="h-5 w-5" /> Boutique analysée avec succès
+                    <span className="grid h-7 w-7 place-items-center rounded-full bg-emerald-500 text-white animate-pop"><Check className="h-4 w-4" /></span>
+                    Boutique analysée avec succès
                   </div>
                   <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                     <div><span className="text-[var(--text-muted)]">Niche :</span> {brand.niche}</div>
