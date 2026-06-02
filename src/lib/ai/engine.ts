@@ -612,21 +612,24 @@ interface NicheVocab {
   descHints: string;
 }
 function nicheVocab(key: NicheKey): NicheVocab {
+  // Les noms de collections sont au pluriel (« Suspensions ») → on emploie le
+  // pluriel possessif (« vos suspensions ») pour éviter tout article singulier
+  // genré incorrect (« un suspension »).
   const map: Partial<Record<NicheKey, NicheVocab>> = {
     luminaires: {
       pieces: ["salon", "salle à manger", "cuisine", "chambre", "escalier"],
       faqs: (c) => [
-        `Quel ${c.toLowerCase()} choisir pour un salon ou une salle à manger ?`,
-        `À quelle hauteur installer un ${c.toLowerCase()} ?`,
-        `Quel type d'ampoule pour un ${c.toLowerCase()} (LED, culot, intensité) ?`,
+        `Quel modèle de ${c.toLowerCase()} choisir selon la pièce (salon, salle à manger, chambre) ?`,
+        `À quelle hauteur installer vos ${c.toLowerCase()} ?`,
+        `Quel type d'ampoule privilégier pour vos ${c.toLowerCase()} (LED, culot, intensité) ?`,
       ],
       descHints: "matériau, dimensions, hauteur d'installation, type d'ampoule, pièce (salon/chambre/cuisine), style déco et ambiance lumineuse",
     },
     beaute: {
       pieces: ["peau sèche", "peau grasse", "peau sensible"],
       faqs: (c) => [
-        `Pour quel type de peau ce ${c.toLowerCase()} est-il adapté ?`,
-        `Comment intégrer ce ${c.toLowerCase()} dans sa routine ?`,
+        `Pour quel type de peau vos ${c.toLowerCase()} sont-ils adaptés ?`,
+        `Comment intégrer ces ${c.toLowerCase()} dans une routine ?`,
         `Quels sont les ingrédients clés et leurs bénéfices ?`,
       ],
       descHints: "ingrédients/actifs, type de peau, mode d'emploi, routine, bénéfices et résultats",
@@ -634,18 +637,18 @@ function nicheVocab(key: NicheKey): NicheVocab {
     bebe: {
       pieces: ["0-6 mois", "6-12 mois", "1-3 ans"],
       faqs: (c) => [
-        `À partir de quel âge utiliser ce ${c.toLowerCase()} ?`,
-        `Ce ${c.toLowerCase()} respecte-t-il les normes de sécurité ?`,
-        `Comment l'entretenir / le nettoyer ?`,
+        `À partir de quel âge utiliser vos ${c.toLowerCase()} ?`,
+        `Vos ${c.toLowerCase()} respectent-ils les normes de sécurité ?`,
+        `Comment les entretenir / les nettoyer ?`,
       ],
       descHints: "âge recommandé, normes de sécurité, matériaux (coton bio…), confort et entretien",
     },
     mode: {
       pieces: ["décontracté", "soirée", "bureau"],
       faqs: (c) => [
-        `Comment choisir sa taille pour ce ${c.toLowerCase()} ?`,
-        `Quelle est la matière et comment l'entretenir ?`,
-        `Comment l'associer (looks) ?`,
+        `Comment choisir sa taille pour vos ${c.toLowerCase()} ?`,
+        `Quelle matière pour vos ${c.toLowerCase()} et comment les entretenir ?`,
+        `Comment associer vos ${c.toLowerCase()} (idées de looks) ?`,
       ],
       descHints: "guide des tailles, matière, coupe, entretien et idées de looks",
     },
@@ -654,8 +657,8 @@ function nicheVocab(key: NicheKey): NicheVocab {
     map[key] ?? {
       pieces: ["usage quotidien"],
       faqs: (c) => [
-        `Comment bien choisir son ${c.toLowerCase()} ?`,
-        `Quelles sont les caractéristiques importantes ?`,
+        `Comment bien choisir parmi vos ${c.toLowerCase()} ?`,
+        `Quelles sont les caractéristiques importantes à comparer ?`,
         `Quels sont les délais de livraison et la politique de retour ?`,
       ],
       descHints: "bénéfices, caractéristiques, dimensions, usage et entretien",
@@ -671,9 +674,9 @@ function collectionCorrection(ctx: CouncilContext, coll: string): string {
   const faqs = vocab.faqs(coll);
   return `**Collection « ${coll} »** — correction prête à appliquer :
 - **Title** : \`${coll} | ${s}\` (≤ 60 car.)
-- **Meta** : \`Découvrez notre sélection ${coll.toLowerCase()} pour ${vocab.pieces.slice(0, 3).join(", ")}. Livraison gratuite, sélection premium.\` (≤ 155 car.)
+- **Meta** : \`Découvrez notre sélection de ${coll.toLowerCase()} pour ${vocab.pieces.slice(0, 3).join(", ")}. Livraison gratuite, sélection premium.\` (≤ 155 car.)
 - **H1** : \`${coll} — la sélection ${s}\`
-- **Structure H2/H3** : « Pourquoi choisir un ${coll.toLowerCase().replace(/s$/, "")} », « Comment choisir (${vocab.descHints.split(",").slice(0, 3).join(",")}) », « Nos best-sellers »
+- **Structure H2/H3** : « Pourquoi choisir nos ${coll.toLowerCase()} », « Comment bien choisir vos ${coll.toLowerCase()} (${vocab.descHints.split(",").slice(0, 3).join(",")}) », « Nos best-sellers »
 - **FAQ (5 questions)** :
   - ${faqs[0]}
   - ${faqs[1]}
@@ -782,7 +785,7 @@ ${corr}
 ### 🗓️ Plan 30 jours
 - S1 : quick wins. S2 : contenu SEO sur ${cols.slice(0, 3).join(", ")}.
 - S3 : enrichir 15–20 fiches (en partant des scores de contenu les plus bas).
-- S4 : maillage interne ${cols.slice(0, 3).join(" ↔ ")} + 2 guides blog (« comment choisir un ${(productsOf(ctx)[0] || "produit").toLowerCase()} pour ${vocab.pieces[0]} »).
+- S4 : maillage interne ${cols.slice(0, 3).join(" ↔ ")} + 2 guides blog (« comment choisir ${ctx.productTypes?.[0] ? "son " + ctx.productTypes[0].toLowerCase() : "le bon produit"} pour ${vocab.pieces[0]} »).
 
 ### 🚀 Actions Orkestra
 - **SEO Studio** : fiches produits prioritaires + meta + FAQ collections (pré-rempli depuis les produits prioritaires).
