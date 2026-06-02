@@ -14,10 +14,15 @@ import {
   ExternalLink,
   HelpCircle,
   KeyRound,
+  Clock,
 } from "lucide-react";
+
+// Providers réellement branchés en live dans cette version.
+const AVAILABLE_PROVIDERS: AIProviderId[] = ["openai"];
 
 export function ProviderCard({ id }: { id: AIProviderId }) {
   const meta = PROVIDERS[id];
+  const available = AVAILABLE_PROVIDERS.includes(id);
   const conn = useOrkestra((s) => s.connections[id]);
   const setConnection = useOrkestra((s) => s.setConnection);
   const removeConnection = useOrkestra((s) => s.removeConnection);
@@ -76,7 +81,9 @@ export function ProviderCard({ id }: { id: AIProviderId }) {
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold">{meta.name}</h3>
-              {conn.connected ? (
+              {!available ? (
+                <Badge tone="neutral"><Clock className="h-3 w-3" /> Bientôt disponible</Badge>
+              ) : conn.connected ? (
                 <>
                   <Badge tone="good">
                     <CheckCircle2 className="h-3 w-3" /> Connecté
@@ -96,7 +103,11 @@ export function ProviderCard({ id }: { id: AIProviderId }) {
         </div>
       </div>
 
-      {conn.connected ? (
+      {!available ? (
+        <div className="mt-4 rounded-xl border border-dashed border-[var(--border)] bg-[var(--bg)] px-3.5 py-3 text-xs text-[var(--text-muted)]">
+          Ce provider n&apos;est pas encore branché dans cette version. Le support {meta.name} arrive prochainement — pour l&apos;instant, seul <strong>OpenAI</strong> est disponible en live.
+        </div>
+      ) : conn.connected ? (
         <div className="mt-4 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3.5 py-3">
           <div>
             <div className="font-mono text-sm">{conn.maskedKey}</div>

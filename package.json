@@ -5,7 +5,7 @@
   "description": "Orkestra AI — Le copilote multi-IA pour optimiser les boutiques Shopify",
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && node scripts/db-push.mjs && next build",
     "start": "next start",
     "lint": "next lint",
     "postinstall": "prisma generate"

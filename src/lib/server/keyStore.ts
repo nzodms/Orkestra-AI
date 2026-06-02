@@ -59,24 +59,8 @@ async function prisma(): Promise<any> {
 
 // ── API publique ────────────────────────────────────────────────────────────
 
-export async function saveKey(input: SaveKeyInput): Promise<StoredKeyMeta> {
+function memSave(input: SaveKeyInput): StoredKeyMeta {
   const now = new Date();
-  if (usePrisma()) {
-    const db = await prisma();
-    const row = await db.apiKeyStore.create({
-      data: {
-        provider: input.provider,
-        encIv: input.encrypted.iv,
-        encTag: input.encrypted.tag,
-        encData: input.encrypted.data,
-        maskedKey: input.maskedKey,
-        model: input.model,
-        status: input.status ?? "connected",
-        lastTestedAt: now,
-      },
-    });
-    return toMeta(row);
-  }
   const id = randomId();
   const meta: StoredKeyMeta = {
     id,
@@ -91,12 +75,46 @@ export async function saveKey(input: SaveKeyInput): Promise<StoredKeyMeta> {
   return meta;
 }
 
-export async function getEncrypted(id: string): Promise<{ encrypted: EncryptedSecret; meta: StoredKeyMeta } | null> {
+export async function saveKey(input: SaveKeyInput): Promise<StoredKeyMeta> {
   if (usePrisma()) {
-    const db = await prisma();
-    const row = await db.apiKeyStore.findUnique({ where: { id } });
-    if (!row) return null;
-    return { encrypted: { iv: row.encIv, tag: row.encTag, data: row.encData }, meta: toMeta(row) };
+    try {
+      const db = await prisma();
+      const row = await db.apiKeyStore.create({
+        data: {
+          provider: input.provider,
+          encIv: input.encrypted.iv,
+          encTag: input.encrypted.tag,
+          encData: input.encrypted.data,
+          maskedKey: input.maskedKey,
+          model: input.model,
+          status: input.status ?? "connected",
+          lastTestedAt: new Date(),
+        },
+      });
+      return toMeta(row);
+    } catch (e: any) {
+      // Ex : table ApiKeyStore absente (db push non lancé). On ne casse pas la
+      // connexion : repli in-memory + avertissement clair côté serveur.
+      console.warn(
+        "[Orkestra] Sauvegarde Prisma impossible (" +
+          (e?.code || e?.name || "erreur") +
+          ") → repli in-memory. Lancez `prisma db push` pour une persistance fiable."
+      );
+      return memSave(input);
+    }
+  }
+  return memSave(input);
+}
+
+export async function getEncrypted(id: string): Promise<{ encrypted: EncryptedSecret; meta: StoredKeyMeta } | null> {
+  if (usePrisma() && !id.startsWith("key_")) {
+    try {
+      const db = await prisma();
+      const row = await db.apiKeyStore.findUnique({ where: { id } });
+      if (row) return { encrypted: { iv: row.encIv, tag: row.encTag, data: row.encData }, meta: toMeta(row) };
+    } catch (e: any) {
+      console.warn("[Orkestra] Lecture Prisma impossible (" + (e?.code || e?.name || "erreur") + ") → repli in-memory.");
+    }
   }
   const row = mem.get(id);
   if (!row) return null;
@@ -104,12 +122,15 @@ export async function getEncrypted(id: string): Promise<{ encrypted: EncryptedSe
 }
 
 export async function deleteKey(id: string): Promise<void> {
-  if (usePrisma()) {
-    const db = await prisma();
-    await db.apiKeyStore.delete({ where: { id } }).catch(() => {});
-    return;
-  }
   mem.delete(id);
+  if (usePrisma() && !id.startsWith("key_")) {
+    try {
+      const db = await prisma();
+      await db.apiKeyStore.delete({ where: { id } }).catch(() => {});
+    } catch {
+      /* déjà supprimé du memory store */
+    }
+  }
 }
 
 function toMeta(row: any): StoredKeyMeta {
