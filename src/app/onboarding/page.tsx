@@ -29,7 +29,7 @@ const POSITIONINGS: { id: Positioning; label: string }[] = [
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { brand, updateBrand, connections, setOnboardingComplete } = useOrkestra();
+  const { brand, updateBrand, connections, setOnboardingComplete, setStoreScanned } = useOrkestra();
   const [step, setStep] = useState(1);
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
@@ -47,6 +47,7 @@ export default function OnboardingPage() {
     setScanning(true);
     await new Promise((r) => setTimeout(r, 1800));
     updateBrand(DEMO_SCAN_RESULT);
+    setStoreScanned(true);
     setScanning(false);
     setScanned(true);
   }

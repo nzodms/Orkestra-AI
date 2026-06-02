@@ -188,13 +188,39 @@ export type CouncilMode =
 
 export interface CouncilProviderAnswer {
   provider: AIProviderId;
+  model: string;
+  specialty: string;
   answer: string;
   qualityScore: number;
+  strengths: string[];
+  limits: string[];
+}
+
+export interface CouncilScores {
+  quality: number;
+  clarity: number;
+  actionable: number;
+  seo?: number;
 }
 
 export interface CouncilResult {
   finalAnswer: string;
   qualityScore: number;
+  scores: CouncilScores;
+  timeSaved: string;
+  modelsUsed: AIProviderId[];
+  nextActions: string[];
   synthesisReasons: string[];
   providerAnswers: CouncilProviderAnswer[];
+}
+
+/** Un tour de conversation dans l'AI Council (persisté). */
+export interface CouncilTurn {
+  id: string;
+  role: "user" | "council";
+  mode: CouncilMode;
+  // role === "user"
+  question?: string;
+  // role === "council"
+  result?: CouncilResult;
 }

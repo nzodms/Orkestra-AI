@@ -2,9 +2,15 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { AIConnection, AIProviderId, BrandMemory, GenerationRecord } from "./types";
+import type {
+  AIConnection,
+  AIProviderId,
+  BrandMemory,
+  GenerationRecord,
+  CouncilTurn,
+} from "./types";
 import { PROVIDER_ORDER } from "./providers";
-import { DEFAULT_BRAND_MEMORY, DEMO_HISTORY } from "./mock-data";
+import { DEFAULT_BRAND_MEMORY } from "./mock-data";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Store client (zustand + persist localStorage).
@@ -31,32 +37,42 @@ function emptyConnections(): Record<AIProviderId, AIConnection> {
 
 interface OrkestraState {
   onboardingComplete: boolean;
+  /** La boutique a-t-elle été scannée/renseignée ? Pilote l'état neutre du dashboard. */
+  storeScanned: boolean;
   theme: "light" | "dark";
   brand: BrandMemory;
   connections: Record<AIProviderId, AIConnection>;
   history: GenerationRecord[];
   resolvedIssues: string[];
+  /** Conversation AI Council persistée (survit à la navigation). */
+  councilMessages: CouncilTurn[];
 
   setOnboardingComplete: (v: boolean) => void;
+  setStoreScanned: (v: boolean) => void;
   toggleTheme: () => void;
   updateBrand: (patch: Partial<BrandMemory>) => void;
   setConnection: (id: AIProviderId, patch: Partial<AIConnection>) => void;
   removeConnection: (id: AIProviderId) => void;
   addGeneration: (rec: GenerationRecord) => void;
   toggleIssue: (id: string) => void;
+  addCouncilTurn: (turn: CouncilTurn) => void;
+  clearCouncil: () => void;
 }
 
 export const useOrkestra = create<OrkestraState>()(
   persist(
     (set) => ({
       onboardingComplete: false,
+      storeScanned: false,
       theme: "light",
       brand: DEFAULT_BRAND_MEMORY,
       connections: emptyConnections(),
-      history: DEMO_HISTORY,
+      history: [],
       resolvedIssues: [],
+      councilMessages: [],
 
       setOnboardingComplete: (v) => set({ onboardingComplete: v }),
+      setStoreScanned: (v) => set({ storeScanned: v }),
       toggleTheme: () =>
         set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
       updateBrand: (patch) => set((s) => ({ brand: { ...s.brand, ...patch } })),
@@ -85,6 +101,9 @@ export const useOrkestra = create<OrkestraState>()(
             ? s.resolvedIssues.filter((x) => x !== id)
             : [...s.resolvedIssues, id],
         })),
+      addCouncilTurn: (turn) =>
+        set((s) => ({ councilMessages: [...s.councilMessages, turn] })),
+      clearCouncil: () => set({ councilMessages: [] }),
     }),
     { name: "orkestra-store" }
   )

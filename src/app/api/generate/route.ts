@@ -41,7 +41,8 @@ export async function POST(req: Request) {
         result: generateCouncil(
           body.mode as CouncilMode,
           body.question as string,
-          (body.providers as AIProviderId[]) || []
+          (body.providers as AIProviderId[]) || [],
+          body.context || {}
         ),
       });
 

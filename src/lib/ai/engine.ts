@@ -337,6 +337,8 @@ export function generateMerchantAudit(): MerchantAudit {
 
 // ── AI Council ────────────────────────────────────────────────────────────
 
+import type { CouncilProviderAnswer, CouncilScores } from "../types";
+
 const MODE_LABEL: Record<CouncilMode, string> = {
   seo: "SEO e-commerce",
   code: "Code Shopify",
@@ -348,55 +350,516 @@ const MODE_LABEL: Record<CouncilMode, string> = {
   free: "Question libre",
 };
 
+export interface CouncilContext {
+  brandName?: string;
+  niche?: string;
+  /** Question précédente, pour la continuité de conversation. */
+  previousQuestion?: string;
+  /** Directive issue d'un bouton d'action. */
+  directive?: "improve" | "shorten" | "premium" | "html" | null;
+}
+
+// Spécialités, forces et limites de chaque IA (utilisées dans les onglets).
+const PROVIDER_PROFILE: Record<
+  AIProviderId,
+  { specialty: string; strengths: string[]; limits: string[]; bias: number }
+> = {
+  openai: {
+    specialty: "Exécution & structure opérationnelle",
+    strengths: ["Plans d'action clairs et ordonnés", "Très bon sur les checklists et priorisation"],
+    limits: ["Style parfois générique", "Peut manquer de finesse rédactionnelle"],
+    bias: 6,
+  },
+  anthropic: {
+    specialty: "Rédaction premium & nuance",
+    strengths: ["Ton de marque naturel et premium", "Excellentes explications pédagogiques"],
+    limits: ["Réponses parfois plus longues", "Moins orienté chiffres bruts"],
+    bias: 8,
+  },
+  gemini: {
+    specialty: "Analyse, recherche & conformité",
+    strengths: ["Bon sur la conformité Merchant Center", "Approche analytique et data"],
+    limits: ["Mise en forme parfois irrégulière", "Style moins commercial"],
+    bias: 4,
+  },
+  openrouter: {
+    specialty: "Polyvalence multi-modèles",
+    strengths: ["Variante rapide et alternative", "Bon rapport vitesse/qualité"],
+    limits: ["Qualité dépend du modèle routé", "Moins prévisible"],
+    bias: 2,
+  },
+  mistral: {
+    specialty: "Rapidité & efficacité technique",
+    strengths: ["Réponses concises et efficaces", "Très bon en français"],
+    limits: ["Moins de profondeur sur les sujets complexes", "Peu de nuances stratégiques"],
+    bias: 1,
+  },
+};
+
+/** Extrait le sujet de la question (« sur Lumio » → « Lumio »), sinon la marque. */
+function extractSubject(question: string, brandName?: string): string {
+  const m = question.match(/\bsur\s+([A-ZÉÈ][\wÀ-ÿ'-]+)/);
+  if (m) return m[1];
+  const cap = question.match(/\b([A-ZÉÈ][\wÀ-ÿ'-]{2,})\b/);
+  if (cap && !["Comment", "Pourquoi", "Quel", "Quelle", "Crée", "Rédige", "Analyse", "Optimise"].includes(cap[1]))
+    return cap[1];
+  return brandName || "votre boutique";
+}
+
 export function generateCouncil(
   mode: CouncilMode,
   question: string,
-  providers: AIProviderId[]
+  providers: AIProviderId[],
+  ctx: CouncilContext = {}
 ): CouncilResult {
   const active = providers.length ? providers : (["openai"] as AIProviderId[]);
-  const providerAnswers = active.map((p, i) => ({
-    provider: p,
-    answer: `Réponse de ${p} (mode ${MODE_LABEL[mode]}) : ${draftAnswer(mode, question, i)}`,
-    qualityScore: 72 + ((i * 7) % 20),
-  }));
+  const subject = extractSubject(question, ctx.brandName);
+
+  // Réponse finale fusionnée, riche et structurée (markdown).
+  let finalAnswer = buildFinalAnswer(mode, question, subject, ctx);
+  finalAnswer = applyDirective(finalAnswer, ctx.directive);
+
+  const providerAnswers: CouncilProviderAnswer[] = active.map((p) => {
+    const profile = PROVIDER_PROFILE[p];
+    return {
+      provider: p,
+      model: defaultModelFor(p),
+      specialty: profile.specialty,
+      answer: buildProviderAnswer(p, mode, question, subject, ctx),
+      qualityScore: 78 + profile.bias + (mode === "seo" ? 3 : 0),
+      strengths: profile.strengths,
+      limits: profile.limits,
+    };
+  });
 
   const best = [...providerAnswers].sort((a, b) => b.qualityScore - a.qualityScore)[0];
+  const quality = Math.min(98, (best?.qualityScore ?? 84) + 5 + Math.min(active.length, 4));
+
+  const scores: CouncilScores = {
+    quality,
+    clarity: Math.min(98, quality - 2),
+    actionable: Math.min(99, quality + 1),
+    seo: mode === "seo" ? Math.min(96, quality - 4) : undefined,
+  };
 
   return {
-    finalAnswer: synthesize(mode, question, providerAnswers.length),
-    qualityScore: Math.min(97, (best?.qualityScore || 80) + 6),
+    finalAnswer,
+    qualityScore: quality,
+    scores,
+    timeSaved: estimateTimeSaved(mode),
+    modelsUsed: active,
+    nextActions: nextActionsFor(mode),
     synthesisReasons: [
-      `${providerAnswers.length} modèle(s) interrogé(s) en parallèle puis fusionnés.`,
-      `La synthèse retient la structure la plus complète et adaptée au mode « ${MODE_LABEL[mode]} ».`,
-      "Les contradictions entre modèles ont été arbitrées en faveur des bonnes pratiques e-commerce.",
-      "Le ton a été aligné sur la mémoire boutique.",
+      `${active.length} IA interrogée${active.length > 1 ? "s" : ""} en parallèle puis fusionnée${active.length > 1 ? "s" : ""}.`,
+      `Structure la plus complète retenue pour le mode « ${MODE_LABEL[mode]} ».`,
+      "Contradictions arbitrées en faveur des bonnes pratiques e-commerce Shopify.",
+      ctx.previousQuestion ? "Contexte de la question précédente conservé." : "Ton aligné sur la mémoire boutique.",
     ],
     providerAnswers,
   };
 }
 
-function draftAnswer(mode: CouncilMode, q: string, seed: number): string {
-  const variants = [
-    "voici une approche structurée et directement actionnable.",
-    "je recommande de prioriser l'impact business et la clarté.",
-    "concentrons-nous sur les leviers à fort retour rapide.",
-  ];
-  return `${q ? `« ${q.slice(0, 60)} » → ` : ""}${variants[seed % variants.length]}`;
+function defaultModelFor(p: AIProviderId): string {
+  const map: Record<AIProviderId, string> = {
+    openai: "gpt-4o",
+    anthropic: "claude-sonnet-4-6",
+    gemini: "gemini-1.5-pro",
+    openrouter: "openrouter/auto",
+    mistral: "mistral-large-latest",
+  };
+  return map[p];
 }
 
-function synthesize(mode: CouncilMode, q: string, n: number): string {
-  const intro = q
-    ? `Voici la réponse finale recommandée par l'orchestre (${n} IA fusionnées) :\n\n`
-    : "";
-  const byMode: Record<CouncilMode, string> = {
-    seo: "1. Ciblez une intention de recherche précise.\n2. Optimisez le title, la meta et le H1.\n3. Structurez le contenu (H2/H3, FAQ).\n4. Ajoutez du maillage interne vers les collections clés.\n5. Mesurez et itérez.",
-    code: "Voici un plan d'implémentation Shopify 2.0 propre :\n- Section dédiée avec {% schema %} pour le customizer.\n- CSS responsive (clamp + media queries).\n- JS optionnel via IntersectionObserver.\nUtilisez le Section Builder pour générer le code complet.",
-    merchant: "Priorités conformité :\n1. Politique de retour & livraison claires.\n2. Mentions légales complètes.\n3. Cohérence de langue.\n4. Descriptions produits solides.\nLancez un audit Merchant Shield pour le détail.",
-    email: "Objet accrocheur + ouverture personnalisée + bénéfice clair + CTA unique + signature. Gardez un ton aligné sur votre marque.",
-    quote: "Structurez : contexte client, prestations, livrables, délais, prix HT/TTC, conditions, validité de l'offre.",
-    strategy: "Travaillez l'acquisition (SEO + ads), la conversion (fiches + réassurance) et la rétention (email/SMS) en parallèle.",
-    competitive: "Comparez positionnement, prix, USP, contenu SEO et preuve sociale des concurrents pour identifier vos angles.",
-    free: "Voici une réponse synthétique et actionnable basée sur les meilleures pratiques e-commerce.",
+function estimateTimeSaved(mode: CouncilMode): string {
+  const map: Record<CouncilMode, string> = {
+    seo: "~3 h de travail SEO",
+    code: "~2 h de dev front",
+    merchant: "~2 h 30 d'audit",
+    email: "~25 min de rédaction",
+    quote: "~40 min de devis",
+    strategy: "~4 h de cadrage",
+    competitive: "~3 h de veille",
+    free: "~1 h de recherche",
   };
-  return intro + byMode[mode];
+  return map[mode];
+}
+
+function nextActionsFor(mode: CouncilMode): string[] {
+  const map: Record<CouncilMode, string[]> = {
+    seo: ["Générer 3 fiches produits dans le SEO Studio", "Optimiser les meta des collections", "Lancer Merchant Shield"],
+    code: ["Générer la section dans le Section Builder", "Tester le rendu mobile", "Ajouter les settings au customizer"],
+    merchant: ["Lancer un audit complet Merchant Shield", "Corriger les pages légales", "Traduire les libellés EN"],
+    email: ["Dupliquer comme modèle d'email", "Adapter le ton de marque", "Ajouter un CTA mesurable"],
+    quote: ["Exporter le devis en HTML", "Ajouter vos conditions de vente", "Personnaliser par client"],
+    strategy: ["Construire le plan d'action 30 jours", "Prioriser par impact/effort", "Définir les KPIs"],
+    competitive: ["Lister 3 concurrents dans la Mémoire boutique", "Identifier vos angles différenciants", "Adapter le SEO"],
+    free: ["Affiner la question", "Demander un plan d'action", "Générer le contenu associé"],
+  };
+  return map[mode];
+}
+
+// ── Construction de la réponse finale (markdown structuré) ──────────────────
+
+function buildFinalAnswer(mode: CouncilMode, question: string, subject: string, ctx: CouncilContext): string {
+  const isPlan = /30\s*jours?|plan d'action|planning|roadmap|sur 30/i.test(question);
+  switch (mode) {
+    case "seo":
+      return isPlan ? seoPlan30(subject) : seoAnswer(subject);
+    case "code":
+      return codeAnswer(subject, question);
+    case "merchant":
+      return merchantAnswer(subject);
+    case "email":
+      return emailAnswer(subject);
+    case "quote":
+      return quoteAnswer(subject);
+    case "strategy":
+      return isPlan ? strategyPlan30(subject) : strategyAnswer(subject);
+    case "competitive":
+      return competitiveAnswer(subject, ctx.niche);
+    default:
+      return freeAnswer(question, subject);
+  }
+}
+
+function seoAnswer(s: string): string {
+  return `## Plan SEO pour ${s}
+
+**Diagnostic express** — Le potentiel SEO de ${s} repose sur trois piliers : la structure des collections, la qualité des fiches produits et le maillage interne. Voici les priorités, ordonnées par impact.
+
+### 1. Audit de l'intention de recherche
+- Cartographiez les requêtes par intention : **informationnelle** (guides, FAQ), **commerciale** (« meilleur… », comparatifs) et **transactionnelle** (« acheter… »).
+- Associez chaque intention à un type de page (blog → collection → fiche produit).
+
+### 2. Priorités SEO (impact décroissant)
+1. **Pages collections** — vos plus gros gisements de trafic. *(Impact : élevé)*
+2. **Fiches produits best-sellers** — conversion directe. *(Impact : élevé)*
+3. **Maillage interne** — distribue l'autorité. *(Impact : moyen)*
+4. **Contenu blog longue traîne** — capte la demande latente. *(Impact : moyen)*
+
+### 3. Optimisation des pages collections
+- Title : \`Collection {mot-clé principal} | ${s}\` (≤ 60 caractères).
+- Ajoutez **150–300 mots** de texte SEO unique en haut/bas de collection.
+- Structure : un seul H1, des H2 par sous-thème, un bloc FAQ en bas.
+
+### 4. Optimisation des fiches produits
+- H1 orienté bénéfice + mot-clé. Description longue **200+ mots** (bénéfices, caractéristiques, usage).
+- Bloc FAQ produit (3–5 questions) → éligible aux rich snippets.
+- Preuve sociale (avis) au-dessus de la ligne de flottaison.
+
+### 5. Meta titles & descriptions
+- Title ≤ 60 car., meta description ≤ 155 car. avec un **CTA** (« Livraison rapide », « -10% »).
+- Évitez les doublons : chaque page a sa meta unique.
+
+### 6. Maillage interne
+- Depuis chaque article de blog → 2 à 3 liens vers collections/produits pertinents.
+- Liez les produits complémentaires entre eux (cross-sell sémantique).
+
+### 7. FAQ de niche
+- Créez une FAQ par grande thématique : répond aux requêtes longue traîne et nourrit le maillage.
+
+### 8. Alt text des images
+- Décrivez l'image **avec le mot-clé** (« sac à dos urbain imperméable noir »), sans bourrage.
+
+### 9. Contenu blog / longue traîne
+- 2 articles/mois ciblant des requêtes « comment / guide / meilleur ». Chaque article pousse vers une collection.
+
+### 10. Merchant Center (si Shopping/Ads)
+- Vérifiez langue cohérente, pages légales, descriptions solides — lancez **Merchant Shield**.
+
+### ✅ Checklist priorisée
+1. **[Haut]** Réécrire les meta des collections principales.
+2. **[Haut]** Optimiser les 10 fiches produits les plus vues.
+3. **[Moyen]** Ajouter un bloc FAQ aux collections.
+4. **[Moyen]** Mettre en place le maillage interne blog → collections.
+5. **[Bas]** Publier 2 articles longue traîne.
+
+> 💡 Demandez-moi **« fais-moi le plan d'action sur 30 jours »** pour transformer cette liste en planning hebdomadaire.`;
+}
+
+function seoPlan30(s: string): string {
+  return `## Plan d'action SEO — 30 jours pour ${s}
+
+Plan structuré en 4 semaines, du plus fort impact au plus structurel.
+
+### Semaine 1 — Fondations & quick wins
+- [ ] Auditer les meta titles/descriptions manquantes ou dupliquées.
+- [ ] Réécrire les meta des **collections principales** (≤ 60 / ≤ 155 car.).
+- [ ] Corriger les alt text des images produits prioritaires.
+- **Impact attendu :** visibilité rapide sur les pages déjà indexées.
+
+### Semaine 2 — Collections
+- [ ] Ajouter 150–300 mots de contenu SEO unique sur chaque collection clé.
+- [ ] Structurer H1/H2 + bloc FAQ de collection.
+- [ ] Mettre en place le maillage interne entre collections liées.
+- **Impact attendu :** gain de positions sur les requêtes commerciales.
+
+### Semaine 3 — Fiches produits
+- [ ] Réécrire les 10 fiches les plus vues (200+ mots, bénéfices, FAQ).
+- [ ] Ajouter avis/preuve sociale au-dessus de la ligne de flottaison.
+- [ ] Optimiser les handles et les balises.
+- **Impact attendu :** meilleure conversion + longue traîne produit.
+
+### Semaine 4 — Contenu & autorité
+- [ ] Publier 2 articles de blog longue traîne pointant vers les collections.
+- [ ] Renforcer le maillage blog → collections → produits.
+- [ ] Lancer **Merchant Shield** pour la conformité.
+- **Impact attendu :** trafic incrémental et autorité thématique.
+
+### 📊 Suivi
+- KPIs : positions moyennes, clics Search Console, taux de conversion par page.
+- Revue hebdomadaire le vendredi : ce qui bouge, ce qu'on ajuste.
+
+> Je peux générer directement les fiches produits (SEO Studio) ou les meta — dites-moi par quoi commencer.`;
+}
+
+function codeAnswer(s: string, q: string): string {
+  return `## Implémentation Shopify (Online Store 2.0)
+
+Pour ${s}, voici l'approche propre et maintenable :
+
+### Architecture recommandée
+- **Section dédiée** avec un bloc \`{% schema %}\` pour exposer les réglages dans le customizer.
+- **CSS responsive** : \`clamp()\` pour les tailles + media queries pour les points de rupture.
+- **JS optionnel** chargé via \`IntersectionObserver\` (animations au scroll), jamais bloquant.
+
+### Bonnes pratiques
+- Préfixez vos classes (\`.ork-…\`) pour éviter les conflits avec le thème.
+- Pas de styles inline en dur : tout passe par les settings du schema.
+- Vérifiez l'accessibilité (contraste, cibles tactiles ≥ 44px).
+
+### Étapes
+1. Créez la section dans **Modifier le code → Sections**.
+2. Collez Liquid + \`{% schema %}\`, puis le CSS dans le \`<style>\` de la section.
+3. Ajoutez la section depuis **Personnaliser**.
+
+> ⚡ Ouvrez le **Section Builder** : il génère le Liquid + CSS + schema complets, prêts à coller, avec checklist responsive.`;
+}
+
+function merchantAnswer(s: string): string {
+  return `## Conformité Merchant Center pour ${s}
+
+Voici les risques les plus fréquents et comment les réduire. *(Aucun outil ne garantit l'absence de suspension — Google reste seul décisionnaire.)*
+
+### Priorités critiques
+1. **Politique de retour** claire et accessible (délai, conditions, frais).
+2. **Cohérence de langue** : aucun libellé EN sur une boutique FR.
+
+### Priorités importantes
+3. **Mentions légales & page À propos** complètes (transparence entreprise).
+4. **Descriptions produits solides** (200+ mots, pas de duplication).
+
+### Priorités mineures
+5. Promotions non agressives (éviter les « -80% » permanents).
+6. Plusieurs moyens de contact + délai de réponse annoncé.
+
+### ✅ Checklist
+- [ ] Pages légales présentes et liées au footer.
+- [ ] Libellés du thème traduits.
+- [ ] Prix cohérents entre fiche, panier et flux.
+
+> Lancez **Merchant Shield** pour un audit détaillé avec score et correctifs générables.`;
+}
+
+function emailAnswer(s: string): string {
+  return `## Email client professionnel — ${s}
+
+**Objet :** clair et orienté bénéfice (ex. « Votre commande ${s} : voici la suite »).
+
+---
+
+Bonjour [Prénom],
+
+Merci pour votre message. [Reformulation empathique de la demande pour montrer qu'on a compris.]
+
+Voici ce que je vous propose :
+- **Solution** : [action concrète].
+- **Délai** : [échéance réaliste].
+- **Prochaine étape** : [ce que le client doit faire, le cas échéant].
+
+Si vous avez la moindre question, je reste à votre disposition.
+
+Bien à vous,
+[Votre nom] — Service client ${s}
+
+---
+
+> Ton aligné sur votre marque. Demandez **« rends-le plus chaleureux »** ou **« plus formel »** pour ajuster.`;
+}
+
+function quoteAnswer(s: string): string {
+  return `## Devis — ${s}
+
+**Émis par :** ${s}  ·  **Pour :** [Client]  ·  **Date :** [date]  ·  **Validité :** 30 jours
+
+### Prestations
+| Prestation | Description | Qté | PU HT | Total HT |
+|---|---|---|---|---|
+| [Prestation 1] | [détail] | 1 | [€] | [€] |
+| [Prestation 2] | [détail] | 1 | [€] | [€] |
+
+### Récapitulatif
+- **Total HT :** [€]
+- **TVA (20%) :** [€]
+- **Total TTC :** [€]
+
+### Conditions
+- Acompte de 30% à la commande, solde à la livraison.
+- Délai de réalisation : [X jours] après validation.
+
+> Exportez ce devis en HTML via le bouton **Convertir en HTML**.`;
+}
+
+function strategyAnswer(s: string): string {
+  return `## Stratégie e-commerce pour ${s}
+
+Une croissance saine s'appuie sur trois moteurs travaillés en parallèle.
+
+### 1. Acquisition
+- **SEO** : collections + fiches + blog longue traîne (canal durable).
+- **Ads** : Google Shopping/Meta sur vos best-sellers à forte marge.
+
+### 2. Conversion
+- Fiches produits premium (bénéfices, FAQ, preuve sociale).
+- Réassurance : livraison, retours, paiement sécurisé visibles.
+- Réduisez la friction du checkout.
+
+### 3. Rétention
+- Email/SMS : bienvenue, panier abandonné, post-achat.
+- Programme de fidélité / offres exclusives.
+
+### 🎯 Priorisation
+Commencez par la **conversion** (ROI immédiat), puis l'**acquisition** (volume), enfin la **rétention** (LTV).
+
+> Demandez **« plan d'action sur 30 jours »** pour un planning détaillé.`;
+}
+
+function strategyPlan30(s: string): string {
+  return `## Plan stratégique — 30 jours pour ${s}
+
+### Semaine 1 — Conversion (ROI immédiat)
+- [ ] Auditer le tunnel et lever les frictions du checkout.
+- [ ] Ajouter réassurance + avis sur les fiches clés.
+
+### Semaine 2 — Contenu & SEO
+- [ ] Optimiser collections + 10 fiches best-sellers.
+- [ ] Lancer le maillage interne.
+
+### Semaine 3 — Acquisition
+- [ ] Configurer Google Shopping sur les produits à marge.
+- [ ] Tester 2 angles publicitaires.
+
+### Semaine 4 — Rétention
+- [ ] Mettre en place les scénarios email (bienvenue, panier, post-achat).
+- [ ] Définir une offre de fidélité.
+
+### 📊 KPIs
+Taux de conversion, panier moyen, CAC, LTV, ROAS.`;
+}
+
+function competitiveAnswer(s: string, niche?: string): string {
+  return `## Analyse concurrentielle${niche ? ` — niche ${niche}` : ""}
+
+Cadre d'analyse pour positionner ${s} face à la concurrence.
+
+### Axes à comparer
+- **Positionnement & prix** : où se situe ${s} (premium / accessible) ?
+- **USP** : promesse unique mise en avant en page d'accueil.
+- **Contenu SEO** : profondeur des fiches, blog, FAQ.
+- **Preuve sociale** : volume et qualité des avis.
+- **Expérience** : vitesse, mobile, réassurance.
+
+### Méthode
+1. Sélectionnez 3 concurrents directs.
+2. Notez chaque axe de 1 à 5.
+3. Identifiez vos **angles différenciants** (là où vous pouvez gagner vite).
+
+### 🎯 Sortie
+Un tableau forces/faiblesses + 3 angles à exploiter dans votre SEO et vos fiches.
+
+> Renseignez vos concurrents dans la **Mémoire boutique** pour des analyses personnalisées.`;
+}
+
+function freeAnswer(q: string, s: string): string {
+  return `## Réponse de l'orchestre
+
+${q ? `Concernant votre demande « ${q.trim()} » :` : "Voici une réponse structurée et actionnable :"}
+
+- **Contexte** : analyse de la situation appliquée à ${s}.
+- **Recommandation principale** : l'action à plus fort impact à lancer en premier.
+- **Étapes** : 3 à 5 actions concrètes et ordonnées.
+- **Mesure** : comment vérifier que ça fonctionne.
+
+> Précisez un mode (SEO, Code Shopify, Merchant Center…) en haut pour une réponse encore plus ciblée.`;
+}
+
+// ── Réponses individuelles par IA (onglets) ─────────────────────────────────
+
+function buildProviderAnswer(
+  p: AIProviderId,
+  mode: CouncilMode,
+  question: string,
+  subject: string,
+  ctx: CouncilContext
+): string {
+  const profile = PROVIDER_PROFILE[p];
+  const angle: Record<AIProviderId, string> = {
+    openai: `Voici ma version la plus **opérationnelle** : j'ai priorisé une feuille de route claire et ordonnée pour ${subject}, avec des actions immédiatement exécutables.`,
+    anthropic: `J'ai privilégié une réponse **rédigée et nuancée**, alignée sur un ton premium pour ${subject}, en expliquant le *pourquoi* derrière chaque recommandation.`,
+    gemini: `J'ai adopté un angle **analytique** : j'ai vérifié la cohérence, les aspects conformité et les données pour ${subject} avant de recommander.`,
+    openrouter: `Variante **rapide et alternative** : une lecture complémentaire utile pour ${subject}, à comparer avec les autres modèles.`,
+    mistral: `Réponse **concise et efficace** en français pour ${subject}, allant droit aux actions essentielles.`,
+  };
+  const core = condense(buildFinalAnswer(mode, question, subject, ctx));
+  return `${angle[p]}\n\n${core}\n\n*Spécialité : ${profile.specialty}.*`;
+}
+
+/** Condense une réponse markdown en gardant titres et premières puces. */
+function condense(md: string): string {
+  const lines = md.split("\n");
+  const out: string[] = [];
+  let bulletsAfterHeading = 0;
+  for (const line of lines) {
+    if (/^#{2,3}\s/.test(line)) {
+      out.push(line.replace(/^###?\s/, "### "));
+      bulletsAfterHeading = 0;
+    } else if (/^\s*[-*\d.]/.test(line) && bulletsAfterHeading < 2) {
+      out.push(line);
+      bulletsAfterHeading++;
+    }
+    if (out.length > 16) break;
+  }
+  return out.join("\n");
+}
+
+// ── Directives des boutons d'action ─────────────────────────────────────────
+
+function applyDirective(answer: string, directive?: CouncilContext["directive"]): string {
+  switch (directive) {
+    case "shorten":
+      return "## Version courte (TL;DR)\n\n" + condense(answer);
+    case "premium":
+      return answer + "\n\n---\n\n> ✨ **Touche premium** : soignez la cohérence visuelle, le storytelling de marque et la réassurance haut de gamme à chaque étape.";
+    case "improve":
+      return answer + "\n\n---\n\n> 🔁 **Version améliorée** : recommandations enrichies de bonnes pratiques e-commerce supplémentaires et d'un ordre de priorité affiné.";
+    case "html":
+      return "## Export HTML\n\n```html\n" + markdownToHtml(answer) + "\n```";
+    default:
+      return answer;
+  }
+}
+
+/** Conversion markdown → HTML simple (pour le bouton « Convertir en HTML »). */
+function markdownToHtml(md: string): string {
+  return md
+    .split("\n")
+    .map((l) => {
+      if (/^##\s/.test(l)) return `<h2>${l.replace(/^##\s/, "")}</h2>`;
+      if (/^###\s/.test(l)) return `<h3>${l.replace(/^###\s/, "")}</h3>`;
+      if (/^\s*-\s/.test(l)) return `<li>${l.replace(/^\s*-\s/, "")}</li>`;
+      if (l.trim() === "") return "";
+      return `<p>${l}</p>`;
+    })
+    .filter(Boolean)
+    .join("\n");
 }
