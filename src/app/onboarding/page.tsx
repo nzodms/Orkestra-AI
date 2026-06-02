@@ -7,9 +7,18 @@ import { PROVIDER_ORDER } from "@/lib/providers";
 import { buildDetectedProfile, buildAnalysis } from "@/lib/store-profile";
 import { ProviderCard } from "@/components/ProviderCard";
 import { Button } from "@/components/ui/Button";
-import { Field } from "@/components/ui/primitives";
+import { Field, Badge } from "@/components/ui/primitives";
 import type { Positioning } from "@/lib/types";
-import { Sparkles, Check, ArrowRight, ArrowLeft, Store, Palette, Plug, ScanSearch } from "lucide-react";
+import Link from "next/link";
+import { scoreTone } from "@/lib/utils";
+import type { ModuleId } from "@/lib/types";
+import { Sparkles, Check, ArrowRight, ArrowLeft, Store, Palette, Plug, ScanSearch, Eye, Lock, Globe, Wrench } from "lucide-react";
+
+const MODULE_ROUTE: Record<ModuleId, string> = {
+  dashboard: "/dashboard", seo: "/seo", sections: "/sections", council: "/council",
+  merchant: "/merchant", assistant: "/assistant", memory: "/memory", history: "/history", settings: "/settings",
+};
+const SEV_TONE: Record<string, "bad" | "warn" | "neutral"> = { critique: "bad", important: "warn", mineur: "neutral" };
 
 const STEPS = [
   { id: 1, label: "Boutique", icon: Store },
@@ -29,7 +38,7 @@ const POSITIONINGS: { id: Positioning; label: string }[] = [
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { brand, updateBrand, connections, setOnboardingComplete, setStoreScanned, setAnalysis } = useOrkestra();
+  const { brand, updateBrand, connections, setOnboardingComplete, setStoreScanned, setAnalysis, analysis } = useOrkestra();
   const [step, setStep] = useState(1);
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
@@ -49,8 +58,8 @@ export default function OnboardingPage() {
     // Détection dynamique basée UNIQUEMENT sur les infos saisies par l'utilisateur.
     const detected = buildDetectedProfile(brand);
     updateBrand(detected);
-    // L'analyse est calculée sur la base de la boutique mise à jour.
-    setAnalysis(buildAnalysis({ ...brand, ...detected }, "simulation"));
+    // Scan public : analyse "vue visiteur" basée sur l'URL publique + infos saisies.
+    setAnalysis(buildAnalysis({ ...brand, ...detected }, "public"));
     setStoreScanned(true);
     setScanning(false);
     setScanned(true);
@@ -227,36 +236,103 @@ export default function OnboardingPage() {
           {step === 4 && (
             <div className="space-y-5 animate-step-in">
               <div>
-                <h2 className="text-xl font-bold">Connectez et scannez votre boutique</h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl font-bold">Scan public — vue client</h2>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 dark:bg-brand-950 dark:text-brand-300">
+                    <Eye className="h-3.5 w-3.5" /> Vue visiteur
+                  </span>
+                </div>
                 <p className="mt-1 text-sm text-[var(--text-muted)]">
-                  Reliez votre Admin API Shopify, ou continuez en mode manuel. Le scan détecte niche, collections et opportunités.
+                  Orkestra analyse votre boutique comme un client ou Google la voit publiquement. Simple, rapide, sans configuration technique.
                 </p>
               </div>
+
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="URL de la boutique">
-                  <input className="input" value={brand.shopifyUrl} onChange={(e) => updateBrand({ shopifyUrl: e.target.value })} placeholder="maboutique.myshopify.com" />
+                <Field label="Lien public de la boutique" hint="L'adresse que voient vos clients">
+                  <input className="input" value={brand.publicUrl} onChange={(e) => updateBrand({ publicUrl: e.target.value })} placeholder="https://maboutique.com" />
                 </Field>
-                <Field label="Token Admin API" hint="OAuth arrive bientôt. Mode manuel disponible.">
-                  <input className="input font-mono" type="password" placeholder="shpat_••••••••" />
+                <Field label="Lien admin Shopify (optionnel)" hint="Sert uniquement à identifier votre boutique">
+                  <input className="input" value={brand.adminUrl} onChange={(e) => updateBrand({ adminUrl: e.target.value })} placeholder="https://admin.shopify.com/store/nom-boutique" />
                 </Field>
               </div>
 
+              {/* Mention claire */}
+              <div className="flex items-start gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5">
+                <Globe className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                <p className="text-xs text-[var(--text-muted)]">
+                  Ce scan analyse votre boutique comme un visiteur. Pour une analyse complète des produits, meta, alt text et données internes Shopify, une connexion API sera disponible ensuite.
+                </p>
+              </div>
+
+              {/* Option avancée : API Shopify (bientôt) */}
+              <div className="flex items-center justify-between rounded-xl border border-dashed border-[var(--border)] px-3.5 py-3 opacity-80">
+                <div className="flex items-center gap-2.5">
+                  <Lock className="h-4 w-4 text-ink-400" />
+                  <div>
+                    <div className="text-sm font-medium">Connexion API Shopify (avancé)</div>
+                    <div className="text-xs text-[var(--text-muted)]">Token Admin API pour l'analyse interne complète.</div>
+                  </div>
+                </div>
+                <span className="rounded-full bg-ink-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink-500 dark:bg-ink-900">Bientôt disponible</span>
+              </div>
+
               {!scanned ? (
-                <Button size="lg" loading={scanning} onClick={runScan} icon={!scanning ? <ScanSearch className="h-4 w-4" /> : undefined} className="w-full">
-                  {scanning ? "Analyse de votre boutique en cours…" : "Scanner ma boutique"}
+                <Button size="lg" loading={scanning} onClick={runScan} icon={!scanning ? <ScanSearch className="h-4 w-4" /> : undefined} className="w-full" disabled={scanning || !brand.publicUrl.trim()}>
+                  {scanning ? "Scan public en cours…" : "Lancer le scan public"}
                 </Button>
               ) : (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900 dark:bg-emerald-950/40 animate-scale-in">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                    <span className="grid h-7 w-7 place-items-center rounded-full bg-emerald-500 text-white animate-pop"><Check className="h-4 w-4" /></span>
-                    Boutique analysée avec succès
+                <div className="space-y-4 animate-scale-in">
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/40">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                      <span className="grid h-7 w-7 place-items-center rounded-full bg-emerald-500 text-white animate-pop"><Check className="h-4 w-4" /></span>
+                      Scan public terminé · {brand.niche}
+                    </div>
                   </div>
-                  <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                    <div><span className="text-[var(--text-muted)]">Niche :</span> {brand.niche}</div>
-                    <div><span className="text-[var(--text-muted)]">Collections :</span> {brand.collections.length}</div>
-                    <div><span className="text-[var(--text-muted)]">Types produits :</span> {brand.productTypes.length}</div>
-                    <div><span className="text-[var(--text-muted)]">Mots-clés :</span> {brand.primaryKeywords.length}</div>
-                  </div>
+
+                  {/* Scores du scan */}
+                  {analysis && (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {[
+                        { label: "SEO visible", v: analysis.scores.seo },
+                        { label: "Confiance", v: analysis.scores.trust },
+                        { label: "Conversion", v: analysis.scores.conversion },
+                        { label: "Merchant apparent", v: analysis.scores.merchant },
+                      ].map((sc) => {
+                        const tone = scoreTone(sc.v);
+                        return (
+                          <div key={sc.label} className="rounded-xl border border-[var(--border)] p-3 text-center">
+                            <div className={`text-xl font-bold ${tone === "good" ? "text-emerald-600" : tone === "warn" ? "text-amber-600" : "text-red-500"}`}>{sc.v}</div>
+                            <div className="mt-0.5 text-[11px] text-[var(--text-muted)]">{sc.label}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Problèmes détectés (top 3) */}
+                  {analysis && analysis.issues.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-ink-400">Problèmes détectés</div>
+                      {analysis.issues.slice(0, 3).map((issue, i) => (
+                        <div key={i} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] p-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate text-sm font-medium">{issue.area}</span>
+                              <Badge tone={SEV_TONE[issue.severity]}>{issue.severity}</Badge>
+                            </div>
+                            <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">{issue.fix}</p>
+                          </div>
+                          <Link href={MODULE_ROUTE[issue.module]} className="shrink-0">
+                            <Button variant="ghost" size="sm" icon={<Wrench className="h-3.5 w-3.5" />}>Corriger</Button>
+                          </Link>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <p className="text-center text-xs text-[var(--text-muted)]">
+                    Résultats complets disponibles dans le Dashboard, la Mémoire boutique, Merchant Shield et l&apos;AI Council.
+                  </p>
                 </div>
               )}
             </div>

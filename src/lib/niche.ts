@@ -25,6 +25,8 @@ export type NicheKey =
 export interface NicheCtx {
   brandName?: string;
   niche?: string;
+  /** URL publique / admin — utilisée aussi pour deviner la niche. */
+  url?: string;
   language?: string;
   positioning?: string;
   country?: string;
@@ -300,7 +302,7 @@ export function detectNiche(text: string | undefined): NicheKey {
 }
 
 export function getPreset(ctx: NicheCtx): { key: NicheKey; preset: NichePreset } {
-  const key = detectNiche(`${ctx.niche ?? ""} ${ctx.brandName ?? ""}`);
+  const key = detectNiche(`${ctx.niche ?? ""} ${ctx.brandName ?? ""} ${ctx.url ?? ""}`);
   return { key, preset: NICHES[key] };
 }
 
@@ -336,6 +338,7 @@ export function buildScores(ctx: NicheCtx): StoreScores {
     merchant: seeded(h >> 2, 45, 70),
     conversion: seeded(h >> 4, 52, 78),
     content: seeded(h >> 6, 42, 68),
+    trust: seeded(h >> 8, 46, 74),
   };
 }
 

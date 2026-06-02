@@ -150,8 +150,8 @@ export default function DashboardPage() {
           <ActionRow
             done={storeReady}
             icon={Store}
-            title="Connecter / scanner Shopify"
-            desc="Connectez Shopify ou lancez un scan pour détecter niche, collections, produits et opportunités SEO."
+            title="Scanner ma boutique (vue client)"
+            desc="Lancez un scan public à partir du lien de votre boutique pour détecter niche, collections et opportunités. Connexion API Shopify bientôt disponible."
             doneDetail={analysis ? `${brand.collections.length} collection(s) · analyse ${analysis.confidence}` : ""}
             href="/onboarding"
             tone="important"

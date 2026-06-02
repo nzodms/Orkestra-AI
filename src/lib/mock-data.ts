@@ -12,6 +12,8 @@ import type { BrandMemory } from "./types";
 export const DEFAULT_BRAND_MEMORY: BrandMemory = {
   storeName: "",
   shopifyUrl: "",
+  publicUrl: "",
+  adminUrl: "",
   niche: "",
   country: "France",
   language: "Français",

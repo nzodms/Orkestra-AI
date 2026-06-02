@@ -101,7 +101,8 @@ export default function MemoryPage() {
           <CardHeader icon={<Store className="h-[18px] w-[18px]" />} title="Identité" />
           <div className="divide-y divide-[var(--border)]">
             <Row label="Nom de marque" value={brand.storeName} />
-            <Row label="URL Shopify" value={brand.shopifyUrl} />
+            <Row label="Lien public" value={brand.publicUrl || brand.shopifyUrl} />
+            <Row label="Lien admin Shopify" value={brand.adminUrl} />
             <Row label="Niche détectée" value={brand.niche} />
             <Row label="Pays cible" value={brand.country} />
             <Row label="Langue du site" value={brand.language} />

@@ -70,7 +70,7 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="font-medium">{brand.storeName || "Boutique sans nom"}</div>
-                    <div className="text-xs text-[var(--text-muted)]">{brand.shopifyUrl || "URL non renseignée"}</div>
+                    <div className="text-xs text-[var(--text-muted)]">{brand.publicUrl || brand.shopifyUrl || "URL non renseignée"}</div>
                   </div>
                   <Badge tone="brand">Active</Badge>
                 </div>

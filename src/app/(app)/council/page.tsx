@@ -95,6 +95,7 @@ export default function CouncilPage() {
         context: {
           brandName: brand.storeName || undefined,
           niche: brand.niche || undefined,
+          url: `${brand.publicUrl} ${brand.adminUrl}`.trim() || undefined,
           positioning: brand.positioning,
           language: brand.language,
           collections: brand.collections,

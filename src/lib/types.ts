@@ -44,6 +44,10 @@ export type Positioning =
 export interface BrandMemory {
   storeName: string;
   shopifyUrl: string;
+  /** Lien public de la boutique (vue client), ex: https://maboutique.com */
+  publicUrl: string;
+  /** Lien admin Shopify (identification seulement), ex: https://admin.shopify.com/store/xxx */
+  adminUrl: string;
   niche: string;
   country: string;
   language: string;
@@ -74,6 +78,8 @@ export interface StoreScores {
   merchant: number;
   conversion: number;
   content: number;
+  /** Score de confiance perçue (réassurance, légal, contact…). */
+  trust: number;
 }
 
 export interface DashboardMetrics {
@@ -231,7 +237,7 @@ export interface StoreAnalysis {
   productPageStructure: string[];
   confidence: string;
   lastScanAt: string;
-  source: "manuel" | "scan" | "simulation";
+  source: "manuel" | "scan" | "simulation" | "public";
 }
 
 export interface CouncilResult {

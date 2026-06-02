@@ -21,6 +21,7 @@ function ctxFromBrand(brand: BrandMemory): NicheCtx {
   return {
     brandName: brand.storeName,
     niche: brand.niche,
+    url: `${brand.publicUrl} ${brand.adminUrl} ${brand.shopifyUrl}`.trim(),
     language: brand.language,
     positioning: brand.positioning,
     country: brand.country,
@@ -67,7 +68,12 @@ export function buildAnalysis(brand: BrandMemory, source: StoreAnalysis["source"
     issues: buildReviewIssues(ctx),
     homepageOrder: preset.homepageOrder,
     productPageStructure: preset.productPageStructure,
-    confidence: source === "scan" ? "élevée (scan Shopify)" : "estimée (simulation IA)",
+    confidence:
+      source === "scan"
+        ? "élevée (API Shopify)"
+        : source === "public"
+        ? "vue publique (scan visiteur)"
+        : "estimée (simulation IA)",
     lastScanAt: new Date().toISOString(),
     source,
   };

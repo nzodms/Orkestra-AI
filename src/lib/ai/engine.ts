@@ -363,6 +363,7 @@ const MODE_LABEL: Record<CouncilMode, string> = {
 export interface CouncilContext {
   brandName?: string;
   niche?: string;
+  url?: string;
   positioning?: string;
   language?: string;
   collections?: string[];
