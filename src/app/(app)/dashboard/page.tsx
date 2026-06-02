@@ -2,61 +2,56 @@
 
 import Link from "next/link";
 import { useOrkestra, connectedProviders } from "@/lib/store";
-import { DEMO_SCORES, DEMO_METRICS } from "@/lib/mock-data";
 import { scoreTone, relativeDate } from "@/lib/utils";
 import { Card, CardHeader, ScoreRing, Badge, PageHeader, Progress, EmptyState } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
+import type { StoreScores, DashboardMetrics } from "@/lib/types";
 import {
   Sparkles, Blocks, ShieldCheck, MessagesSquare, ArrowUpRight, Package, FolderOpen,
-  Languages, FileText, ImageOff, ArrowRight, Plug, Store, Lock, ScanSearch, HelpCircle, Minus,
+  Languages, FileText, ImageOff, ArrowRight, Plug, Store, ScanSearch, Minus, UserCog, Check,
 } from "lucide-react";
 
-const SCORE_CARDS = [
-  { key: "seo", label: "Score SEO", desc: "Optimisation moteurs de recherche" },
-  { key: "merchant", label: "Conformité Merchant", desc: "Risques Google Merchant Center" },
-  { key: "conversion", label: "Score conversion", desc: "Potentiel de transformation" },
-  { key: "content", label: "Score contenu", desc: "Qualité éditoriale globale" },
-] as const;
+// Question préparée → ouvre AI Council contextualisé sur la boutique active.
+function council(mode: string, q: string) {
+  return `/council?mode=${mode}&q=${encodeURIComponent(q)}`;
+}
 
-const METRICS = [
-  { key: "productsToOptimize", label: "Produits à optimiser", icon: Package, module: "/seo" },
-  { key: "collectionsWithoutSeo", label: "Collections sans SEO", icon: FolderOpen, module: "/seo" },
-  { key: "englishTextsDetected", label: "Textes anglais détectés", icon: Languages, module: "/merchant" },
-  { key: "missingMetaDescriptions", label: "Meta descriptions manquantes", icon: FileText, module: "/seo" },
-  { key: "imagesWithoutAlt", label: "Images sans alt text", icon: ImageOff, module: "/seo" },
-] as const;
+const SCORE_CARDS: { key: keyof StoreScores; label: string; desc: string; href: string }[] = [
+  { key: "seo", label: "Score SEO", desc: "Optimisation moteurs de recherche", href: council("seo", "Comment améliorer le SEO de ma boutique à partir des données analysées ?") },
+  { key: "merchant", label: "Conformité Merchant", desc: "Risques Google Merchant Center", href: "/merchant" },
+  { key: "conversion", label: "Score conversion", desc: "Potentiel de transformation", href: council("strategy", "Analyse ma boutique et propose des améliorations pour convertir davantage.") },
+  { key: "content", label: "Score contenu", desc: "Qualité éditoriale globale", href: council("seo", "Quels contenus dois-je améliorer en priorité sur ma boutique ?") },
+];
 
-// Actions "studios" — disponibles seulement après configuration.
-const STUDIO_ACTIONS = [
-  { href: "/seo", label: "Optimiser une fiche produit", icon: Sparkles },
-  { href: "/sections", label: "Créer une section Shopify", icon: Blocks },
-  { href: "/merchant", label: "Auditer ma boutique", icon: ShieldCheck },
-  { href: "/seo", label: "Générer une FAQ", icon: HelpCircle },
+const METRICS: { key: keyof DashboardMetrics; label: string; icon: React.ElementType; href: string }[] = [
+  { key: "productsToOptimize", label: "Produits à optimiser", icon: Package, href: "/seo" },
+  { key: "collectionsWithoutSeo", label: "Collections sans SEO", icon: FolderOpen, href: "/seo" },
+  { key: "englishTextsDetected", label: "Textes anglais détectés", icon: Languages, href: council("merchant", "Liste les textes anglais détectés et propose les corrections en français.") },
+  { key: "missingMetaDescriptions", label: "Meta descriptions manquantes", icon: FileText, href: "/seo" },
+  { key: "imagesWithoutAlt", label: "Images sans alt text", icon: ImageOff, href: "/seo" },
 ];
 
 export default function DashboardPage() {
-  const { brand, history, connections, storeScanned } = useOrkestra();
+  const { brand, history, connections, analysis } = useOrkestra();
   const providers = connectedProviders(connections);
   const aiConnected = providers.length > 0;
-  const storeReady = storeScanned || Boolean(brand.niche);
+  const profileComplete = Boolean(brand.storeName.trim() && brand.niche.trim());
+  const storeReady = analysis != null; // source de vérité unique
   const fullyReady = aiConnected && storeReady;
-
   const storeName = brand.storeName || "votre boutique";
-
-  // Progression de configuration (sur 100).
-  const setupProgress = (aiConnected ? 50 : 0) + (storeReady ? 50 : 0);
+  const setupProgress = (aiConnected ? 34 : 0) + (profileComplete ? 33 : 0) + (storeReady ? 33 : 0);
 
   return (
     <>
       <PageHeader
-        title={fullyReady ? "Bonjour 👋" : "Bienvenue sur Orkestra AI 👋"}
+        title={fullyReady ? `Bonjour 👋` : "Bienvenue sur Orkestra AI 👋"}
         description={
           fullyReady
             ? `Voici l'état de santé de ${storeName}. Orkestra a identifié les actions prioritaires pour progresser.`
-            : "Votre espace est prêt. Connectez vos IA et votre boutique pour qu'Orkestra puisse scanner, générer, auditer et améliorer votre boutique."
+            : "Votre espace est prêt. Complétez le profil de votre boutique et connectez vos IA pour qu'Orkestra puisse analyser, générer et auditer."
         }
         actions={
-          fullyReady ? (
+          storeReady ? (
             <Link href="/onboarding">
               <Button variant="outline" icon={<ScanSearch className="h-4 w-4" />}>Re-scanner ma boutique</Button>
             </Link>
@@ -64,7 +59,6 @@ export default function DashboardPage() {
         }
       />
 
-      {/* Bandeau de configuration — visible tant que tout n'est pas prêt */}
       {!fullyReady && (
         <Card className="mb-4 border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40">
           <div className="flex items-center justify-between">
@@ -72,64 +66,65 @@ export default function DashboardPage() {
             <span className="text-xs font-medium text-brand-700 dark:text-brand-300">{setupProgress}%</span>
           </div>
           <div className="mt-2"><Progress value={setupProgress} /></div>
-          <p className="mt-2 text-xs text-[var(--text-muted)]">
-            {!aiConnected
-              ? "Étape 1 : connectez au moins une IA pour activer les générations multi-IA."
-              : !storeReady
-              ? "Étape 2 : renseignez ou connectez votre boutique pour lancer l'analyse."
-              : ""}
-          </p>
         </Card>
       )}
 
       {/* Scores */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {SCORE_CARDS.map((s) => (
-          <Card key={s.key} className="flex items-center gap-4">
-            {storeReady ? (
-              <ScoreRing value={DEMO_SCORES[s.key]} />
-            ) : (
-              <div className="grid h-[76px] w-[76px] shrink-0 place-items-center rounded-full border-4 border-dashed border-[var(--border)] text-ink-400">
-                <Minus className="h-5 w-5" />
-              </div>
-            )}
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-[var(--text)]">{s.label}</div>
-              <p className="mt-0.5 text-xs text-[var(--text-muted)]">{s.desc}</p>
-              {storeReady ? (
-                <Badge tone={scoreTone(DEMO_SCORES[s.key])} className="mt-2">
-                  {scoreTone(DEMO_SCORES[s.key]) === "good" ? "Bon" : scoreTone(DEMO_SCORES[s.key]) === "warn" ? "À améliorer" : "Critique"}
-                </Badge>
+        {SCORE_CARDS.map((s) => {
+          const value = analysis?.scores[s.key];
+          const content = (
+            <Card className="flex h-full items-center gap-4 transition hover:border-brand-300 hover:shadow-card">
+              {typeof value === "number" ? (
+                <ScoreRing value={value} />
               ) : (
-                <Badge tone="neutral" className="mt-2">Non analysé</Badge>
+                <div className="grid h-[76px] w-[76px] shrink-0 place-items-center rounded-full border-4 border-dashed border-[var(--border)] text-ink-400">
+                  <Minus className="h-5 w-5" />
+                </div>
               )}
-            </div>
-          </Card>
-        ))}
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-[var(--text)]">{s.label}</div>
+                <p className="mt-0.5 text-xs text-[var(--text-muted)]">{s.desc}</p>
+                {typeof value === "number" ? (
+                  <Badge tone={scoreTone(value)} className="mt-2">
+                    {scoreTone(value) === "good" ? "Bon" : scoreTone(value) === "warn" ? "À améliorer" : "Critique"}
+                  </Badge>
+                ) : (
+                  <Badge tone="neutral" className="mt-2">Non analysé</Badge>
+                )}
+              </div>
+            </Card>
+          );
+          return storeReady ? (
+            <Link key={s.key} href={s.href} className="block">{content}</Link>
+          ) : (
+            <Link key={s.key} href="/onboarding" className="block">{content}</Link>
+          );
+        })}
       </div>
+
+      {!storeReady && (
+        <p className="mt-3 text-center text-xs text-[var(--text-muted)]">
+          Connectez ou scannez votre boutique pour générer les premières statistiques.
+        </p>
+      )}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         {/* Actions prioritaires */}
         <div className="space-y-3 lg:col-span-2">
           <h2 className="text-sm font-semibold text-[var(--text)]">Actions prioritaires</h2>
 
-          {/* 1. Connecter mes IA — action principale très visible */}
+          {/* 1. Connecter mes IA */}
           {!aiConnected ? (
             <div className="overflow-hidden rounded-2xl border-2 border-brand-300 bg-gradient-to-br from-brand-600 to-brand-800 p-5 text-white shadow-pop dark:border-brand-700">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/15">
-                    <Plug className="h-5 w-5" />
+              <div className="flex items-start gap-3">
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/15"><Plug className="h-5 w-5" /></div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold">Connecter mes IA</h3>
+                    <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">Priorité élevée</span>
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base font-bold">Connecter mes IA</h3>
-                      <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">Priorité élevée</span>
-                    </div>
-                    <p className="mt-1 text-sm text-brand-100">
-                      Connectez OpenAI, Claude, Gemini ou OpenRouter pour activer les générations multi-IA.
-                    </p>
-                  </div>
+                  <p className="mt-1 text-sm text-brand-100">Connectez OpenAI, Claude, Gemini ou OpenRouter pour activer les générations multi-IA.</p>
                 </div>
               </div>
               <Link href="/connect" className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-brand-700 transition hover:bg-brand-50">
@@ -140,82 +135,54 @@ export default function DashboardPage() {
             <DoneAction label="IA connectées" detail={`${providers.length} IA active${providers.length > 1 ? "s" : ""} dans l'orchestre.`} />
           )}
 
-          {/* 2. Connecter la boutique — important */}
-          {!storeReady ? (
-            <Link href="/onboarding" className="block rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-card transition hover:border-brand-300">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300">
-                    <Store className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-bold">Renseigner / connecter ma boutique</h3>
-                      <Badge tone="warn">Important</Badge>
-                    </div>
-                    <p className="mt-1 text-sm text-[var(--text-muted)]">
-                      Ajoutez les informations de votre boutique ou connectez Shopify pour qu&apos;Orkestra comprenne votre niche, vos produits, vos collections et vos opportunités SEO.
-                    </p>
-                  </div>
-                </div>
-                <ArrowUpRight className="h-5 w-5 shrink-0 text-ink-400" />
-              </div>
-            </Link>
-          ) : (
-            <DoneAction label="Boutique connectée" detail={`Niche : ${brand.niche || "renseignée"} · ${brand.collections.length} collection(s) détectée(s).`} />
-          )}
+          {/* 2. Compléter le profil */}
+          <ActionRow
+            done={profileComplete}
+            icon={UserCog}
+            title="Compléter le profil de ma boutique"
+            desc="Renseignez nom, niche, pays et ton de marque pour qu'Orkestra comprenne votre boutique."
+            doneDetail={`${brand.niche || "Niche renseignée"} · positionnement ${brand.positioning}`}
+            href="/onboarding"
+            tone="important"
+          />
 
-          {/* 3. Autres studios — en attente si non configuré */}
-          <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-card">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm font-medium">Studios de génération</span>
-              {!fullyReady && <Badge tone="neutral"><Lock className="h-3 w-3" /> Connectez vos IA pour commencer</Badge>}
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {STUDIO_ACTIONS.map((a) => {
-                const Icon = a.icon;
-                const content = (
-                  <div className={`flex items-center gap-3 rounded-xl border border-[var(--border)] p-3 transition ${fullyReady ? "hover:border-brand-300 hover:bg-ink-50 dark:hover:bg-ink-900" : "opacity-60"}`}>
-                    <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${fullyReady ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-400 dark:bg-ink-900"}`}>
-                      {fullyReady ? <Icon className="h-[18px] w-[18px]" /> : <Lock className="h-4 w-4" />}
-                    </div>
-                    <span className="text-sm font-medium">{a.label}</span>
-                  </div>
-                );
-                return fullyReady ? (
-                  <Link key={a.label} href={a.href}>{content}</Link>
-                ) : (
-                  <div key={a.label} title="Disponible après configuration">{content}</div>
-                );
-              })}
-            </div>
-          </div>
+          {/* 3. Connecter / scanner Shopify */}
+          <ActionRow
+            done={storeReady}
+            icon={Store}
+            title="Connecter / scanner Shopify"
+            desc="Connectez Shopify ou lancez un scan pour détecter niche, collections, produits et opportunités SEO."
+            doneDetail={analysis ? `${brand.collections.length} collection(s) · analyse ${analysis.confidence}` : ""}
+            href="/onboarding"
+            tone="important"
+          />
+
+          {/* 4 & 5. Utiliser */}
+          <ActionRow done={false} icon={MessagesSquare} title="Lancer AI Council" desc="Posez une question à toutes vos IA connectées et obtenez la meilleure réponse fusionnée." href="/council" tone="use" />
+          <ActionRow done={false} icon={ShieldCheck} title="Auditer ma boutique" desc="Détectez les risques Merchant Center et obtenez des correctifs priorisés." href="/merchant" tone="use" />
         </div>
 
         {/* Diagnostic boutique */}
         <Card>
           <CardHeader icon={<Package className="h-[18px] w-[18px]" />} title="Diagnostic boutique" />
-          {storeReady ? (
+          {storeReady && analysis ? (
             <>
               <div className="space-y-1">
                 {METRICS.map((m) => {
                   const Icon = m.icon;
                   return (
-                    <Link key={m.key} href={m.module} className="flex items-center justify-between gap-2 rounded-lg px-2 py-2.5 transition hover:bg-ink-50 dark:hover:bg-ink-900">
+                    <Link key={m.key} href={m.href} className="flex items-center justify-between gap-2 rounded-lg px-2 py-2.5 transition hover:bg-ink-50 dark:hover:bg-ink-900">
                       <span className="flex items-center gap-2.5 text-sm text-[var(--text-muted)]">
                         <Icon className="h-4 w-4 text-ink-400" /> {m.label}
                       </span>
-                      <span className="text-sm font-semibold text-[var(--text)]">{DEMO_METRICS[m.key]}</span>
+                      <span className="text-sm font-semibold text-[var(--text)]">{analysis.metrics[m.key]}</span>
                     </Link>
                   );
                 })}
               </div>
-              <div className="mt-4 rounded-xl bg-brand-50 p-3.5 dark:bg-brand-950/40">
-                <div className="mb-1.5 flex items-center justify-between text-xs font-medium">
-                  <span>Progression globale</span>
-                  <span className="text-brand-700 dark:text-brand-300">61%</span>
-                </div>
-                <Progress value={61} />
+              <div className="mt-3 rounded-xl bg-brand-50 p-3 text-xs dark:bg-brand-950/40">
+                <span className="font-medium text-brand-700 dark:text-brand-300">Confiance : {analysis.confidence}</span>
+                <span className="text-[var(--text-muted)]"> · dernier scan {relativeDate(analysis.lastScanAt)}</span>
               </div>
             </>
           ) : (
@@ -232,34 +199,14 @@ export default function DashboardPage() {
                 );
               })}
               <div className="mt-3 rounded-xl border border-dashed border-[var(--border)] p-3.5 text-center">
-                <p className="text-xs text-[var(--text-muted)]">Boutique non scannée</p>
+                <p className="text-xs text-[var(--text-muted)]">Boutique non analysée</p>
                 <Link href="/onboarding" className="mt-1 inline-block text-xs font-medium text-brand-600 hover:underline">
-                  Connectez Shopify pour lancer l&apos;audit →
+                  Scannez votre boutique pour lancer l&apos;analyse →
                 </Link>
               </div>
             </div>
           )}
         </Card>
-      </div>
-
-      {/* AI Council — toujours mis en avant */}
-      <div className="mt-4 overflow-hidden rounded-2xl border border-brand-200 bg-[var(--surface)] shadow-card dark:border-brand-900">
-        <div className="flex flex-col items-start justify-between gap-4 p-5 sm:flex-row sm:items-center">
-          <div className="flex items-start gap-3">
-            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white">
-              <MessagesSquare className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold">Lancer AI Council</h3>
-              <p className="mt-1 text-sm text-[var(--text-muted)]">
-                Posez une question à toutes vos IA connectées et obtenez la meilleure réponse fusionnée.
-              </p>
-            </div>
-          </div>
-          <Link href="/council" className="shrink-0">
-            <Button icon={<Sparkles className="h-4 w-4" />}>Ouvrir l&apos;AI Council</Button>
-          </Link>
-        </div>
       </div>
 
       {/* Derniers projets générés */}
@@ -268,11 +215,7 @@ export default function DashboardPage() {
           icon={<FileText className="h-[18px] w-[18px]" />}
           title="Derniers projets générés"
           subtitle="Vos générations IA récentes"
-          action={
-            history.length > 0 ? (
-              <Link href="/history"><Button variant="ghost" size="sm" icon={<ArrowRight className="h-4 w-4" />}>Historique</Button></Link>
-            ) : undefined
-          }
+          action={history.length > 0 ? (<Link href="/history"><Button variant="ghost" size="sm" icon={<ArrowRight className="h-4 w-4" />}>Historique</Button></Link>) : undefined}
         />
         {history.length > 0 ? (
           <div className="divide-y divide-[var(--border)]">
@@ -300,13 +243,36 @@ export default function DashboardPage() {
   );
 }
 
+function ActionRow({
+  done, icon: Icon, title, desc, doneDetail, href, tone,
+}: {
+  done: boolean; icon: React.ElementType; title: string; desc: string; doneDetail?: string; href: string; tone: "important" | "use";
+}) {
+  if (done) return <DoneAction label={title} detail={doneDetail || "Terminé."} />;
+  return (
+    <Link href={href} className="block rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-card transition hover:border-brand-300">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><Icon className="h-5 w-5" /></div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold">{title}</h3>
+              {tone === "important" && <Badge tone="warn">Important</Badge>}
+            </div>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">{desc}</p>
+          </div>
+        </div>
+        <ArrowUpRight className="h-5 w-5 shrink-0 text-ink-400" />
+      </div>
+    </Link>
+  );
+}
+
 function DoneAction({ label, detail }: { label: string; detail: string }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
       <div className="flex items-center gap-3">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-500 text-white">
-          <ShieldCheck className="h-[18px] w-[18px]" />
-        </div>
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-500 text-white"><Check className="h-[18px] w-[18px]" /></div>
         <div>
           <div className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">{label}</div>
           <p className="text-xs text-emerald-700/80 dark:text-emerald-300/70">{detail}</p>

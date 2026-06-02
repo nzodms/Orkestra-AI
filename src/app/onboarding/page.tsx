@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useOrkestra, connectedProviders } from "@/lib/store";
 import { PROVIDER_ORDER } from "@/lib/providers";
-import { DEMO_SCAN_RESULT, LUMIO_PROMISES, LUMIO_GUARANTEES } from "@/lib/mock-data";
+import { buildDetectedProfile, buildAnalysis } from "@/lib/store-profile";
 import { ProviderCard } from "@/components/ProviderCard";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/primitives";
@@ -29,7 +29,7 @@ const POSITIONINGS: { id: Positioning; label: string }[] = [
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { brand, updateBrand, connections, setOnboardingComplete, setStoreScanned } = useOrkestra();
+  const { brand, updateBrand, connections, setOnboardingComplete, setStoreScanned, setAnalysis } = useOrkestra();
   const [step, setStep] = useState(1);
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
@@ -46,14 +46,11 @@ export default function OnboardingPage() {
   async function runScan() {
     setScanning(true);
     await new Promise((r) => setTimeout(r, 1800));
-    // On applique les données détectées sans écraser ce que l'utilisateur a saisi.
-    updateBrand({
-      ...DEMO_SCAN_RESULT,
-      storeName: brand.storeName || "Lumio",
-      promises: brand.promises.length ? brand.promises : LUMIO_PROMISES,
-      guarantees: brand.guarantees.length ? brand.guarantees : LUMIO_GUARANTEES,
-      writingStyle: brand.writingStyle || DEMO_SCAN_RESULT.writingStyle || "",
-    });
+    // Détection dynamique basée UNIQUEMENT sur les infos saisies par l'utilisateur.
+    const detected = buildDetectedProfile(brand);
+    updateBrand(detected);
+    // L'analyse est calculée sur la base de la boutique mise à jour.
+    setAnalysis(buildAnalysis({ ...brand, ...detected }, "simulation"));
     setStoreScanned(true);
     setScanning(false);
     setScanned(true);
@@ -65,15 +62,15 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
-      <header className="mx-auto flex max-w-3xl items-center gap-2.5 px-5 py-6">
+    <div className="flex min-h-screen flex-col bg-[var(--bg)]">
+      <header className="mx-auto flex w-full max-w-3xl items-center gap-2.5 px-5 py-6">
         <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white">
           <Sparkles className="h-5 w-5" />
         </div>
         <span className="text-base font-bold">Orkestra AI</span>
       </header>
 
-      <div className="mx-auto max-w-3xl px-5 pb-20">
+      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-5 pb-16 pt-2">
         {/* Stepper */}
         <div className="mb-8 flex items-center justify-between">
           {STEPS.map((s, i) => {
@@ -120,16 +117,16 @@ export default function OnboardingPage() {
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Nom de la boutique">
-                  <input className="input" value={brand.storeName} onChange={(e) => updateBrand({ storeName: e.target.value })} placeholder="Lumio" />
+                  <input className="input" value={brand.storeName} onChange={(e) => updateBrand({ storeName: e.target.value })} placeholder="Nom de votre boutique" />
                 </Field>
                 <Field label="URL Shopify">
                   <input className="input" value={brand.shopifyUrl} onChange={(e) => updateBrand({ shopifyUrl: e.target.value })} placeholder="maboutique.myshopify.com" />
                 </Field>
                 <Field label="Niche">
-                  <input className="input" value={brand.niche} onChange={(e) => updateBrand({ niche: e.target.value })} placeholder="Luminaires & décoration intérieure" />
+                  <input className="input" value={brand.niche} onChange={(e) => updateBrand({ niche: e.target.value })} placeholder="Ex : luminaires, mode, beauté, accessoires…" />
                 </Field>
                 <Field label="Pays / langue cible">
-                  <input className="input" value={brand.country} onChange={(e) => updateBrand({ country: e.target.value })} placeholder="France / Français" />
+                  <input className="input" value={brand.country} onChange={(e) => updateBrand({ country: e.target.value })} placeholder="Ex : France · Français" />
                 </Field>
               </div>
               <Field label="Positionnement">
@@ -197,7 +194,7 @@ export default function OnboardingPage() {
                   <input className="input" value={brand.shippingDelay} onChange={(e) => updateBrand({ shippingDelay: e.target.value })} />
                 </Field>
                 <Field label="Promesses principales" hint="Séparées par des virgules">
-                  <input className="input" defaultValue={brand.promises.join(", ")} onBlur={(e) => updateBrand({ promises: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="Design élégant, livraison gratuite, qualité durable" />
+                  <input className="input" defaultValue={brand.promises.join(", ")} onBlur={(e) => updateBrand({ promises: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="Ex : qualité durable, livraison rapide" />
                 </Field>
                 <Field label="Politique de retour">
                   <input className="input" value={brand.returnPolicy} onChange={(e) => updateBrand({ returnPolicy: e.target.value })} />

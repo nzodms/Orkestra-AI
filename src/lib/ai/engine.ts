@@ -346,7 +346,8 @@ export function generateMerchantAudit(ctx: MerchantContext = {}): MerchantAudit 
 
 // ── AI Council ────────────────────────────────────────────────────────────
 
-import type { CouncilProviderAnswer, CouncilScores, SiteReview, ReviewIssue } from "../types";
+import type { CouncilProviderAnswer, CouncilScores, SiteReview } from "../types";
+import { getPreset, buildReviewIssues } from "../niche";
 
 const MODE_LABEL: Record<CouncilMode, string> = {
   seo: "SEO e-commerce",
@@ -850,98 +851,13 @@ export function buildSiteReview(ctx: CouncilContext): { markdown: string; review
   const s = brandOf(ctx);
   const niche = nicheOf(ctx);
   const cols = collectionsOf(ctx);
-  const prods = productsOf(ctx);
   const kws = keywordsOf(ctx);
 
-  const homepageOrder = [
-    "Hero clair (promesse + visuel d'ambiance)",
-    "Bandeau de réassurance (livraison, paiement, retours)",
-    "Collections principales",
-    "Best-sellers / produits phares",
-    "Preuve sociale (avis clients)",
-    "Storytelling de marque",
-    "FAQ",
-    "Newsletter",
-  ];
-  const productPageStructure = [
-    "Galerie produit (visuels en situation)",
-    "Titre / prix / CTA d'achat",
-    "Bénéfices rapides (3–4 puces)",
-    "Livraison / retours / garantie",
-    "Description SEO longue",
-    "Caractéristiques techniques",
-    "Guide / dimensions",
-    "FAQ produit",
-    "Avis clients",
-    "Produits complémentaires",
-  ];
-
-  const issues: ReviewIssue[] = [
-    {
-      area: `Pages collections (${cols.slice(0, 2).join(", ")})`,
-      severity: "important",
-      explanation: `Les collections ${cols.slice(0, 3).join(", ")} manquent de texte SEO unique et de structure Hn.`,
-      impact: "Faible visibilité sur des requêtes commerciales à fort volume.",
-      fix: `Générer 150–300 mots + FAQ par collection dans le SEO Studio, ciblés sur « ${kws[0]} », « ${kws[1] || kws[0]} ».`,
-      module: "seo",
-    },
-    {
-      area: `Fiches produits (${prods[0]}, ${prods[1] || prods[0]})`,
-      severity: "important",
-      explanation: "Descriptions trop courtes, peu de bénéfices et pas de FAQ produit.",
-      impact: "Conversion et longue traîne sous-exploitées.",
-      fix: "Générer des fiches SEO complètes (200+ mots, bénéfices, FAQ, alt text) dans le SEO Studio.",
-      module: "seo",
-    },
-    {
-      area: "Meta titles & descriptions",
-      severity: "important",
-      explanation: "Meta manquantes ou dupliquées sur de nombreuses pages.",
-      impact: "Taux de clic (CTR) réduit dans les résultats Google.",
-      fix: "Générer une meta unique par page (≤ 60 / ≤ 155 car.) avec un CTA.",
-      module: "seo",
-    },
-    {
-      area: "Cohérence de langue",
-      severity: "critique",
-      explanation: `Des libellés du thème en anglais subsistent sur une boutique ${ctx.language || "française"} (« Add to cart », « Sold out »).`,
-      impact: "Confiance dégradée et risque de signal négatif Merchant Center.",
-      fix: "Traduire les libellés et détecter les textes EN restants via Merchant Shield.",
-      module: "merchant",
-    },
-    {
-      area: "Pages légales & livraison/retours",
-      severity: "critique",
-      explanation: "Politique de retour et de livraison peu visibles ; mentions légales incomplètes.",
-      impact: "Cause fréquente de suspension Merchant Center et frein à l'achat.",
-      fix: "Compléter les pages légales et les lier au footer ; afficher la réassurance sur les fiches.",
-      module: "merchant",
-    },
-    {
-      area: "Réassurance & UX page d'accueil",
-      severity: "important",
-      explanation: "Ordre des sections peu optimisé : la réassurance et la preuve sociale arrivent trop bas.",
-      impact: "Conversion plus faible, surtout sur mobile.",
-      fix: "Réordonner la home (voir l'ordre recommandé) et ajouter un bloc réassurance via le Section Builder.",
-      module: "sections",
-    },
-    {
-      area: "Maillage interne",
-      severity: "mineur",
-      explanation: "Peu de liens entre blog, collections et produits complémentaires.",
-      impact: "Autorité SEO mal distribuée, pages profondes peu indexées.",
-      fix: "Mettre en place un maillage blog → collections → produits (suggestions dans le SEO Studio).",
-      module: "seo",
-    },
-    {
-      area: "Cohérence de marque",
-      severity: "mineur",
-      explanation: `Le ton n'est pas homogène ; la promesse premium de ${s} n'est pas assez incarnée.`,
-      impact: "Image de marque diluée, moins de désir.",
-      fix: "Aligner tous les contenus sur la mémoire boutique (ton premium, orienté ambiance et bénéfices).",
-      module: "memory",
-    },
-  ];
+  // Ordres & problèmes ADAPTÉS À LA NICHE de la boutique active.
+  const { preset } = getPreset(ctx);
+  const homepageOrder = preset.homepageOrder;
+  const productPageStructure = preset.productPageStructure;
+  const issues = buildReviewIssues(ctx);
 
   const markdown = `## Review complète de ${s}
 

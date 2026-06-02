@@ -222,6 +222,18 @@ export interface SiteReview {
   issues: ReviewIssue[];
 }
 
+/** Résultat d'analyse de la boutique active — source de vérité du dashboard. */
+export interface StoreAnalysis {
+  scores: StoreScores;
+  metrics: DashboardMetrics;
+  issues: ReviewIssue[];
+  homepageOrder: string[];
+  productPageStructure: string[];
+  confidence: string;
+  lastScanAt: string;
+  source: "manuel" | "scan" | "simulation";
+}
+
 export interface CouncilResult {
   finalAnswer: string;
   qualityScore: number;

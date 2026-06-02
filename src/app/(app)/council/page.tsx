@@ -60,18 +60,36 @@ export default function CouncilPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [councilMessages, loading]);
 
-  async function runCouncil(q: string, directive: Directive | null = null) {
+  // Question préparée passée par le dashboard (/council?mode=seo&q=...).
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRan.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q");
+    const m = params.get("mode") as CouncilMode | null;
+    if (q) {
+      autoRan.current = true;
+      if (m) setMode(m);
+      runCouncil(q, null, m ?? undefined);
+      // Nettoie l'URL pour éviter une relance au refresh.
+      window.history.replaceState({}, "", "/council");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function runCouncil(q: string, directive: Directive | null = null, modeOverride?: CouncilMode) {
     if (!q.trim()) return;
+    const useMode = modeOverride ?? mode;
     setLoading(true);
     if (!directive) {
-      addCouncilTurn({ id: crypto.randomUUID(), role: "user", mode, question: q });
+      addCouncilTurn({ id: crypto.randomUUID(), role: "user", mode: useMode, question: q });
     }
     const res = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         kind: "council",
-        mode,
+        mode: useMode,
         question: q,
         providers,
         context: {
@@ -95,7 +113,7 @@ export default function CouncilPage() {
     setLoading(false);
     if (data.ok) {
       const result = data.result as CouncilResult;
-      addCouncilTurn({ id: crypto.randomUUID(), role: "council", mode, result });
+      addCouncilTurn({ id: crypto.randomUUID(), role: "council", mode: useMode, result });
       const rec: GenerationRecord = {
         id: crypto.randomUUID(),
         type: "council",

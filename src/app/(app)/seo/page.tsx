@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useOrkestra, connectedProviders } from "@/lib/store";
+import { getPreset } from "@/lib/niche";
 import { PageHeader, Card, Badge, Field, ScoreRing } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import type { ProductSeoResult, SeoLevel, GenerationRecord } from "@/lib/types";
@@ -23,6 +24,8 @@ const WORKFLOWS = [
 export default function SeoStudioPage() {
   const { connections, brand, addGeneration } = useOrkestra();
   const providers = connectedProviders(connections);
+  // Placeholders adaptés à la niche de la boutique active (ou neutres si vide).
+  const { preset } = getPreset({ niche: brand.niche, brandName: brand.storeName });
   const [active, setActive] = useState("seo-product");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ProductSeoResult | null>(null);
@@ -108,33 +111,33 @@ export default function SeoStudioPage() {
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Nom du produit">
-                <input className="input" value={form.productName} onChange={(e) => set("productName", e.target.value)} placeholder="Suspension salle à manger laiton" />
+                <input className="input" value={form.productName} onChange={(e) => set("productName", e.target.value)} placeholder={`Ex : ${preset.sampleProduct}`} />
               </Field>
               <Field label="Collection associée">
-                <input className="input" value={form.collection} onChange={(e) => set("collection", e.target.value)} placeholder={brand.collections[0] || "Suspensions"} list="ork-collections" />
+                <input className="input" value={form.collection} onChange={(e) => set("collection", e.target.value)} placeholder={brand.collections[0] || preset.collections[0]} list="ork-collections" />
                 <datalist id="ork-collections">
-                  {brand.collections.map((c) => <option key={c} value={c} />)}
+                  {(brand.collections.length ? brand.collections : preset.collections).map((c) => <option key={c} value={c} />)}
                 </datalist>
               </Field>
             </div>
             <Field label="Caractéristiques" hint="Séparées par des virgules">
-              <input className="input" value={form.features} onChange={(e) => set("features", e.target.value)} placeholder="Laiton brossé, Ø 40 cm, ampoule E27, variateur compatible" />
+              <input className="input" value={form.features} onChange={(e) => set("features", e.target.value)} placeholder="Ex : matériaux, dimensions, options" />
             </Field>
             <Field label="Bénéfices" hint="Séparés par des virgules">
-              <input className="input" value={form.benefits} onChange={(e) => set("benefits", e.target.value)} placeholder="Ambiance chaleureuse, design élégant, lumière douce" />
+              <input className="input" value={form.benefits} onChange={(e) => set("benefits", e.target.value)} placeholder="Ex : durable, pratique, élégant" />
             </Field>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Matériaux / dimensions">
-                <input className="input" value={form.materials} onChange={(e) => set("materials", e.target.value)} placeholder="Laiton & verre, Ø 40 × H 35 cm" />
+                <input className="input" value={form.materials} onChange={(e) => set("materials", e.target.value)} placeholder="Ex : matériaux & dimensions" />
               </Field>
               <Field label="Prix">
-                <input className="input" value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="149 €" />
+                <input className="input" value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="Ex : 49 €" />
               </Field>
               <Field label="Public cible">
-                <input className="input" value={form.audience} onChange={(e) => set("audience", e.target.value)} placeholder="Amateurs de décoration intérieure" />
+                <input className="input" value={form.audience} onChange={(e) => set("audience", e.target.value)} placeholder="Ex : votre public cible" />
               </Field>
               <Field label="Mots-clés souhaités">
-                <input className="input" value={form.keywords} onChange={(e) => set("keywords", e.target.value)} placeholder={brand.primaryKeywords.slice(0, 2).join(", ") || "suspension salle à manger, luminaire design"} />
+                <input className="input" value={form.keywords} onChange={(e) => set("keywords", e.target.value)} placeholder={(brand.primaryKeywords.length ? brand.primaryKeywords : preset.primaryKeywords).slice(0, 2).join(", ")} />
               </Field>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">

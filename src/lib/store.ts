@@ -8,6 +8,7 @@ import type {
   BrandMemory,
   GenerationRecord,
   CouncilTurn,
+  StoreAnalysis,
 } from "./types";
 import { PROVIDER_ORDER } from "./providers";
 import { DEFAULT_BRAND_MEMORY } from "./mock-data";
@@ -41,6 +42,8 @@ interface OrkestraState {
   storeScanned: boolean;
   theme: "light" | "dark";
   brand: BrandMemory;
+  /** Analyse de la boutique active (scores/métriques/problèmes). null = non analysée. */
+  analysis: StoreAnalysis | null;
   connections: Record<AIProviderId, AIConnection>;
   history: GenerationRecord[];
   resolvedIssues: string[];
@@ -49,6 +52,7 @@ interface OrkestraState {
 
   setOnboardingComplete: (v: boolean) => void;
   setStoreScanned: (v: boolean) => void;
+  setAnalysis: (a: StoreAnalysis | null) => void;
   toggleTheme: () => void;
   updateBrand: (patch: Partial<BrandMemory>) => void;
   setConnection: (id: AIProviderId, patch: Partial<AIConnection>) => void;
@@ -66,6 +70,7 @@ export const useOrkestra = create<OrkestraState>()(
       storeScanned: false,
       theme: "light",
       brand: DEFAULT_BRAND_MEMORY,
+      analysis: null,
       connections: emptyConnections(),
       history: [],
       resolvedIssues: [],
@@ -73,6 +78,7 @@ export const useOrkestra = create<OrkestraState>()(
 
       setOnboardingComplete: (v) => set({ onboardingComplete: v }),
       setStoreScanned: (v) => set({ storeScanned: v }),
+      setAnalysis: (a) => set({ analysis: a }),
       toggleTheme: () =>
         set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
       updateBrand: (patch) => set((s) => ({ brand: { ...s.brand, ...patch } })),
@@ -105,7 +111,27 @@ export const useOrkestra = create<OrkestraState>()(
         set((s) => ({ councilMessages: [...s.councilMessages, turn] })),
       clearCouncil: () => set({ councilMessages: [] }),
     }),
-    { name: "orkestra-store" }
+    {
+      name: "orkestra-store",
+      // v2 : purge des éventuelles données de démo hardcodées persistées
+      // chez les premiers testeurs (on conserve thème et clés connectées).
+      version: 2,
+      migrate: (persisted: unknown, version: number) => {
+        const state = (persisted ?? {}) as Partial<OrkestraState>;
+        if (version < 2) {
+          return {
+            ...state,
+            brand: DEFAULT_BRAND_MEMORY,
+            analysis: null,
+            storeScanned: false,
+            history: [],
+            councilMessages: [],
+            resolvedIssues: [],
+          } as OrkestraState;
+        }
+        return state as OrkestraState;
+      },
+    }
   )
 );
 

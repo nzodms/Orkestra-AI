@@ -1,12 +1,16 @@
 "use client";
 
 import { useOrkestra } from "@/lib/store";
-import { PageHeader, Card, CardHeader, Badge } from "@/components/ui/primitives";
+import { PageHeader, Card, CardHeader, Badge, EmptyState } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
+import { relativeDate } from "@/lib/utils";
 import Link from "next/link";
 import {
-  Brain, Store, Tag, FolderOpen, Palette, ShieldCheck, Link2, Users, Globe, Sparkles, Lightbulb,
+  Brain, Store, Tag, FolderOpen, Palette, ShieldCheck, Users, Sparkles, Lightbulb,
+  ScanSearch, UserCog, AlertTriangle,
 } from "lucide-react";
+
+const SEV_TONE: Record<string, "bad" | "warn" | "neutral"> = { critique: "bad", important: "warn", mineur: "neutral" };
 
 function Chips({ items, empty }: { items: string[]; empty: string }) {
   if (!items.length) return <p className="text-sm text-ink-400">{empty}</p>;
@@ -29,7 +33,30 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export default function MemoryPage() {
-  const { brand } = useOrkestra();
+  const { brand, analysis } = useOrkestra();
+  const hasData = Boolean(brand.niche.trim() || brand.storeName.trim() || analysis);
+
+  if (!hasData) {
+    return (
+      <>
+        <PageHeader
+          title="Mémoire boutique"
+          description="Le cerveau d'Orkestra. Ces informations sont injectées dans toutes vos générations pour rester cohérentes avec votre marque."
+        />
+        <EmptyState
+          icon={<Brain className="h-7 w-7" />}
+          title="Votre mémoire boutique n'est pas encore complète"
+          description="Renseignez le profil de votre boutique ou scannez Shopify pour qu'Orkestra détecte votre niche, vos collections, vos mots-clés et vos opportunités."
+          action={
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Link href="/onboarding"><Button icon={<UserCog className="h-4 w-4" />}>Compléter le profil</Button></Link>
+              <Link href="/onboarding"><Button variant="outline" icon={<ScanSearch className="h-4 w-4" />}>Scanner Shopify</Button></Link>
+            </div>
+          }
+        />
+      </>
+    );
+  }
 
   return (
     <>
@@ -42,6 +69,13 @@ export default function MemoryPage() {
           </Link>
         }
       />
+
+      {analysis && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
+          <Badge tone="brand">Confiance : {analysis.confidence}</Badge>
+          <span>Dernier scan : {relativeDate(analysis.lastScanAt)}</span>
+        </div>
+      )}
 
       {/* Ce qu'Orkestra a compris */}
       <Card className="mb-4 border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40">
@@ -121,6 +155,28 @@ export default function MemoryPage() {
             <div><div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-400">Règles de style</div><Chips items={brand.styleRules} empty="Style aligné sur le ton de marque" /></div>
           </div>
         </Card>
+
+        {analysis && analysis.issues.length > 0 && (
+          <Card className="lg:col-span-2">
+            <CardHeader icon={<AlertTriangle className="h-[18px] w-[18px]" />} title="Problèmes détectés" subtitle="Issus de la dernière analyse de votre boutique" />
+            <div className="grid gap-2 sm:grid-cols-2">
+              {analysis.issues.map((issue, i) => (
+                <div key={i} className="rounded-xl border border-[var(--border)] p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{issue.area}</span>
+                    <Badge tone={SEV_TONE[issue.severity]}>{issue.severity}</Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-[var(--text-muted)]">{issue.explanation}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3">
+              <Link href="/council?mode=seo&q=Fais une analyse compl%C3%A8te de ma boutique avec les corrections prioritaires.">
+                <Button variant="secondary" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Voir la review complète dans AI Council</Button>
+              </Link>
+            </div>
+          </Card>
+        )}
       </div>
     </>
   );
