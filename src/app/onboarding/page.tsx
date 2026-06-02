@@ -334,21 +334,37 @@ export default function OnboardingPage() {
                     </div>
                   )}
 
-                  {/* Statistiques du crawl réel */}
+                  {/* Statistiques du crawl réel : trouvés vs analysés */}
                   {analysis && analysis.pagesAnalyzed != null && (
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      {[
-                        { label: "Pages analysées", v: analysis.pagesAnalyzed },
-                        { label: "Produits détectés", v: analysis.productsFound ?? 0 },
-                        { label: "Collections détectées", v: analysis.collectionsFound ?? 0 },
-                        { label: "Textes anglais", v: analysis.englishTexts?.length ?? analysis.metrics.englishTextsDetected },
-                      ].map((st) => (
-                        <div key={st.label} className="rounded-xl bg-[var(--bg)] p-3 text-center">
-                          <div className="text-lg font-bold">{st.v}</div>
-                          <div className="text-[11px] text-[var(--text-muted)]">{st.label}</div>
+                    <>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {[
+                          { label: "Produits", big: analysis.productsFound ?? 0, sub: `${analysis.productsAnalyzed ?? 0} analysés` },
+                          { label: "Collections", big: analysis.collectionsFound ?? 0, sub: `${analysis.collectionsAnalyzed ?? 0} analysées` },
+                          { label: "Pages analysées", big: analysis.pagesAnalyzed, sub: `${analysis.pagesFound ?? 0} pages trouvées` },
+                          { label: "Textes anglais", big: analysis.englishTexts?.length ?? analysis.metrics.englishTextsDetected, sub: "à corriger" },
+                        ].map((st) => (
+                          <div key={st.label} className="rounded-xl bg-[var(--bg)] p-3 text-center">
+                            <div className="text-lg font-bold">{st.big}</div>
+                            <div className="text-[11px] font-medium text-[var(--text)]">{st.label}</div>
+                            <div className="text-[10px] text-[var(--text-muted)]">{st.sub}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <Badge tone={analysis.coverage === "élevée" ? "good" : analysis.coverage === "moyenne" ? "warn" : "neutral"}>
+                          Couverture : {analysis.coverage}
+                        </Badge>
+                        <span className="text-[var(--text-muted)]">
+                          {analysis.productsAnalyzed}/{analysis.productsFound} produits analysés · source {analysis.catalogSource}
+                        </span>
+                      </div>
+                      {analysis.catalogSource && !/sitemap|products\.json/.test(analysis.catalogSource) && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                          Scan partiel : seuls {analysis.productsFound} produits sont visibles publiquement (sitemap / products.json indisponibles). Connectez l&apos;API Shopify plus tard pour une analyse complète du catalogue.
                         </div>
-                      ))}
-                    </div>
+                      )}
+                    </>
                   )}
 
                   {/* Pages légales trouvées / manquantes */}
@@ -404,6 +420,31 @@ export default function OnboardingPage() {
                           </Link>
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Synthèse exécutive */}
+                  {analysis?.synthesis && (
+                    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-4">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">Synthèse exécutive</div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <div className="mb-1 text-xs font-semibold text-brand-700 dark:text-brand-300">Quick wins</div>
+                          <ul className="space-y-1">
+                            {analysis.synthesis.quickWins.slice(0, 4).map((q, i) => (
+                              <li key={i} className="flex gap-1.5 text-xs text-[var(--text-muted)]"><Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500" />{q}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <div className="mb-1 text-xs font-semibold text-brand-700 dark:text-brand-300">Plan 7 jours</div>
+                          <ul className="space-y-1">
+                            {analysis.synthesis.plan7.map((q, i) => (
+                              <li key={i} className="text-xs text-[var(--text-muted)]">{q}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
                     </div>
                   )}
 

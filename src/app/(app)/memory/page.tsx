@@ -71,9 +71,31 @@ export default function MemoryPage() {
       />
 
       {analysis && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
-          <Badge tone="brand">Confiance : {analysis.confidence}</Badge>
-          <span>Dernier scan : {relativeDate(analysis.lastScanAt)}</span>
+        <div className="mb-4 space-y-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
+            {analysis.coverage && (
+              <Badge tone={analysis.coverage === "élevée" ? "good" : analysis.coverage === "moyenne" ? "warn" : "neutral"}>
+                Couverture : {analysis.coverage}
+              </Badge>
+            )}
+            {analysis.catalogSource && <Badge tone="brand">Source : {analysis.catalogSource}</Badge>}
+            <span>Dernier scan : {relativeDate(analysis.lastScanAt)}</span>
+          </div>
+          {analysis.productsFound != null && (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { label: "Produits trouvés", v: analysis.productsFound },
+                { label: "Produits analysés", v: analysis.productsAnalyzed ?? 0 },
+                { label: "Collections trouvées", v: analysis.collectionsFound ?? 0 },
+                { label: "Collections analysées", v: analysis.collectionsAnalyzed ?? 0 },
+              ].map((s) => (
+                <div key={s.label} className="rounded-xl border border-[var(--border)] p-2.5 text-center">
+                  <div className="text-base font-bold">{s.v}</div>
+                  <div className="text-[10px] text-[var(--text-muted)]">{s.label}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

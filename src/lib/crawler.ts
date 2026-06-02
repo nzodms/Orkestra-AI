@@ -21,8 +21,12 @@ import { detectNiche, NICHES, type NicheKey } from "./niche";
 
 const UA = "Mozilla/5.0 (compatible; OrkestraBot/1.0; +https://orkestra.ai/bot)";
 const FETCH_TIMEOUT = 9000;
-const MAX_COLLECTIONS = 2;
-const MAX_PRODUCTS = 2;
+// Échantillon analysé EN DÉTAIL (fetch de page). La découverte du catalogue
+// total se fait via sitemap/products.json (comptage sans tout télécharger).
+const DETAIL_PRODUCTS = 10;
+const DETAIL_COLLECTIONS = 6;
+const MAX_SITEMAP_CHILDREN = 8;
+const MAX_PRODUCTS_JSON_PAGES = 4; // 4 × 250 = 1000 max
 
 // Termes anglais fréquents sur une boutique FR + correction + impact.
 const ENGLISH_TERMS: { re: RegExp; fr: string; impact: string }[] = [
@@ -99,6 +103,146 @@ async function fetchHtml(url: string): Promise<string | null> {
   }
 }
 
+/** Fetch générique (XML / JSON / texte). */
+async function fetchText(url: string, accept = "*/*"): Promise<string | null> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT);
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": UA, Accept: accept },
+      redirect: "follow",
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// ── Découverte du catalogue (sitemap + products.json) ───────────────────────
+
+export interface CatalogData {
+  products: string[];
+  collections: string[];
+  pages: string[];
+  productTypes: string[];
+  source: string;
+}
+
+function extractLocs(xml: string): string[] {
+  const locs: string[] = [];
+  const re = /<loc>\s*([^<\s]+)\s*<\/loc>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml))) locs.push(m[1].trim());
+  return locs;
+}
+
+/** Découverte via le sitemap Shopify (index + sitemaps enfants). */
+async function discoverViaSitemap(base: string): Promise<{ products: string[]; collections: string[]; pages: string[] } | null> {
+  const root = await fetchText(`${base}/sitemap.xml`, "application/xml,text/xml");
+  if (!root) return null;
+  const locs = extractLocs(root);
+  if (!locs.length) return null;
+
+  const products = new Set<string>();
+  const collections = new Set<string>();
+  const pages = new Set<string>();
+
+  // Si le sitemap racine pointe vers des sitemaps enfants (.xml), on les suit.
+  const childSitemaps = locs.filter((l) => /\.xml(\?|$)/i.test(l));
+  const classify = (url: string) => {
+    if (/\/products\//.test(url)) products.add(url);
+    else if (/\/collections\//.test(url) && !/\/collections\/all\/?$/.test(url)) collections.add(url);
+    else if (/\/pages\//.test(url)) pages.add(url);
+  };
+
+  if (childSitemaps.length) {
+    const relevant = childSitemaps.filter((l) => /product|collection|page/i.test(l)).slice(0, MAX_SITEMAP_CHILDREN);
+    for (const child of relevant) {
+      const xml = await fetchText(child, "application/xml,text/xml");
+      if (!xml) continue;
+      for (const u of extractLocs(xml)) classify(u);
+    }
+  } else {
+    for (const u of locs) classify(u);
+  }
+
+  if (!products.size && !collections.size) return null;
+  return { products: [...products], collections: [...collections], pages: [...pages] };
+}
+
+interface ProductJson {
+  title?: string;
+  handle?: string;
+  product_type?: string;
+  vendor?: string;
+  tags?: string[] | string;
+  body_html?: string;
+}
+
+/** Découverte via /products.json (fallback / enrichissement). */
+async function discoverViaProductsJson(base: string): Promise<{ urls: string[]; types: string[] } | null> {
+  const all: ProductJson[] = [];
+  for (let page = 1; page <= MAX_PRODUCTS_JSON_PAGES; page++) {
+    const txt = await fetchText(`${base}/products.json?limit=250&page=${page}`, "application/json");
+    if (!txt) break;
+    try {
+      const data = JSON.parse(txt) as { products?: ProductJson[] };
+      const batch = data.products || [];
+      if (!batch.length) break;
+      all.push(...batch);
+      if (batch.length < 250) break;
+    } catch {
+      break;
+    }
+  }
+  if (!all.length) return null;
+  const urls = all.filter((p) => p.handle).map((p) => `${base}/products/${p.handle}`);
+  const types = [...new Set(all.map((p) => (p.product_type || "").trim()).filter(Boolean))].slice(0, 8);
+  return { urls, types };
+}
+
+async function discoverCatalog(
+  base: string,
+  homeProducts: string[],
+  homeCollections: string[]
+): Promise<CatalogData> {
+  const products = new Set<string>(homeProducts);
+  const collections = new Set<string>(homeCollections);
+  const pages = new Set<string>();
+  let productTypes: string[] = [];
+  const sources: string[] = [];
+
+  const sm = await discoverViaSitemap(base);
+  if (sm) {
+    sm.products.forEach((u) => products.add(u));
+    sm.collections.forEach((u) => collections.add(u));
+    sm.pages.forEach((u) => pages.add(u));
+    if (sm.products.length) sources.push("sitemap");
+  }
+
+  const pj = await discoverViaProductsJson(base);
+  if (pj) {
+    pj.urls.forEach((u) => products.add(u));
+    productTypes = pj.types;
+    sources.push("products.json");
+  }
+
+  let source = sources.length ? sources.join(" + ") : "crawl home";
+  if (!sm && !pj && products.size <= homeProducts.length) source = "crawl home (partiel)";
+
+  return {
+    products: [...products],
+    collections: [...collections],
+    pages: [...pages],
+    productTypes,
+    source,
+  };
+}
+
 // ── Détection texte anglais ─────────────────────────────────────────────────
 
 function detectEnglish(text: string, source: string, seen: Set<string>): EnglishHit[] {
@@ -128,6 +272,7 @@ function analyzePage($: Doc, url: string, type: PageAudit["type"], seen: Set<str
   const lc = text.toLowerCase();
   const title = ($("title").first().text() || $('meta[property="og:title"]').attr("content") || "").trim();
   const metaDescription = ($('meta[name="description"]').attr("content") || "").trim();
+  const h1Count = $("h1").length;
   const h1 = $("h1").first().text().replace(/\s+/g, " ").trim();
 
   const imagesWithoutAlt = $("img").filter((_, el) => {
@@ -147,6 +292,9 @@ function analyzePage($: Doc, url: string, type: PageAudit["type"], seen: Set<str
       title,
       metaDescription,
       h1,
+      h1Count,
+      titleLength: title.length,
+      metaLength: metaDescription.length,
       wordCount,
       hasFaq: /faq|questions fréquentes|foire aux questions/i.test(lc) || $("[class*='accordion'],[class*='faq']").length > 0,
       hasReviews: /avis|témoignage|note des clients|⭐|★/i.test(lc) || $("[class*='review'],[class*='rating'],[class*='testimonial']").length > 0,
@@ -275,41 +423,74 @@ export async function crawlStore(
   const sections = detectHomepageSections($home);
   const links = discoverLinks($home, base);
 
+  // ── Découverte du catalogue complet (sitemap + products.json + liens home) ──
+  const catalog = await discoverCatalog(
+    base,
+    links.products.map((p) => p.url),
+    links.collections.map((c) => c.url)
+  );
+
+  // Détection des pages légales aussi via les URLs du sitemap.
+  const legal = mergeLegal(links.legal, catalog.pages);
+
+  const productsFound = catalog.products.length;
+  const collectionsFound = catalog.collections.length;
+  const pagesFound = catalog.pages.length;
+
   const pages: PageAudit[] = [homeAudit];
   const englishTexts: EnglishHit[] = [...homeEnglish];
 
-  // Échantillon de collections
-  for (const c of links.collections.slice(0, MAX_COLLECTIONS)) {
-    const html = await fetchHtml(c.url);
-    if (!html) { partial = true; notes.push(`Collection non analysée : ${c.text}`); continue; }
+  // Échantillon de collections analysées EN DÉTAIL.
+  let collectionsAnalyzed = 0;
+  for (const url of catalog.collections.slice(0, DETAIL_COLLECTIONS)) {
+    const html = await fetchHtml(url);
+    if (!html) { partial = true; continue; }
     const $c = cheerio.load(html);
-    const { audit, english } = analyzePage($c, c.url, "collection", seen);
+    const { audit, english } = analyzePage($c, url, "collection", seen);
     pages.push(audit);
     englishTexts.push(...english);
+    collectionsAnalyzed++;
   }
 
-  // Échantillon de produits
-  for (const p of links.products.slice(0, MAX_PRODUCTS)) {
-    const html = await fetchHtml(p.url);
-    if (!html) { partial = true; notes.push(`Produit non analysé : ${p.text}`); continue; }
+  // Échantillon de produits analysés EN DÉTAIL.
+  let productsAnalyzed = 0;
+  for (const url of catalog.products.slice(0, DETAIL_PRODUCTS)) {
+    const html = await fetchHtml(url);
+    if (!html) { partial = true; continue; }
     const $p = cheerio.load(html);
-    const { audit, english } = analyzePage($p, p.url, "product", seen);
+    const { audit, english } = analyzePage($p, url, "product", seen);
     pages.push(audit);
     englishTexts.push(...english);
+    productsAnalyzed++;
   }
 
-  if (links.collections.length === 0) notes.push("Aucune collection publique détectée.");
-  if (links.products.length === 0) notes.push("Aucune page produit publique détectée.");
+  if (collectionsFound === 0) notes.push("Aucune collection publique détectée (sitemap/products.json indisponibles).");
+  if (productsFound === 0) notes.push("Aucun produit public détecté (sitemap/products.json indisponibles).");
+  if (productsFound > 0 && productsAnalyzed < Math.min(DETAIL_PRODUCTS, productsFound)) partial = true;
 
-  const niche = detectNiche(`${inputs.niche ?? ""} ${inputs.brandName ?? ""} ${homeAudit.title ?? ""} ${homeText.slice(0, 400)} ${base}`);
+  const niche = detectNiche(
+    `${inputs.niche ?? ""} ${inputs.brandName ?? ""} ${homeAudit.title ?? ""} ${catalog.productTypes.join(" ")} ${homeText.slice(0, 400)} ${base}`
+  );
   const analysis = assembleAnalysis({
-    base, niche, inputs, pages, englishTexts, legal: links.legal, sections,
-    collectionsFound: links.collections.length, productsFound: links.products.length,
+    base, niche, inputs, pages, englishTexts, legal, sections,
+    productsFound, productsAnalyzed, collectionsFound, collectionsAnalyzed, pagesFound,
+    catalogSource: catalog.source, productTypes: catalog.productTypes,
     partial, notes, homeText,
   });
-  const profile = assembleProfile({ niche, inputs, links, analysis });
+  const profile = assembleProfile({ niche, inputs, catalog, analysis });
 
   return { ok: true, analysis, profile };
+}
+
+/** Marque les pages légales trouvées via le sitemap en plus des liens home. */
+function mergeLegal(homeLegal: LegalCheck[], sitemapPages: string[]): LegalCheck[] {
+  return homeLegal.map((l) => {
+    if (l.found) return l;
+    const tgt = LEGAL_TARGETS.find((t) => t.key === l.key);
+    if (!tgt) return l;
+    const hit = sitemapPages.find((u) => tgt.matchers.test(u));
+    return hit ? { ...l, found: true, url: hit } : l;
+  });
 }
 
 // ── Construction de l'analyse à partir des données crawlées ─────────────────
@@ -326,8 +507,13 @@ interface AssembleArgs {
   englishTexts: EnglishHit[];
   legal: LegalCheck[];
   sections: string[];
-  collectionsFound: number;
   productsFound: number;
+  productsAnalyzed: number;
+  collectionsFound: number;
+  collectionsAnalyzed: number;
+  pagesFound: number;
+  catalogSource: string;
+  productTypes: string[];
   partial: boolean;
   notes: string[];
   homeText: string;
@@ -367,15 +553,26 @@ function assembleAnalysis(a: AssembleArgs): StoreAnalysis {
   const metaMissing = a.pages.filter((p) => !p.metaDescription || p.metaDescription.length <= 10).length;
   const collectionsWithoutSeo = collections.filter((c) => (c.wordCount || 0) <= 120).length;
 
+  // Métriques : on extrapole les signaux de l'échantillon au catalogue trouvé.
+  const collWeakRatio = collections.length ? collectionsWithoutSeo / collections.length : 1;
   const metrics: DashboardMetrics = {
     productsToOptimize: a.productsFound || products.length,
-    collectionsWithoutSeo: collectionsWithoutSeo || (a.collectionsFound && collections.length === 0 ? a.collectionsFound : 0),
+    collectionsWithoutSeo: a.collectionsFound ? Math.round(a.collectionsFound * collWeakRatio) : collectionsWithoutSeo,
     englishTextsDetected: englishCount,
     missingMetaDescriptions: metaMissing,
     imagesWithoutAlt,
   };
 
+  // Couverture du scan = part du catalogue analysée en détail.
+  const coverageRatio = a.productsFound ? a.productsAnalyzed / a.productsFound : 1;
+  const coverage: StoreAnalysis["coverage"] = coverageRatio >= 0.25 ? "élevée" : coverageRatio >= 0.05 ? "moyenne" : "faible";
+
   const issues = buildIssues(a, { missingEssential, englishCount, collectionsWithoutSeo, products, homeHasReassurance, metaMissing });
+  const synthesis = buildSynthesis(a, scores, issues, { englishCount, coverage });
+
+  const confidence =
+    `${coverage === "élevée" ? "élevée" : coverage === "moyenne" ? "moyenne" : "faible"} · ` +
+    `${a.productsAnalyzed}/${a.productsFound} produits analysés · source ${a.catalogSource}`;
 
   return {
     scores,
@@ -383,21 +580,75 @@ function assembleAnalysis(a: AssembleArgs): StoreAnalysis {
     issues,
     homepageOrder: preset.homepageOrder,
     productPageStructure: preset.productPageStructure,
-    confidence: a.partial
-      ? "vue publique partielle"
-      : `vue publique réelle (${a.pages.length} page${a.pages.length > 1 ? "s" : ""})`,
+    confidence,
     lastScanAt: new Date().toISOString(),
     source: "public",
     pagesAnalyzed: a.pages.length,
     productsFound: a.productsFound,
+    productsAnalyzed: a.productsAnalyzed,
     collectionsFound: a.collectionsFound,
+    collectionsAnalyzed: a.collectionsAnalyzed,
+    pagesFound: a.pagesFound,
+    coverage,
+    catalogSource: a.catalogSource,
+    productTypesDetected: a.productTypes,
     englishTexts: a.englishTexts,
     legalPages: a.legal,
     homepageSections: a.sections,
     pages: a.pages,
+    synthesis,
     partial: a.partial,
     notes: a.notes,
   };
+}
+
+// ── Synthèse exécutive ──────────────────────────────────────────────────────
+
+function buildSynthesis(
+  a: AssembleArgs,
+  scores: StoreScores,
+  issues: ReviewIssue[],
+  d: { englishCount: number; coverage: string }
+): import("./types").ScanSynthesis {
+  const preset = NICHES[a.niche];
+  const good: string[] = [];
+  if (scores.seo >= 65) good.push("Base SEO correcte sur les pages analysées.");
+  if (scores.trust >= 65) good.push("Bons signaux de confiance (pages légales présentes).");
+  if (scores.conversion >= 65) good.push("Parcours d'achat plutôt clair (CTA / réassurance).");
+  if (a.productsFound > 50) good.push(`Catalogue riche : ${a.productsFound} produits exposés publiquement.`);
+  if (!good.length) good.push("Boutique en ligne et explorable publiquement — bonne base de départ.");
+
+  const blocking = issues.filter((i) => i.severity === "critique").map((i) => i.area);
+  if (!blocking.length) blocking.push("Aucun blocage critique détecté, surtout des optimisations.");
+
+  const priorities = issues.slice(0, 5).map((i) => `${i.area} — ${i.fix}`);
+
+  const quickWins: string[] = [];
+  if (d.englishCount > 0) quickWins.push(`Traduire ${d.englishCount} libellé(s) anglais (éditeur de langue Shopify).`);
+  quickWins.push("Réécrire les meta titles/descriptions manquantes ou faibles.");
+  quickWins.push(`Ajouter 150–300 mots de texte SEO sur les collections principales (${preset.collections.slice(0, 2).join(", ")}).`);
+  if (!a.sections.includes("Réassurance")) quickWins.push("Ajouter un bandeau de réassurance en haut de la home.");
+
+  const plan7 = [
+    "J1–2 : corriger les textes anglais et les pages légales manquantes.",
+    "J3–4 : réécrire les meta des collections principales + home.",
+    "J5–7 : enrichir 5 fiches produits best-sellers (bénéfices, FAQ, alt text).",
+  ];
+  const plan30 = [
+    "Semaine 1 : quick wins (langue, légal, meta).",
+    `Semaine 2 : contenu SEO + FAQ sur les collections (${preset.collections.slice(0, 3).join(", ")}).`,
+    "Semaine 3 : optimiser 15–20 fiches produits prioritaires.",
+    "Semaine 4 : maillage interne + cluster blog (guides d'achat) + suivi des positions.",
+  ];
+
+  const modules = [...new Set(issues.map((i) => moduleLabel(i.module)))];
+
+  return { good, blocking, priorities, quickWins, plan7, plan30, modules };
+}
+
+function moduleLabel(m: ReviewIssue["module"]): string {
+  const map: Record<string, string> = { seo: "SEO Studio", merchant: "Merchant Shield", sections: "Section Builder", council: "AI Council", memory: "Mémoire boutique" };
+  return map[m] || "AI Council";
 }
 
 function buildIssues(
@@ -474,27 +725,85 @@ function buildIssues(
     });
   }
 
+  // ── SEO technique on-page (title, meta length, H1) ──
+  const home = a.pages.find((p) => p.type === "home");
+  if (home) {
+    if (!home.title || (home.titleLength ?? 0) < 15 || (home.titleLength ?? 0) > 65) {
+      issues.push({
+        area: "Title de la page d'accueil",
+        severity: "important",
+        explanation: !home.title ? "Aucun <title> détecté." : `Le title fait ${home.titleLength} caractères (idéal 30–60).`,
+        impact: "Mauvais affichage dans Google et CTR réduit.",
+        fix: "Rédiger un title de 50–60 caractères avec le mot-clé principal + la marque.",
+        module: "seo",
+      });
+    }
+    if ((home.metaLength ?? 0) > 0 && ((home.metaLength ?? 0) < 70 || (home.metaLength ?? 0) > 160)) {
+      issues.push({
+        area: "Meta description de la home",
+        severity: "mineur",
+        explanation: `La meta description fait ${home.metaLength} caractères (idéal 120–155).`,
+        impact: "Extrait Google tronqué ou peu incitatif.",
+        fix: "Réécrire une meta de 120–155 caractères avec un bénéfice + un CTA.",
+        module: "seo",
+      });
+    }
+    if ((home.h1Count ?? 0) === 0) {
+      issues.push({
+        area: "H1 absent en page d'accueil",
+        severity: "important",
+        explanation: "Aucune balise H1 détectée sur la home.",
+        impact: "Structure sémantique faible pour le SEO.",
+        fix: "Ajouter un H1 unique et descriptif (promesse + niche).",
+        module: "seo",
+      });
+    } else if ((home.h1Count ?? 0) > 1) {
+      issues.push({
+        area: "H1 multiples en page d'accueil",
+        severity: "mineur",
+        explanation: `${home.h1Count} balises H1 détectées (une seule recommandée).`,
+        impact: "Dilution sémantique du titre principal.",
+        fix: "Conserver un seul H1 et passer les autres en H2.",
+        module: "seo",
+      });
+    }
+  }
+
+  // Maillage / contenu informationnel (longue traîne)
+  if (a.productsFound > 20) {
+    issues.push({
+      area: "Contenu informationnel / blog",
+      severity: "mineur",
+      explanation: "Peu de contenu éditorial (guides d'achat) pour soutenir la longue traîne.",
+      impact: "Opportunités de trafic informationnel non captées.",
+      fix: "Créer un cluster blog (« comment choisir », « guide ») relié aux collections via le SEO Studio.",
+      module: "seo",
+    });
+  }
+
   const order = { critique: 0, important: 1, mineur: 2 } as const;
-  return issues.sort((x, y) => order[x.severity] - order[y.severity]).slice(0, 9);
+  return issues.sort((x, y) => order[x.severity] - order[y.severity]).slice(0, 12);
 }
 
-function assembleProfile(p: { niche: NicheKey; inputs: CrawlInputs; links: Links; analysis: StoreAnalysis }): Partial<BrandMemory> {
+function assembleProfile(p: { niche: NicheKey; inputs: CrawlInputs; catalog: CatalogData; analysis: StoreAnalysis }): Partial<BrandMemory> {
   const preset = NICHES[p.niche];
-  const realCollections = p.links.collections.map((c) => c.text).filter(Boolean).slice(0, 8);
+  const realCollections = [...new Set(p.catalog.collections.map((u) => collTitle(new URL(u).pathname)))].filter(Boolean).slice(0, 10);
+  const realTypes = p.catalog.productTypes.filter(Boolean).slice(0, 8);
   const name = p.inputs.brandName?.trim() || "Cette boutique";
   const foundLegal = (p.analysis.legalPages || []).filter((l) => l.found).map((l) => l.label);
 
   const understanding =
-    `${name} : scan public réel de ${p.analysis.pagesAnalyzed} page(s). ` +
-    `${p.analysis.collectionsFound ?? 0} collection(s) et ${p.analysis.productsFound ?? 0} produit(s) visibles détectés. ` +
-    `${p.analysis.englishTexts?.length ?? 0} texte(s) anglais repéré(s). ` +
+    `${name} : scan public réel (source ${p.analysis.catalogSource}). ` +
+    `${p.analysis.productsFound ?? 0} produit(s) trouvés (${p.analysis.productsAnalyzed ?? 0} analysés en détail), ` +
+    `${p.analysis.collectionsFound ?? 0} collection(s) trouvées (${p.analysis.collectionsAnalyzed ?? 0} analysées). ` +
+    `Couverture : ${p.analysis.coverage}. ${p.analysis.englishTexts?.length ?? 0} texte(s) anglais repéré(s). ` +
     `Pages de confiance trouvées : ${foundLegal.length ? foundLegal.join(", ") : "aucune détectée"}. ` +
     `Niche estimée : ${p.inputs.niche?.trim() || preset.label}. Opportunités prioritaires : SEO collections/fiches, meta, FAQ, maillage interne et réassurance.`;
 
   return {
     niche: p.inputs.niche?.trim() || preset.label,
     collections: realCollections.length ? realCollections : preset.collections,
-    productTypes: preset.productTypes,
+    productTypes: realTypes.length ? realTypes : preset.productTypes,
     primaryKeywords: preset.primaryKeywords,
     secondaryKeywords: preset.secondaryKeywords,
     competitors: preset.competitors,

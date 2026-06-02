@@ -389,6 +389,11 @@ export interface CouncilContext {
   englishCount?: number;
   missingLegal?: string[];
   pagesAnalyzed?: number;
+  productsFound?: number;
+  productsAnalyzed?: number;
+  collectionsFound?: number;
+  coverage?: string;
+  catalogSource?: string;
   /** Question précédente, pour la continuité de conversation. */
   previousQuestion?: string;
   /** Directive issue d'un bouton d'action. */
@@ -581,6 +586,11 @@ export function isReviewIntent(question: string): boolean {
     /\b(site|boutique|shop|store|page d'accueil|home)\b/i.test(question);
 }
 
+function scanContextLine(ctx: CouncilContext): string {
+  if (ctx.productsFound == null) return "";
+  return `> 📊 Analyse basée sur ${ctx.productsAnalyzed ?? 0} produit(s) analysé(s) sur ${ctx.productsFound} trouvé(s)${ctx.catalogSource ? ` via ${ctx.catalogSource}` : ""} (couverture ${ctx.coverage ?? "n/a"}).\n\n`;
+}
+
 function seoAnswer(ctx: CouncilContext): string {
   const s = brandOf(ctx);
   const cols = collectionsOf(ctx);
@@ -588,7 +598,7 @@ function seoAnswer(ctx: CouncilContext): string {
   const niche = nicheOf(ctx);
   return `## Plan SEO pour ${s}
 
-**Diagnostic express** — ${s} évolue sur la niche **${niche}**. Le potentiel SEO repose sur trois piliers : la structure des collections (${cols.slice(0, 3).join(", ")}…), la qualité des fiches produits et le maillage interne. Voici les priorités, ordonnées par impact.
+${scanContextLine(ctx)}**Diagnostic express** — ${s} évolue sur la niche **${niche}**. Le potentiel SEO repose sur trois piliers : la structure des collections (${cols.slice(0, 3).join(", ")}…), la qualité des fiches produits et le maillage interne. Voici les priorités, ordonnées par impact.
 
 ### 1. Audit de l'intention de recherche
 - Vos requêtes cibles : ${kws.map((k) => `« ${k} »`).join(", ")}.
@@ -878,7 +888,7 @@ export function buildSiteReview(ctx: CouncilContext): { markdown: string; review
 
   const markdown = `## Review complète de ${s}
 
-Analyse adaptée à votre niche **${niche}**. Voici l'état des lieux, page par page, puis les recommandations priorisées.
+${scanContextLine(ctx)}Analyse adaptée à votre niche **${niche}**. Voici l'état des lieux, page par page, puis les recommandations priorisées.
 
 ### 🔍 SEO global
 - Intention bien identifiable (${kws.slice(0, 3).map((k) => `« ${k} »`).join(", ")}) mais sous-exploitée.

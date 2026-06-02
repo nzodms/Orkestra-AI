@@ -260,6 +260,21 @@ export interface PageAudit {
   hasCta?: boolean;
   imagesWithoutAlt?: number;
   englishCount?: number;
+  /** Nombre de H1 (0 = absent, >1 = multiple). */
+  h1Count?: number;
+  titleLength?: number;
+  metaLength?: number;
+}
+
+/** Synthèse exécutive du scan. */
+export interface ScanSynthesis {
+  good: string[];
+  blocking: string[];
+  priorities: string[];
+  quickWins: string[];
+  plan7: string[];
+  plan30: string[];
+  modules: string[];
 }
 
 /** Résultat d'analyse de la boutique active — source de vérité du dashboard. */
@@ -275,11 +290,20 @@ export interface StoreAnalysis {
   // ── Données issues du crawl public réel (optionnelles) ──
   pagesAnalyzed?: number;
   productsFound?: number;
+  productsAnalyzed?: number;
   collectionsFound?: number;
+  collectionsAnalyzed?: number;
+  pagesFound?: number;
+  /** Couverture du scan : faible / moyenne / élevée. */
+  coverage?: "faible" | "moyenne" | "élevée";
+  /** Source principale du catalogue : sitemap / products.json / crawl home / fallback. */
+  catalogSource?: string;
+  productTypesDetected?: string[];
   englishTexts?: EnglishHit[];
   legalPages?: LegalCheck[];
   homepageSections?: string[];
   pages?: PageAudit[];
+  synthesis?: ScanSynthesis;
   partial?: boolean;
   notes?: string[];
 }
