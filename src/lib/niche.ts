@@ -307,7 +307,7 @@ export function detectNiche(text: string | undefined): NicheKey {
   if (/bébé|bebe|puéricult|puericult|maternité|naissance|baby|enfant/.test(t)) return "bebe";
   if (/bijou|joaill|collier|bague|bracelet|boucle|montre/.test(t)) return "bijoux";
   if (/mode|vêtement|vetement|fashion|prêt-à-porter|robe|t-?shirt|jean|textile/.test(t)) return "mode";
-  if (/sport|fitness|musculation|yoga|running|gym/.test(t)) return "sport";
+  if (/sport|fitness|musculation|yoga|pilates|reformer|crossfit|home ?gym|running|gym|entra[îi]nement/.test(t)) return "sport";
   if (/anim|chien|chat|animalerie|\bpet\b|croquette/.test(t)) return "animalerie";
   if (/tech|électro|electro|gadget|smartphone|écouteur|ecouteur|connecté|connecte|high-?tech/.test(t)) return "hightech";
   if (/déco|deco|maison|mobilier|meuble|intérieur|interieur|design/.test(t)) return "maison";
