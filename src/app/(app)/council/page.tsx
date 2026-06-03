@@ -12,7 +12,7 @@ import {
   MessagesSquare, Send, Sparkles, Search, Code2, ShieldCheck, Mail, FileText,
   TrendingUp, Swords, MessageCircle, Copy, Check, Wand2, Scissors, FileCode2,
   Trash2, Layers, Clock, ListChecks, CheckCircle2, AlertCircle, ArrowDown,
-  Home, ListOrdered, Wrench, ArrowRight,
+  Home, ListOrdered, Wrench, ArrowRight, CornerDownRight,
 } from "lucide-react";
 
 const MODES: { id: CouncilMode; label: string; icon: React.ElementType }[] = [
@@ -42,6 +42,26 @@ const ACTIONS: { label: string; icon: React.ElementType; directive: Directive | 
   { label: "Plus premium", icon: Sparkles, directive: "premium" },
   { label: "Convertir en HTML", icon: FileCode2, directive: "html" },
 ];
+
+// Suggestions de suivi (envoient une vraie question de suivi dans la conversation).
+type Follow = { label: string; q: string; icon: React.ElementType };
+const FOLLOWUPS_SEO: Follow[] = [
+  { label: "Me faire le plan 7 jours", q: "Fais-moi le plan d'action SEO sur 7 jours, avec le chemin Shopify pour chaque action.", icon: ListChecks },
+  { label: "Uniquement les meta", q: "Donne-moi uniquement les meta titles et meta descriptions prêts à copier.", icon: Copy },
+  { label: "Quels problèmes sont prioritaires ?", q: "Quels problèmes SEO sont vraiment prioritaires à corriger en premier ?", icon: AlertCircle },
+  { label: "Où corriger dans Shopify ?", q: "Où corriger exactement ces éléments dans Shopify (chemins précis) ?", icon: Wrench },
+  { label: "Générer les textes prêts à copier", q: "Génère les textes prêts à copier : titles, meta, FAQ et alt text.", icon: FileText },
+  { label: "Résumer en 10 actions", q: "Résume tout en 10 actions concrètes et priorisées.", icon: ListOrdered },
+];
+const FOLLOWUPS_DEFAULT: Follow[] = [
+  { label: "Résumer en 10 actions", q: "Résume ta réponse en 10 actions concrètes et priorisées.", icon: ListOrdered },
+  { label: "Quelles priorités ?", q: "Quelles sont les priorités à traiter en premier ?", icon: AlertCircle },
+  { label: "Me faire le plan 7 jours", q: "Donne-moi un plan d'action concret sur 7 jours.", icon: ListChecks },
+  { label: "Plus de détails", q: "Développe davantage les points les plus importants de ta réponse.", icon: FileText },
+];
+function followUps(mode: CouncilMode): Follow[] {
+  return mode === "seo" ? FOLLOWUPS_SEO : FOLLOWUPS_DEFAULT;
+}
 
 export default function CouncilPage() {
   const { connections, brand, analysis, addGeneration, councilMessages, addCouncilTurn, clearCouncil } = useOrkestra();
@@ -240,7 +260,7 @@ export default function CouncilPage() {
                   turn.role === "user" ? (
                     <UserBubble key={turn.id} turn={turn} />
                   ) : (
-                    <CouncilTurnCard key={turn.id} result={turn.result!} meta={turn.meta} onAction={(d) => lastUserQuestion && runCouncil(lastUserQuestion, d)} />
+                    <CouncilTurnCard key={turn.id} result={turn.result!} meta={turn.meta} mode={turn.mode} onAction={(d) => lastUserQuestion && runCouncil(lastUserQuestion, d)} onFollow={(q) => runCouncil(q)} />
                   )
                 )
               )}
@@ -337,7 +357,7 @@ function UserBubble({ turn }: { turn: CouncilTurn }) {
 }
 
 // ── Carte d'un tour de réponse (synthèse finale + onglets IA) ───────────────
-function CouncilTurnCard({ result, meta, onAction }: { result: CouncilResult; meta?: GenMeta; onAction: (d: Directive) => void }) {
+function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: CouncilResult; meta?: GenMeta; mode: CouncilMode; onAction: (d: Directive) => void; onFollow: (q: string) => void }) {
   const [tab, setTab] = useState<"final" | string>("final");
   const current = result.providerAnswers.find((p) => p.provider === tab);
   const time = meta ? new Date(meta.generatedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "";
@@ -389,7 +409,7 @@ function CouncilTurnCard({ result, meta, onAction }: { result: CouncilResult; me
               <Markdown content={result.finalAnswer} />
             </div>
             {result.review && <ReviewBlock review={result.review} />}
-            {/* Actions */}
+            {/* Actions sur la réponse */}
             <div className="mt-5 flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
               {ACTIONS.map((a) => {
                 const Icon = a.icon;
@@ -400,6 +420,27 @@ function CouncilTurnCard({ result, meta, onAction }: { result: CouncilResult; me
                 );
               })}
               <CopyBtn text={result.finalAnswer} label="Exporter" />
+            </div>
+
+            {/* Suivi rapide — envoie une question de suivi dans la conversation */}
+            <div className="mt-3">
+              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+                <CornerDownRight className="h-3.5 w-3.5" /> Continuer la conversation
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {followUps(mode).map((f) => {
+                  const Icon = f.icon;
+                  return (
+                    <button
+                      key={f.q}
+                      onClick={() => onFollow(f.q)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-medium text-[var(--text-muted)] transition hover:-translate-y-0.5 hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300"
+                    >
+                      <Icon className="h-3.5 w-3.5 text-brand-500" /> {f.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </>
         ) : current ? (

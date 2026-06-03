@@ -74,7 +74,7 @@ export default function DashboardPage() {
         {SCORE_CARDS.map((s) => {
           const value = analysis?.scores[s.key];
           const content = (
-            <Card className="flex h-full items-center gap-4 transition hover:border-brand-300 hover:shadow-card">
+            <Card className="group relative flex h-full items-center gap-4 transition hover:border-brand-300 hover:shadow-card">
               {typeof value === "number" ? (
                 <ScoreRing value={value} />
               ) : (
@@ -93,6 +93,7 @@ export default function DashboardPage() {
                   <Badge tone="neutral" className="mt-2">Non analysé</Badge>
                 )}
               </div>
+              <ArrowUpRight className="absolute right-3 top-3 h-4 w-4 text-ink-300 transition-colors group-hover:text-brand-500" />
             </Card>
           );
           return storeReady ? (

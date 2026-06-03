@@ -3,8 +3,15 @@
 import { useEffect, useState } from "react";
 import { ProviderCard } from "@/components/ProviderCard";
 import { PageHeader, Card, Badge } from "@/components/ui/primitives";
-import { PROVIDER_ORDER } from "@/lib/providers";
-import { ShieldCheck, Lock, EyeOff, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { PROVIDER_ORDER, PROVIDERS } from "@/lib/providers";
+import type { AIProviderId } from "@/lib/types";
+import {
+  ShieldCheck, Lock, EyeOff, AlertTriangle, CheckCircle2, KeyRound, ClipboardPaste,
+  MessagesSquare, Sparkles, Clock,
+} from "lucide-react";
+
+// Providers réellement branchés en live (les autres : bientôt).
+const AVAILABLE: AIProviderId[] = ["openai"];
 
 interface Health {
   status: string;
@@ -50,15 +57,89 @@ function HealthBanner() {
   );
 }
 
+const STEPS = [
+  { icon: KeyRound, title: "Créer une clé", desc: "Sur le site de votre IA (OpenAI, Claude…)." },
+  { icon: ClipboardPaste, title: "Coller la clé", desc: "Dans la carte du provider, ci-dessous." },
+  { icon: CheckCircle2, title: "Tester", desc: "Orkestra vérifie la clé en un clic." },
+  { icon: MessagesSquare, title: "Utiliser", desc: "Vos analyses tournent dans l'AI Council." },
+];
+
+function HowItWorks() {
+  return (
+    <Card className="mb-5">
+      <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+        <Sparkles className="h-4 w-4 text-brand-600" /> Comment ça marche
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {STEPS.map((s, i) => {
+          const Icon = s.icon;
+          return (
+            <div key={s.title} className="relative flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300">
+                <Icon className="h-[18px] w-[18px]" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="grid h-4 w-4 place-items-center rounded-full bg-brand-600 text-[10px] font-bold text-white">{i + 1}</span>
+                  <span className="text-sm font-semibold">{s.title}</span>
+                </div>
+                <p className="mt-0.5 text-xs text-[var(--text-muted)]">{s.desc}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+function ModelGuide() {
+  return (
+    <Card className="mt-5">
+      <div className="mb-1 flex items-center gap-2 text-sm font-semibold">
+        <Sparkles className="h-4 w-4 text-brand-600" /> Quel modèle utiliser pour quoi&nbsp;?
+      </div>
+      <p className="mb-3 text-xs text-[var(--text-muted)]">
+        Connectez ce que vous voulez : Orkestra route automatiquement vers le bon modèle selon la tâche.
+      </p>
+      <div className="overflow-hidden rounded-xl border border-[var(--border)]">
+        {PROVIDER_ORDER.map((id, i) => {
+          const p = PROVIDERS[id];
+          const live = AVAILABLE.includes(id);
+          return (
+            <div
+              key={id}
+              className={`flex items-center justify-between gap-3 px-3.5 py-3 ${i % 2 ? "bg-[var(--bg)]" : "bg-[var(--surface)]"}`}
+            >
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: p.color }} />
+                <span className="shrink-0 text-sm font-semibold">{p.name}</span>
+                <span className="truncate text-xs text-[var(--text-muted)]">— {p.bestFor}</span>
+              </div>
+              {live ? (
+                <Badge tone="good"><CheckCircle2 className="h-3 w-3" /> Live</Badge>
+              ) : (
+                <Badge tone="neutral"><Clock className="h-3 w-3" /> Bientôt</Badge>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 export default function ConnectPage() {
   return (
     <>
       <PageHeader
         title="Connecter mes IA"
-        description="Orkestra fonctionne en BYOK (Bring Your Own Key) : vous utilisez vos propres clés API. Vos crédits restent à vous, jamais les nôtres."
+        description="Orkestra fonctionne en BYOK (Bring Your Own Key) : vous connectez vos propres clés API. Orkestra les utilise pour vos analyses — vous gardez le contrôle, vos crédits restent les vôtres."
       />
 
       <HealthBanner />
+
+      <HowItWorks />
 
       <Card className="mb-5 border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40">
         <div className="grid gap-4 sm:grid-cols-3">
@@ -88,6 +169,8 @@ export default function ConnectPage() {
           <ProviderCard key={id} id={id} />
         ))}
       </div>
+
+      <ModelGuide />
 
       <p className="mt-6 text-center text-xs text-[var(--text-muted)]">
         Vous pouvez connecter une ou plusieurs IA. Plus vous en connectez, meilleure est la

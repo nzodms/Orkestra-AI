@@ -8,11 +8,13 @@ import { buildDetectedProfile, buildAnalysis } from "@/lib/store-profile";
 import { ProviderCard } from "@/components/ProviderCard";
 import { Button } from "@/components/ui/Button";
 import { Field, Badge } from "@/components/ui/primitives";
-import type { Positioning } from "@/lib/types";
+import type { Positioning, BrandMemory, ModuleId } from "@/lib/types";
 import Link from "next/link";
-import { scoreTone } from "@/lib/utils";
-import type { ModuleId } from "@/lib/types";
-import { Sparkles, Check, ArrowRight, ArrowLeft, Store, Palette, Plug, ScanSearch, Eye, Lock, Globe, Wrench } from "lucide-react";
+import { scoreTone, cn } from "@/lib/utils";
+import {
+  Sparkles, Check, ArrowRight, ArrowLeft, Store, Palette, Plug, ScanSearch, Eye, Lock, Globe, Wrench,
+  Gem, GraduationCap, Smile, Zap, ShieldCheck,
+} from "lucide-react";
 
 const MODULE_ROUTE: Record<ModuleId, string> = {
   dashboard: "/dashboard", seo: "/seo", sections: "/sections", council: "/council",
@@ -35,6 +37,42 @@ const POSITIONINGS: { id: Positioning; label: string }[] = [
   { id: "familial", label: "Familial" },
   { id: "ecoresponsable", label: "Éco-responsable" },
 ];
+
+// Tons de marque sous forme de cartes (la voix d'Orkestra dans vos contenus).
+const TONES: { id: string; label: string; desc: string; icon: React.ElementType; style: string }[] = [
+  { id: "elegant", label: "Élégant", desc: "Raffiné, soigné, esthétique", icon: Sparkles, style: "Élégant, raffiné et soigné" },
+  { id: "expert", label: "Expert", desc: "Précis, technique, crédible", icon: GraduationCap, style: "Expert, précis et crédible" },
+  { id: "accessible", label: "Accessible", desc: "Simple, clair, chaleureux", icon: Smile, style: "Accessible, simple et clair" },
+  { id: "direct", label: "Direct", desc: "Concis, efficace, sans détour", icon: Zap, style: "Direct, concis et efficace" },
+  { id: "rassurant", label: "Rassurant", desc: "Bienveillant, de confiance", icon: ShieldCheck, style: "Rassurant et bienveillant" },
+  { id: "premium", label: "Premium discret", desc: "Haut de gamme, sobre", icon: Gem, style: "Premium discret, sobre et désirable" },
+];
+
+// Résumé dynamique « Ce qu'Orkestra comprend » — se met à jour en direct.
+function Understanding({ brand }: { brand: BrandMemory }) {
+  const has = Boolean(brand.storeName?.trim() || brand.niche?.trim());
+  return (
+    <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-transparent p-4 dark:border-brand-900 dark:from-brand-950/40">
+      <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-brand-700 dark:text-brand-300">
+        <Sparkles className="h-3.5 w-3.5" /> Ce qu&apos;Orkestra comprend
+      </div>
+      {has ? (
+        <p className="text-sm leading-relaxed text-[var(--text-muted)]">
+          <span className="font-semibold text-[var(--text)]">{brand.storeName || "Votre boutique"}</span>
+          {brand.niche ? <> — {brand.niche}</> : null}
+          {brand.positioning ? <>, positionnement <span className="font-medium text-[var(--text)]">{brand.positioning}</span></> : null}
+          {brand.country ? <>, cible {brand.country}</> : null}
+          {brand.writingStyle ? <>, ton <span className="font-medium text-[var(--text)]">{brand.writingStyle.toLowerCase()}</span></> : null}.
+          {" "}Orkestra adaptera vos contenus, vos collections et vos priorités SEO en conséquence.
+        </p>
+      ) : (
+        <p className="text-sm leading-relaxed text-[var(--text-muted)]">
+          Renseignez votre boutique pour qu&apos;Orkestra adapte le SEO, le contenu et le ton à votre marque.
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -193,6 +231,8 @@ export default function OnboardingPage() {
                   })}
                 </div>
               </Field>
+
+              <Understanding brand={brand} />
             </div>
           )}
 
@@ -205,8 +245,32 @@ export default function OnboardingPage() {
                   Orkestra rédigera tous vos contenus dans cette voix.
                 </p>
               </div>
-              <Field label="Style rédactionnel">
-                <input className="input" value={brand.writingStyle} onChange={(e) => updateBrand({ writingStyle: e.target.value })} placeholder="Clair, inspirant, orienté bénéfices" />
+              <Field label="Ton de marque" hint="La voix d'Orkestra dans tous vos contenus">
+                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                  {TONES.map((t) => {
+                    const Icon = t.icon;
+                    const sel = brand.writingStyle === t.style;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => updateBrand({ writingStyle: t.style })}
+                        className={cn(
+                          "group flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-all duration-200 hover:-translate-y-0.5 active:scale-95",
+                          sel ? "border-brand-500 bg-brand-50 shadow-soft dark:bg-brand-950" : "border-[var(--border)] hover:border-brand-300"
+                        )}
+                      >
+                        <span className={cn("grid h-8 w-8 place-items-center rounded-lg transition", sel ? "bg-brand-600 text-white" : "bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300")}>
+                          <Icon className="h-4 w-4" />
+                        </span>
+                        <span className="mt-1 flex items-center gap-1 text-sm font-semibold">
+                          {t.label}{sel && <Check className="h-3.5 w-3.5 animate-pop text-brand-600 dark:text-brand-300" />}
+                        </span>
+                        <span className="text-[11px] leading-tight text-[var(--text-muted)]">{t.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </Field>
               <Field label="Niveau de formalité">
                 <div className="flex gap-2">
@@ -246,6 +310,8 @@ export default function OnboardingPage() {
               <Field label="Garanties" hint="Séparées par des virgules">
                 <input className="input" defaultValue={brand.guarantees.join(", ")} onBlur={(e) => updateBrand({ guarantees: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="Garantie 2 ans, paiement sécurisé" />
               </Field>
+
+              <Understanding brand={brand} />
             </div>
           )}
 

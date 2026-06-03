@@ -6,7 +6,7 @@ import { useOrkestra } from "@/lib/store";
 import type { AIProviderId } from "@/lib/types";
 import { Button } from "./ui/Button";
 import { Badge } from "./ui/primitives";
-import { relativeDate } from "@/lib/utils";
+import { relativeDate, cn } from "@/lib/utils";
 import {
   CheckCircle2,
   XCircle,
@@ -15,6 +15,8 @@ import {
   HelpCircle,
   KeyRound,
   Clock,
+  Star,
+  Sparkles,
 } from "lucide-react";
 
 // Providers réellement branchés en live dans cette version.
@@ -69,18 +71,27 @@ export function ProviderCard({ id }: { id: AIProviderId }) {
   }
 
   return (
-    <div className="card flex flex-col p-5">
+    <div
+      className={cn(
+        "card flex flex-col p-5 transition",
+        available && !conn.connected && meta.recommended && "ring-1 ring-brand-200 dark:ring-brand-900/70",
+        conn.connected && "border-emerald-200 dark:border-emerald-900/60"
+      )}
+    >
       <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <div
-            className="grid h-11 w-11 place-items-center rounded-xl text-white"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-white shadow-soft"
             style={{ background: meta.color }}
           >
             <KeyRound className="h-5 w-5" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5">
               <h3 className="text-sm font-semibold">{meta.name}</h3>
+              {available && !conn.connected && meta.recommended && (
+                <Badge tone="brand"><Star className="h-3 w-3" /> Recommandé</Badge>
+              )}
               {!available ? (
                 <Badge tone="neutral"><Clock className="h-3 w-3" /> Bientôt disponible</Badge>
               ) : conn.connected ? (
@@ -98,10 +109,17 @@ export function ProviderCard({ id }: { id: AIProviderId }) {
                 <Badge tone="neutral">Non connecté</Badge>
               )}
             </div>
-            <p className="mt-0.5 text-xs text-[var(--text-muted)]">{meta.tagline}</p>
+            <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">{meta.tagline}</p>
           </div>
         </div>
       </div>
+
+      {meta.bestFor && (
+        <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--text-muted)]">
+          <Sparkles className="h-3.5 w-3.5 shrink-0 text-brand-500" />
+          Idéal pour&nbsp;: <span className="font-medium text-[var(--text)]">{meta.bestFor}</span>
+        </div>
+      )}
 
       {!available ? (
         <div className="mt-4 rounded-xl border border-dashed border-[var(--border)] bg-[var(--bg)] px-3.5 py-3 text-xs text-[var(--text-muted)]">

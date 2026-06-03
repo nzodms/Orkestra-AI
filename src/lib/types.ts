@@ -21,6 +21,10 @@ export interface AIProviderMeta {
   /** Préfixe attendu de la clé (validation légère) */
   keyPrefix?: string;
   defaultModel: string;
+  /** Cas d'usage idéal (affiché sur la page Connexion). */
+  bestFor?: string;
+  /** Provider recommandé pour démarrer. */
+  recommended?: boolean;
 }
 
 export interface AIConnection {

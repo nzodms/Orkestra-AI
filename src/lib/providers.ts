@@ -12,6 +12,8 @@ export const PROVIDERS: Record<AIProviderId, AIProviderMeta> = {
       "Connectez-vous à platform.openai.com → API keys → Create new secret key. La clé commence par « sk- ».",
     keyPrefix: "sk-",
     defaultModel: "gpt-4o",
+    bestFor: "SEO, stratégie, synthèse et audit",
+    recommended: true,
   },
   anthropic: {
     id: "anthropic",
@@ -23,6 +25,7 @@ export const PROVIDERS: Record<AIProviderId, AIProviderMeta> = {
       "Connectez-vous à console.anthropic.com → Settings → API Keys. La clé commence par « sk-ant- ».",
     keyPrefix: "sk-ant-",
     defaultModel: "claude-sonnet-4-6",
+    bestFor: "Code Shopify, longues sections, correction Liquid",
   },
   gemini: {
     id: "gemini",
@@ -34,6 +37,7 @@ export const PROVIDERS: Record<AIProviderId, AIProviderMeta> = {
       "Allez sur aistudio.google.com → Get API key → Create API key. Copiez la clé générée.",
     keyPrefix: "AIza",
     defaultModel: "gemini-1.5-pro",
+    bestFor: "Multimodal et analyse d'images",
   },
   openrouter: {
     id: "openrouter",
@@ -45,6 +49,7 @@ export const PROVIDERS: Record<AIProviderId, AIProviderMeta> = {
       "Sur openrouter.ai → Keys → Create Key. Pratique pour router vers plusieurs modèles avec une seule clé.",
     keyPrefix: "sk-or-",
     defaultModel: "openrouter/auto",
+    bestFor: "Accès unifié à des dizaines de modèles",
   },
   mistral: {
     id: "mistral",
@@ -55,6 +60,7 @@ export const PROVIDERS: Record<AIProviderId, AIProviderMeta> = {
     helpKey:
       "Sur console.mistral.ai → API Keys → Create new key. Idéal pour le contenu en français.",
     defaultModel: "mistral-large-latest",
+    bestFor: "Alternative rapide, très bon en français",
   },
 };
 
