@@ -2,8 +2,8 @@ import {
   generateCouncil,
   generateProductSeo,
   generateSection,
-  isFollowupQuestion,
-  followupTopic,
+  isTargetedQuestion,
+  classifyIntent,
   type CouncilContext,
   type ProductSeoInput,
   type SectionInput,
@@ -199,9 +199,18 @@ export async function runCouncil(
 
   // Logique de suivi COMMUNE à toutes les IA : si la question dépend du message
   // précédent, on répond précisément au point demandé sans refaire l'audit.
-  const followup = isFollowupQuestion(question, ctx);
-  const directive = followup
-    ? `\n\n⚠️ QUESTION DE SUIVI (sujet probable : ${followupTopic(question)}). Réponds UNIQUEMENT et PRÉCISÉMENT à ce point précis, en t'appuyant sur l'historique et les données structurées fournies (ex. textes anglais exacts, produits prioritaires, pages légales). NE refais PAS l'audit complet, ne répète pas le plan ni les collections, sois court et direct. Donne : la donnée exacte demandée, la source/page si dispo, la correction, l'impact, le chemin Shopify probable, l'action Orkestra.`
+  const targeted = isTargetedQuestion(question, ctx);
+  const directive = targeted
+    ? `\n\n⚠️ DEMANDE CIBLÉE (intention détectée : ${classifyIntent(question)}). La DERNIÈRE question utilisateur est PRIORITAIRE : réponds UNIQUEMENT et PRÉCISÉMENT à CETTE question. NE refais PAS d'audit complet, PAS de plan 30 jours, PAS de sections inutiles, ne recycle pas un rapport. Si la question contient « Contexte : … Réponds uniquement … », respecte-le à la lettre.\n` +
+      `Appuie-toi sur les données réelles du scan pour « Ce qui est concerné » (textes anglais exacts, produits prioritaires, pages légales manquantes, meta/alt manquants…). Si une donnée n'est pas disponible, écris « donnée non disponible via scan public » — n'invente RIEN et ne prétends pas avoir cherché sur internet.\n` +
+      `Format OBLIGATOIRE, court, EXACTEMENT dans cet ordre (omets une section seulement si elle n'a aucun sens pour la question) :\n` +
+      `### Réponse directe\n(1 à 3 phrases qui répondent exactement à la demande)\n` +
+      `### Ce qui est concerné\n(éléments réels détectés par le scan, sinon « donnée non disponible via scan public »)\n` +
+      `### Pourquoi c'est important\n(impact SEO / Merchant / conversion selon le sujet, 1 à 3 puces)\n` +
+      `### Comment corriger\n(étapes concrètes et courtes)\n` +
+      `### Où corriger dans Shopify\n(chemin Shopify exact)\n` +
+      `### Action suivante\n(UNE seule action claire ou un module Orkestra : SEO Studio, Merchant Shield, Assistant Shopify)\n` +
+      `N'ajoute AUCUNE autre section. Reste dans le périmètre du mode « ${MODE_LABEL[mode]} ».`
     : "\n\n" + modeStructure(mode);
   // En mode Concurrence, on suggère des concurrents DIRECTS spécialisés (niche)
   // + les généralistes en secondaire, pour éviter une liste de marketplaces.

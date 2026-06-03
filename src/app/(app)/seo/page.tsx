@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useOrkestra, connectedProviders } from "@/lib/store";
 import { getPreset } from "@/lib/niche";
 import { generateCollectionSeo, generateMetaVariants, generateAltTexts, generateBlogOutline } from "@/lib/ai/engine";
-import type { CollectionSeoResult, MetaVariant, BlogOutlineResult } from "@/lib/ai/engine";
+import type { CollectionSeoResult, MetaVariant, BlogOutlineResult, AltTextItem } from "@/lib/ai/engine";
 import { assistantLink, councilLink } from "@/lib/shopify";
 import { PageHeader, Card, Badge, Field } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
@@ -276,7 +276,7 @@ function ProductResult({ result }: { result: ProductSeoResult }) {
       <div className="grid gap-4 sm:grid-cols-2"><ListBlock title="Mots-clés principaux" items={result.primaryKeywords} /><ListBlock title="Longue traîne" items={result.longTailKeywords} />{!!result.tags?.length && <ListBlock title="Tags recommandés" items={result.tags} />}<ListBlock title="Alt text images" items={result.imageAltTexts} /></div>
       <FaqBlock faq={result.faq} />
       {result.merchantNote && <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"><span className="font-semibold">Google Merchant : </span>{result.merchantNote}</div>}
-      <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4"><Link href={assistantLink("Où ajouter une fiche produit (description, meta, tags, type) dans Shopify ?")}><Button variant="secondary" size="sm" icon={<MapPin className="h-3.5 w-3.5" />}>Où l&apos;ajouter dans Shopify ?</Button></Link><Link href={councilLink("seo", "Améliore encore cette fiche produit et propose des idées de maillage.")}><Button variant="outline" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Améliorer avec AI Council</Button></Link></div>
+      <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4"><Link href={assistantLink("Où ajouter une fiche produit (description, meta, tags, type) dans Shopify ?")}><Button variant="secondary" size="sm" icon={<MapPin className="h-3.5 w-3.5" />}>Où l&apos;ajouter dans Shopify ?</Button></Link><Link href={councilLink("seo", "Contexte : SEO Studio vient de générer une fiche produit. Réponds uniquement : comment l'améliorer (angle éditorial, maillage interne, données Google Merchant), sans refaire d'audit complet.")}><Button variant="outline" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Améliorer avec AI Council</Button></Link></div>
     </Card>
   );
 }
@@ -290,10 +290,19 @@ function CollectionResult({ r }: { r: CollectionSeoResult }) {
       <div><div className="mb-1.5 flex items-center justify-between"><span className="text-xs font-semibold uppercase tracking-wide text-ink-400">Description de collection (à coller)</span><CopyBtn text={r.descriptionHtml} /></div><pre className="max-h-52 overflow-auto rounded-xl bg-ink-950 p-3 text-xs text-ink-100"><code>{r.descriptionHtml}</code></pre></div>
       <ListBlock title="Structure" items={r.outline} />
       <div className="grid gap-4 sm:grid-cols-2"><ListBlock title="Mots-clés" items={r.primaryKeywords} /><ListBlock title="Longue traîne" items={r.longTailKeywords} /></div>
-      <ListBlock title="Maillage interne" items={r.internalLinks} />
       <FaqBlock faq={r.faq} />
-      <WhereRow where={r.where} addQ="Où ajouter du texte à une collection dans Shopify ?" />
-      <Link href={councilLink("seo", `Donne-moi le SEO complet de ma collection « ${r.h1} » avec maillage et calendrier blog.`)}><Button variant="outline" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Approfondir dans AI Council</Button></Link>
+      <div className="grid gap-4 sm:grid-cols-2"><ListBlock title="Maillage vers collections" items={r.internalLinks} /><ListBlock title="Maillage vers produits" items={r.productLinks} /></div>
+      <div className="rounded-lg bg-[var(--bg)] px-3 py-2 text-xs"><span className="font-semibold">CTA sobre : </span>{r.cta}</div>
+      <div className="space-y-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3 text-xs text-[var(--text-muted)]">
+        <div className="mb-0.5 font-semibold text-[var(--text)]">Où ajouter dans Shopify</div>
+        <div><span className="font-medium text-[var(--text)]">Description :</span> {r.where}</div>
+        <div><span className="font-medium text-[var(--text)]">Meta :</span> Produit / Collection → Aperçu du référencement naturel → Modifier</div>
+        <div><span className="font-medium text-[var(--text)]">FAQ :</span> section dédiée du thème, ou AI Council → Code Shopify si le thème ne le permet pas</div>
+      </div>
+      <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
+        <Link href={assistantLink("Où ajouter du texte et une FAQ à une collection dans Shopify ?")}><Button variant="secondary" size="sm" icon={<MapPin className="h-3.5 w-3.5" />}>Où l&apos;ajouter ?</Button></Link>
+        <Link href={councilLink("seo", `Contexte : SEO Studio a généré le SEO de la collection « ${r.h1} ». Réponds uniquement : comment renforcer cette page (maillage vers produits, FAQ, mots-clés longue traîne), sans audit complet.`)}><Button variant="outline" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Approfondir dans AI Council</Button></Link>
+      </div>
     </Card>
   );
 }
@@ -304,23 +313,32 @@ function MetaResult({ variants }: { variants: MetaVariant[] }) {
       <Rationale wf="meta" />
       {variants.map((v, i) => (
         <div key={i} className="rounded-xl border border-[var(--border)] p-3.5">
-          <div className="mb-1 flex items-center justify-between"><span className="text-[11px] font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-300">Variante {i + 1}</span><Badge tone={v.titleLen <= 60 ? "good" : "warn"}>{v.titleLen} car.</Badge></div>
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            <Badge tone="brand">Variante {i + 1} · {v.angle}</Badge>
+            <Badge tone={v.gmcRisk === "faible" ? "good" : "warn"}>Risque GMC : {v.gmcRisk}</Badge>
+          </div>
           <div className="flex items-center justify-between gap-2"><span className="min-w-0 break-words text-sm font-medium">{v.title}</span><CopyBtn text={v.title} /></div>
+          <div className="mt-1 text-right"><Badge tone={v.titleLen <= 60 ? "good" : "warn"}>{v.titleLen} car.</Badge></div>
           <div className="mt-2 flex items-center justify-between gap-2 border-t border-[var(--border)] pt-2"><span className="min-w-0 break-words text-sm text-[var(--text-muted)]">{v.metaDescription}</span><CopyBtn text={v.metaDescription} /></div>
-          <div className="mt-1 text-right"><Badge tone={v.metaLen <= 155 ? "good" : "warn"}>{v.metaLen} car.</Badge></div>
+          <div className="mt-1 flex items-center justify-between gap-2"><span className="text-[11px] text-[var(--text-muted)]">{v.why}</span><Badge tone={v.metaLen <= 155 ? "good" : "warn"}>{v.metaLen} car.</Badge></div>
         </div>
       ))}
       <WhereRow where="Shopify → Produit / Collection / Page → Aperçu du référencement naturel → Modifier" addQ="Où modifier les meta descriptions dans Shopify ?" />
     </Card>
   );
 }
-function AltResult({ alts, subject }: { alts: string[]; subject: string }) {
+function AltResult({ alts, subject }: { alts: AltTextItem[]; subject: string }) {
   return (
     <Card className="animate-fade-in space-y-3">
-      <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Alt text</h3><CopyBtn text={alts.join("\n")} /></div>
+      <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Alt text</h3><CopyBtn text={alts.map((a) => a.alt).join("\n")} /></div>
       <Rationale wf="alt" />
-      <div className="space-y-1.5">{alts.map((a, i) => <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"><span className="min-w-0 break-words">{a}</span><CopyBtn text={a} /></div>)}</div>
-      <p className="text-xs text-[var(--text-muted)]">Pour « {subject} » — descriptifs et naturels, sans bourrage de mots-clés.</p>
+      <div className="space-y-1.5">{alts.map((a, i) => (
+        <div key={i} className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-2.5">
+          <div className="flex items-center justify-between gap-2"><span className="min-w-0 break-words text-sm font-medium">{a.alt}</span><CopyBtn text={a.alt} /></div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--text-muted)]"><Badge tone="neutral">{a.type}</Badge><span>mot-clé : <code className="font-mono text-brand-700 dark:text-brand-300">{a.keyword}</code></span></div>
+        </div>
+      ))}</div>
+      <div className="rounded-lg border-l-[3px] border-brand-400 bg-[var(--bg)] py-2 pl-3 pr-2.5 text-xs text-[var(--text-muted)]"><span className="font-semibold text-[var(--text)]">Règle : </span>l&apos;alt text doit décrire l&apos;image avant de viser le mot-clé. Pour « {subject} ».</div>
       <WhereRow where="Shopify → Produit → Médias → Modifier le texte alternatif" addQ="Où ajouter les alt text des images dans Shopify ?" />
     </Card>
   );
@@ -330,13 +348,15 @@ function BlogResult({ r }: { r: BlogOutlineResult }) {
     <Card className="animate-fade-in space-y-4">
       <div><div className="mb-1 flex items-center justify-between"><span className="text-xs font-semibold uppercase tracking-wide text-ink-400">Titre</span><CopyBtn text={r.title} /></div><div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3.5 py-2.5 text-sm font-medium">{r.title}</div></div>
       <Rationale wf="blog" />
-      <div className="flex flex-wrap items-center gap-2 text-xs"><Badge tone="brand">Mot-clé : {r.keyword}</Badge><Badge tone="neutral">{r.intent}</Badge></div>
+      <div className="flex flex-wrap items-center gap-2 text-xs"><Badge tone="brand">Mot-clé : {r.keyword}</Badge><Badge tone="neutral">{r.intent}</Badge><Badge tone="warn">{r.priority}</Badge></div>
+      <div className="rounded-lg bg-[var(--bg)] px-3 py-2 text-xs text-[var(--text-muted)]"><div><span className="font-semibold text-[var(--text)]">Angle : </span>{r.angle}</div><div className="mt-0.5"><span className="font-semibold text-[var(--text)]">Pourquoi : </span>{r.why}</div></div>
+      <ListBlock title="Mots-clés secondaires" items={r.secondaryKeywords} />
       <Block title="Intro" value={r.intro} />
       <ListBlock title="Plan (H2/H3)" items={r.outline} />
       <FaqBlock faq={r.faq} />
       <div className="grid gap-4 sm:grid-cols-2"><Block title="Meta title" value={r.metaTitle} /><Block title="Meta description" value={r.metaDescription} /></div>
       <div className="rounded-xl bg-brand-50 p-3 text-xs dark:bg-brand-950/40"><div className="text-brand-800 dark:text-brand-200"><span className="font-semibold">Maillage : </span>{r.internalLink}</div><div className="mt-1 text-brand-800 dark:text-brand-200"><span className="font-semibold">CTA : </span>{r.cta}</div></div>
-      <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4"><Link href={councilLink("seo", `Rédige l'article complet « ${r.title} » avec le plan proposé.`)}><Button variant="secondary" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Rédiger avec AI Council</Button></Link><Link href={assistantLink("Où publier un article de blog dans Shopify ?")}><Button variant="outline" size="sm" icon={<MapPin className="h-3.5 w-3.5" />}>Où le publier ?</Button></Link></div>
+      <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4"><Link href={councilLink("seo", `Contexte : SEO Studio a généré le plan de l'article « ${r.title} ». Réponds uniquement : rédige l'article complet en suivant ce plan (intro, H2/H3, FAQ, CTA), prêt à publier.`)}><Button variant="secondary" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Rédiger avec AI Council</Button></Link><Link href={assistantLink("Où publier un article de blog dans Shopify ?")}><Button variant="outline" size="sm" icon={<MapPin className="h-3.5 w-3.5" />}>Où le publier ?</Button></Link></div>
     </Card>
   );
 }

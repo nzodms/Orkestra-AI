@@ -69,7 +69,7 @@ const LEGAL_META: Record<string, { label: string; impact: string; fix: string; m
   warranty: { label: "Garantie", impact: "Garantie non affichée : un signal de confiance en moins (recommandation).", fix: "Afficher la garantie si vous en proposez une.", module: "assistant", where: SHOPIFY_PATHS.pages },
 };
 
-const LEGAL_RESOLVE_Q = "Quelles pages légales dois-je compléter avant de soumettre Google Merchant Center, et comment les rédiger ?";
+const LEGAL_RESOLVE_Q = "Contexte : Merchant Shield a détecté des pages légales manquantes. Réponds uniquement sur ce sujet : quelles pages compléter avant Google Merchant Center, pourquoi (impact Merchant), comment les créer et le chemin Shopify exact.";
 
 // Formulations qui peuvent être vues comme des claims non prouvés (misrepresentation).
 const CLAIM_RE = /\b(meilleur|n[°o]\s?1|num[ée]ro 1|imbattable|exceptionnel|miracle|professionnel|premium|qualit[ée] sup[ée]rieure|r[ée]sultat garanti|garanti[e]?\s+(?:r[ée]sultat|satisfaction))\b/i;
@@ -108,12 +108,12 @@ export function buildMerchantReport(analysis: StoreAnalysis | null, brand: Brand
   }
 
   // 2. Langue & cohérence
-  if (englishCount > 0) checklist.push({ key: "english", label: `Textes en anglais détectés (${englishCount})`, status: "fix", severity: "important", impact: "Donne une impression de boutique incomplète et réduit la confiance utilisateur (signal négatif Merchant).", fix: "Traduire les libellés du thème en français.", where: SHOPIFY_PATHS.english, module: "assistant", count: englishCount, resolveQ: "Quels textes anglais ont été détectés et comment les corriger dans Shopify pour réduire le risque Merchant Center ?" });
+  if (englishCount > 0) checklist.push({ key: "english", label: `Textes en anglais détectés (${englishCount})`, status: "fix", severity: "important", impact: "Donne une impression de boutique incomplète et réduit la confiance utilisateur (signal négatif Merchant).", fix: "Traduire les libellés du thème en français.", where: SHOPIFY_PATHS.english, module: "assistant", count: englishCount, resolveQ: `Contexte : Merchant Shield a détecté ${englishCount} texte(s) anglais visible(s) sur la boutique. Réponds uniquement à ce problème : liste les textes détectés, leur correction française, l'impact Merchant Center, le chemin Shopify pour les corriger et la priorité.` });
   else if (scanned) checklist.push({ key: "english", label: "Cohérence de langue", status: "ok", severity: "mineur", impact: "Boutique cohérente linguistiquement.", fix: "Déjà cohérent — ne pas y toucher.", where: SHOPIFY_PATHS.english, module: "assistant" });
   checklist.push({ key: "currency", label: "Cohérence langue / devise", status: "check", severity: "mineur", impact: "La devise doit correspondre au pays cible (Paramètres → Marchés).", fix: `Vérifier que la devise correspond à « ${brand.country || "votre pays cible"} ».`, where: "Shopify → Paramètres → Marchés", module: "assistant" });
 
   // 3. Données produit
-  if (noType > 0) checklist.push({ key: "product_type", label: `Product types manquants (${noType})`, status: "fix", severity: "important", impact: "Sans product_type, la catégorisation et le flux Google Shopping sont moins fiables.", fix: "Renseigner le type de produit sur les fiches concernées.", where: SHOPIFY_PATHS.product_type, module: "assistant", count: noType, resolveQ: "Quels product_type dois-je ajouter à mes produits et où les modifier dans Shopify ?" });
+  if (noType > 0) checklist.push({ key: "product_type", label: `Product types manquants (${noType})`, status: "fix", severity: "important", impact: "Sans product_type, la catégorisation et le flux Google Shopping sont moins fiables.", fix: "Renseigner le type de produit sur les fiches concernées.", where: SHOPIFY_PATHS.product_type, module: "assistant", count: noType, resolveQ: `Contexte : Merchant Shield a détecté ${noType} product_type manquant(s). Réponds uniquement à ce problème : liste les produits concernés si disponibles, propose les product_type à ajouter et donne le chemin Shopify exact.` });
   if (weakDesc > 0) checklist.push({ key: "desc", label: `Descriptions produit faibles (${weakDesc})`, status: "fix", severity: "important", impact: "Descriptions trop courtes = qualité catalogue faible (SEO + confiance Merchant).", fix: "Générer des descriptions complètes (200+ mots) dans le SEO Studio.", where: "SEO Studio → Fiche produit SEO", module: "seo", count: weakDesc });
   if (missingMeta > 0) checklist.push({ key: "meta", label: `Meta descriptions manquantes (${missingMeta})`, status: "fix", severity: "important", impact: "Meta absentes = taux de clic plus faible dans Google.", fix: "Générer les meta dans le SEO Studio (≤ 60 / ≤ 155 car.).", where: SHOPIFY_PATHS.meta, module: "seo", count: missingMeta });
   if (imagesNoAlt > 0) checklist.push({ key: "alt", label: `Images sans alt text (${imagesNoAlt})`, status: "fix", severity: "mineur", impact: "Mineur pour Merchant, utile pour le SEO et l'accessibilité.", fix: "Ajouter des alt text descriptifs (SEO Studio → Alt text).", where: SHOPIFY_PATHS.alt, module: "seo", count: imagesNoAlt });
@@ -123,7 +123,7 @@ export function buildMerchantReport(analysis: StoreAnalysis | null, brand: Brand
   // 4. Promesses / claims (misrepresentation) — détecté dans promesses, garanties, titres prioritaires
   const claimSources = [...(brand.promises ?? []), ...(brand.guarantees ?? []), ...(analysis?.priorityProducts?.map((p) => p.title) ?? [])];
   const claims = Array.from(new Set(claimSources.filter((t) => t && CLAIM_RE.test(t)))).slice(0, 5);
-  if (claims.length) checklist.push({ key: "claims", label: `Promesses / claims à vérifier (${claims.length})`, status: "check", severity: "important", impact: "Des formulations comme « meilleur », « professionnel », « garanti » peuvent être vues comme des claims non prouvés (risque misrepresentation).", fix: "Réécrire de façon factuelle (caractéristiques, matériaux, usages) plutôt que par des superlatifs.", where: "Produits / Pages concernés", module: "council", examples: claims, resolveQ: "Quels textes de ma boutique peuvent sembler trop marketing ou risqués pour Google Merchant Center, et comment les réécrire de façon plus factuelle ?" });
+  if (claims.length) checklist.push({ key: "claims", label: `Promesses / claims à vérifier (${claims.length})`, status: "check", severity: "important", impact: "Des formulations comme « meilleur », « professionnel », « garanti » peuvent être vues comme des claims non prouvés (risque misrepresentation).", fix: "Réécrire de façon factuelle (caractéristiques, matériaux, usages) plutôt que par des superlatifs.", where: "Produits / Pages concernés", module: "council", examples: claims, resolveQ: "Contexte : Merchant Shield a détecté des formulations marketing potentiellement risquées (claims non prouvés) pour Google Merchant Center. Réponds uniquement sur ce sujet : quels textes réécrire de façon factuelle, pourquoi c'est un risque Merchant, et donne des exemples de réécriture sobre." });
 
   // 5. Promotions / réductions — non confirmable via scan public → à vérifier
   const promotions: MCItem = {
@@ -135,7 +135,7 @@ export function buildMerchantReport(analysis: StoreAnalysis | null, brand: Brand
     fix: "Avant la demande GMC, évitez les bandeaux d'urgence permanents, clarifiez les conditions, et vérifiez que le prix affiché correspond au prix envoyé au feed.",
     where: "Shopify → Réductions / bandeaux du thème",
     module: "council",
-    resolveQ: "J'ai des réductions visibles sur ma boutique. Comment les rendre plus propres et cohérentes avant une demande Google Merchant Center ?",
+    resolveQ: "Contexte : Merchant Shield signale des promotions/réductions à vérifier avant une demande Google Merchant Center. Réponds uniquement sur ce sujet : explique les risques des prix barrés, codes promo, bandeaux d'urgence et réductions permanentes, puis donne les actions à faire avant soumission GMC.",
   };
   checklist.push(promotions);
 

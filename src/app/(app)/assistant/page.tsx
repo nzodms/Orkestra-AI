@@ -10,7 +10,7 @@ import { councilLink } from "@/lib/shopify";
 import type { AssistantProc } from "@/lib/types";
 import {
   LifeBuoy, Send, ArrowRight, Languages, Tag, FileText, ImageIcon, FolderOpen, Heading1,
-  ShieldCheck, Sparkles, Wrench, MapPin, Lightbulb, Copy, Check, Trash2, HelpCircle, Package,
+  ShieldCheck, Sparkles, Wrench, MapPin, Lightbulb, Copy, Check, Trash2, HelpCircle, Package, TrendingUp,
 } from "lucide-react";
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -377,13 +377,12 @@ function AssistantAnswer({ proc, onFollow }: { proc: AssistantProc; onFollow: (q
         <div className="mt-3"><div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-400">Pages manquantes détectées</div><div className="flex flex-wrap gap-1.5">{proc.missingLegal.map((l, i) => <Badge key={i} tone="bad">{l}</Badge>)}</div></div>
       )}
 
-      {(proc.council || proc.seo || proc.nextActions) && (
-        <div className="mt-3 flex flex-wrap gap-2 border-t border-[var(--border)] pt-3">
-          {proc.council && <Link href={proc.council.href}><Button variant="secondary" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>{proc.council.label}</Button></Link>}
-          {proc.seo && <Link href="/seo"><Button variant="outline" size="sm" icon={<Wrench className="h-3.5 w-3.5" />}>Ouvrir SEO Studio</Button></Link>}
-          {proc.nextActions?.filter((n) => n.q).map((n) => <Button key={n.label} variant="ghost" size="sm" icon={<ArrowRight className="h-3.5 w-3.5" />} onClick={() => onFollow(n.q)}>{n.label}</Button>)}
-        </div>
-      )}
+      <div className="mt-3 flex flex-wrap gap-2 border-t border-[var(--border)] pt-3">
+        {proc.council && <Link href={proc.council.href}><Button variant="secondary" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>{proc.council.label}</Button></Link>}
+        {proc.seo && <Link href="/seo"><Button variant="outline" size="sm" icon={<Wrench className="h-3.5 w-3.5" />}>Ouvrir SEO Studio</Button></Link>}
+        <Link href={councilLink("free", `Contexte : procédure « ${proc.title} » vue dans l'Assistant Shopify. Explique uniquement l'impact SEO / Merchant / conversion de cette correction, sans refaire l'audit complet.`)}><Button variant="ghost" size="sm" icon={<TrendingUp className="h-3.5 w-3.5" />}>Expliquer l&apos;impact</Button></Link>
+        {proc.nextActions?.filter((n) => n.q).map((n) => <Button key={n.label} variant="ghost" size="sm" icon={<ArrowRight className="h-3.5 w-3.5" />} onClick={() => onFollow(n.q)}>{n.label}</Button>)}
+      </div>
     </div>
   );
 }

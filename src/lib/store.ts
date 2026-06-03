@@ -13,7 +13,7 @@ import type {
   ProductSeoResult,
   GenMeta,
 } from "./types";
-import type { CollectionSeoResult, MetaVariant, BlogOutlineResult } from "./ai/engine";
+import type { CollectionSeoResult, MetaVariant, BlogOutlineResult, AltTextItem } from "./ai/engine";
 import { PROVIDER_ORDER } from "./providers";
 import { DEFAULT_BRAND_MEMORY } from "./mock-data";
 
@@ -23,7 +23,7 @@ export interface SeoStudioState {
   productMeta: GenMeta | null;
   collection: CollectionSeoResult | null;
   meta: MetaVariant[] | null;
-  alt: string[] | null;
+  alt: AltTextItem[] | null;
   altSubject: string;
   blog: BlogOutlineResult | null;
 }
@@ -158,9 +158,9 @@ export const useOrkestra = create<OrkestraState>()(
     }),
     {
       name: "orkestra-store",
-      // v2 : purge des éventuelles données de démo hardcodées persistées
-      // chez les premiers testeurs (on conserve thème et clés connectées).
-      version: 2,
+      // v2 : purge des données de démo hardcodées. v3 : nouveau format seo.alt
+      // (string[] → AltTextItem[]) → on réinitialise le slice seo.
+      version: 3,
       migrate: (persisted: unknown, version: number) => {
         const state = (persisted ?? {}) as Partial<OrkestraState>;
         if (version < 2) {
@@ -172,7 +172,11 @@ export const useOrkestra = create<OrkestraState>()(
             history: [],
             councilMessages: [],
             resolvedIssues: [],
+            seo: EMPTY_SEO,
           } as OrkestraState;
+        }
+        if (version < 3) {
+          return { ...state, seo: EMPTY_SEO } as OrkestraState;
         }
         return state as OrkestraState;
       },

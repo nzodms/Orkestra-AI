@@ -171,6 +171,8 @@ export interface CollectionSeoResult {
   primaryKeywords: string[];
   longTailKeywords: string[];
   internalLinks: string[];
+  productLinks: string[];
+  cta: string;
   where: string;
 }
 
@@ -206,12 +208,18 @@ export function generateCollectionSeo(input: {
     ],
     primaryKeywords: primary,
     longTailKeywords: [`quel ${sing} choisir`, `${sing} ${vocab.pieces[0]}`, `${sing} ${vocab.pieces[1] || vocab.pieces[0]}`],
-    internalLinks: others.length ? others.map((c) => `Lien vers « ${c} » (ancre « ${singularize(c)} ${vocab.pieces[0]} »)`) : ["Liens vers vos collections complémentaires"],
+    internalLinks: others.length ? others.map((c) => `Vers « ${c} » (ancre « ${singularize(c)} ${vocab.pieces[0]} »)`) : ["Vers vos collections complémentaires"],
+    productLinks: [
+      `Mettez en avant 3–4 best-sellers de « ${coll} » en haut de page`,
+      "Liez les nouveautés de la collection",
+      `Lien croisé vers ${others[0] ? "« " + others[0] + " »" : "une collection complémentaire"}`,
+    ],
+    cta: `« Voir nos ${coll.toLowerCase()} »`,
     where: "Shopify → Produits → Collections → Collection concernée → Description",
   };
 }
 
-export interface MetaVariant { title: string; metaDescription: string; titleLen: number; metaLen: number; }
+export interface MetaVariant { title: string; metaDescription: string; titleLen: number; metaLen: number; angle: string; why: string; gmcRisk: "faible" | "moyen"; }
 
 export function generateMetaVariants(input: {
   subject: string; type: "produit" | "collection" | "accueil"; niche?: string; brandName?: string; keywords?: string;
@@ -223,35 +231,38 @@ export function generateMetaVariants(input: {
   const kw = (input.keywords || "").split(/[,\n]/).map((x) => x.trim()).filter(Boolean)[0];
   const benefit = nicheBenefit(key);
   const suffix = brand ? ` | ${brand}` : "";
-  const raw: { title: string; metaDescription: string }[] = [
-    { title: `${cap1}${suffix}`, metaDescription: `Découvrez ${s.toLowerCase()}, ${benefit}. Conseils pour bien choisir et livraison soignée.` },
-    { title: kw ? `${cap(kw)}${suffix}` : `${cap1}${suffix}`, metaDescription: `${cap1} : ${benefit}. Livraison soignée et paiement sécurisé.` },
-    { title: `${cap1} en ligne${suffix}`.length <= 60 ? `${cap1} en ligne${suffix}` : `${cap1}${suffix}`, metaDescription: `Tout pour ${s.toLowerCase()} : sélection, conseils et FAQ. ${benefit}.` },
+  const raw: { title: string; metaDescription: string; angle: string; why: string; gmcRisk: "faible" | "moyen" }[] = [
+    { title: `${cap1}${suffix}`, metaDescription: `Découvrez ${s.toLowerCase()}, ${benefit}. Conseils pour bien choisir et livraison soignée.`, angle: "SEO naturel", why: "Descriptive, mot-clé en tête de title.", gmcRisk: "faible" },
+    { title: kw ? `${cap(kw)}${suffix}` : `${cap1}${suffix}`, metaDescription: `${cap1} : ${benefit}. Livraison soignée et paiement sécurisé.`, angle: "Conversion", why: "Met en avant le bénéfice et la réassurance.", gmcRisk: "moyen" },
+    { title: `${cap1} en ligne${suffix}`.length <= 60 ? `${cap1} en ligne${suffix}` : `${cap1}${suffix}`, metaDescription: `${cap1} : sélection, caractéristiques et conseils. Livraison et retours clairs.`, angle: "Sobre / Merchant-friendly", why: "Factuelle, sans superlatif — adaptée Google Merchant.", gmcRisk: "faible" },
   ];
   return raw.map((v) => {
     const title = v.title.slice(0, 60);
     const md = v.metaDescription.slice(0, 155);
-    return { title, metaDescription: md, titleLen: title.length, metaLen: md.length };
+    return { title, metaDescription: md, titleLen: title.length, metaLen: md.length, angle: v.angle, why: v.why, gmcRisk: v.gmcRisk };
   });
 }
 
-export function generateAltTexts(input: { subject: string; niche?: string; count?: number }): string[] {
+export interface AltTextItem { alt: string; type: string; keyword: string; }
+
+export function generateAltTexts(input: { subject: string; niche?: string; count?: number }): AltTextItem[] {
   const key = detectNiche(input.niche ?? "");
   const vocab = nicheVocab(key);
   const s = (input.subject || "produit").trim();
-  const base = [
-    `${s} vue de face`,
-    `${s} en situation (${vocab.pieces[0]})`,
-    `Détail et finitions de ${s.toLowerCase()}`,
-    `${s} — ${vocab.pieces[1] || vocab.pieces[0]}`,
-    `${s} : dimensions et rangement`,
-    `${s} en usage au quotidien`,
+  const k = singularize(s.split(" ").slice(0, 3).join(" "));
+  const items: AltTextItem[] = [
+    { alt: `${s} vue de face`, type: "Photo principale (packshot)", keyword: k },
+    { alt: `${s} en situation (${vocab.pieces[0]})`, type: "Mise en situation", keyword: `${k} ${vocab.pieces[0]}` },
+    { alt: `Détail et finitions de ${s.toLowerCase()}`, type: "Gros plan / détail", keyword: `${k} détail` },
+    { alt: `${s} — ${vocab.pieces[1] || vocab.pieces[0]}`, type: "Variante / contexte", keyword: `${k} ${vocab.pieces[1] || vocab.pieces[0]}` },
+    { alt: `${s} : dimensions`, type: "Schéma / dimensions", keyword: `${k} dimensions` },
   ];
-  return base.slice(0, Math.max(3, Math.min(6, input.count ?? 5)));
+  return items.slice(0, Math.max(3, Math.min(5, input.count ?? 5)));
 }
 
 export interface BlogOutlineResult {
-  title: string; metaTitle: string; metaDescription: string; keyword: string; intent: string;
+  title: string; metaTitle: string; metaDescription: string; keyword: string; secondaryKeywords: string[];
+  intent: string; angle: string; priority: string; why: string;
   intro: string; outline: string[]; faq: { q: string; a: string }[]; internalLink: string; cta: string;
 }
 
@@ -271,7 +282,11 @@ export function generateBlogOutline(input: {
     metaTitle: title.slice(0, 60),
     metaDescription: `${title} Nos conseils pour bien choisir, comparer et acheter.`.slice(0, 155),
     keyword: kw,
+    secondaryKeywords: [`${sing} ${vocab.pieces[0]}`, `comment choisir ${sing}`, `${sing} avis`],
     intent: "guide d'achat (informationnel → transactionnel)",
+    angle: `Guide pédagogique qui pousse la collection « ${coll} ».`,
+    priority: "Haute (intention proche de l'achat)",
+    why: `Capte la longue traîne « ${kw} » et redirige le lecteur vers la collection « ${coll} ».`,
     intro: `Vous hésitez sur ${articled(sing)} ? Ce guide aide à choisir selon ${hints.slice(0, 2).join(", ")}.`,
     outline: [
       `H2 : Pourquoi bien choisir ${articled(sing)} ?`,
@@ -1473,9 +1488,10 @@ function modeBanner(mode: CouncilMode, ctx: CouncilContext): string {
 }
 
 function buildFinalAnswer(mode: CouncilMode, question: string, ctx: CouncilContext): string {
-  // Question de suivi → réponse courte et ciblée (pas de ré-audit complet).
-  if (isFollowupQuestion(question, ctx) && !isReviewIntent(question)) {
-    return modeBanner(mode, ctx) + answerFollowup(mode, question, ctx);
+  // Demande CIBLÉE (bouton inter-module ou question précise) → réponse courte et
+  // exacte (6 parties), PAS de ré-audit complet. La dernière question prime.
+  if (isTargetedQuestion(question, ctx) && !isReviewIntent(question)) {
+    return modeBanner(mode, ctx) + targetedAnswer(mode, question, ctx);
   }
   const isPlan = /30\s*jours?|plan d'action|planning|roadmap|sur 30/i.test(question);
   switch (mode) {
@@ -1542,6 +1558,183 @@ export function followupTopic(question: string): FollowupTopic {
   if (/plus court|raccourci|résume|resume/.test(t)) return "shorten";
   if (/premium|améliore|ameliore|mieux/.test(t)) return "premium";
   return "generic";
+}
+
+// ── Intention de la dernière demande (priorité absolue) ─────────────────────
+export type CouncilIntent =
+  | "audit_global" | "correction_precise" | "localisation_shopify" | "impact_priorite"
+  | "generation_texte" | "explication_gmc" | "probleme_promotion" | "textes_anglais"
+  | "product_type" | "meta_description" | "alt_text" | "h1" | "page_legale"
+  | "collection_seo" | "produit_seo" | "code_shopify" | "email_client" | "devis"
+  | "strategie" | "concurrence" | "claims" | "question_libre";
+
+/** Classe la dernière demande pour répondre EXACTEMENT (pas d'audit générique). */
+export function classifyIntent(q: string): CouncilIntent {
+  const t = q.toLowerCase();
+  if (/audit (complet|merchant complet)|analyse (complète|complete|ma boutique|mon site)|améliore[rz]? (mon|le|la) (seo|boutique|référencement|referencement)|passe en revue|review (du|de) (site|boutique)|fais[- ].{0,14}plan|roadmap|plan (d'action |sur )?30|stratégie seo complète|comment améliorer mon seo|tout (mon|le) seo/.test(t)) return "audit_global";
+  if (/promotion|réduction|reduction|prix barré|prix barre|code promo|bandeau|urgence|vente flash|\bsoldes?\b|offre limitée|compte à rebours/.test(t)) return "probleme_promotion";
+  if (/trop marketing|claims?|factuel|misrepresentation|promesses? (trop|risqu)|réécrire.*(sobre|factuel)/.test(t)) return "claims";
+  if (/texte.?anglais|anglais|english|traduire|libellé/.test(t)) return "textes_anglais";
+  if (/product.?type|type de produit/.test(t)) return "product_type";
+  if (/page.?l[ée]gale|mentions|\bcgv\b|confidential|politique (de )?(retour|livraison|remboursement|confidentialité)|page contact|pages? de confiance/.test(t)) return "page_legale";
+  if (/alt.?text|texte alternatif/.test(t)) return "alt_text";
+  if (/\bmeta\b|méta|balise titre|\btitle\b|meta description|meta title/.test(t)) return "meta_description";
+  if (/\bh1\b/.test(t)) return "h1";
+  if (/où (l'?ajouter|ajouter|corriger|modifier|trouve|se trouve|cliquer|mettre|placer)|chemin shopify|dans shopify|étape par étape/.test(t)) return "localisation_shopify";
+  if (/\bimpact\b|gravité|gravite|pourquoi (c'est|est-ce|ce) (important|grave|un (risque|problème|probleme))|conséquence|consequence/.test(t)) return "impact_priorite";
+  if (/merchant|google shopping|\bgmc\b|performance max|pmax|\bfeed\b/.test(t)) return "explication_gmc";
+  if (/génère|genere|rédige|redige|écris|ecris|texte (prêt|à copier|à coller)|prêt à coller|donne[- ]moi (le|les|la|un|une) (texte|meta|description|titre|fiche)/.test(t)) return "generation_texte";
+  if (/collection/.test(t)) return "collection_seo";
+  if (/fiche produit|produit seo|description produit/.test(t)) return "produit_seo";
+  if (/\bcode\b|liquid|section|\bcss\b|schema/.test(t)) return "code_shopify";
+  if (/email|e-mail|\bmail\b|\bsav\b|répondre au client/.test(t)) return "email_client";
+  if (/devis|quote|cotation/.test(t)) return "devis";
+  if (/stratégie|strategie|croissance|growth|business/.test(t)) return "strategie";
+  if (/concurrent|concurrence|benchmark|compétiteur|competiteur/.test(t)) return "concurrence";
+  if (/correction|corriger|comment (corriger|régler|regler|réparer|reparer)/.test(t)) return "correction_precise";
+  return "question_libre";
+}
+
+const TARGETED_INTENTS = new Set<CouncilIntent>([
+  "correction_precise", "localisation_shopify", "impact_priorite", "generation_texte",
+  "explication_gmc", "probleme_promotion", "textes_anglais", "product_type",
+  "meta_description", "alt_text", "h1", "page_legale", "claims",
+]);
+
+/** La demande est-elle CIBLÉE (réponse courte) plutôt qu'un audit global ? */
+export function isTargetedQuestion(question: string, ctx: CouncilContext): boolean {
+  if (/réponds? uniquement|reponds? uniquement|\bcontexte\s*:|uniquement (sur|à|au sujet)|seulement (sur|à propos)/i.test(question)) return true;
+  const intent = classifyIntent(question);
+  if (intent === "audit_global") return false;
+  if (TARGETED_INTENTS.has(intent)) return true;
+  if ((intent === "collection_seo" || intent === "produit_seo") && /\bou\b|où|comment|génère|genere|rédige|redige|cette|ce |ajouter|modifier/i.test(question)) return true;
+  return isFollowupQuestion(question, ctx);
+}
+
+/** Réponse CIBLÉE au format 6 parties (mock). */
+function six(p: { direct: string; concerned?: string; why?: string; how?: string; where?: string; next?: string }): string {
+  let o = `### Réponse directe\n${p.direct}\n`;
+  if (p.concerned) o += `\n### Ce qui est concerné\n${p.concerned}\n`;
+  if (p.why) o += `\n### Pourquoi c'est important\n${p.why}\n`;
+  if (p.how) o += `\n### Comment corriger\n${p.how}\n`;
+  if (p.where) o += `\n### Où corriger dans Shopify\n${p.where}\n`;
+  if (p.next) o += `\n### Action suivante\n${p.next}\n`;
+  return o;
+}
+
+function targetedAnswer(mode: CouncilMode, question: string, ctx: CouncilContext): string {
+  const intent = classifyIntent(question);
+  switch (intent) {
+    case "textes_anglais": {
+      const list = ctx.englishList ?? [];
+      const n = ctx.englishCount ?? list.length;
+      return six({
+        direct: n ? `${n} libellé(s) anglais à traduire en français pour renforcer la confiance et réduire le risque Merchant.` : "Aucun texte anglais isolé via le scan public — vérifiez « Add to cart », « Sold out » dans le thème.",
+        concerned: list.length ? list.slice(0, 8).map((e) => `- \`${e.text}\` → \`${e.suggestion}\` (${e.source})`).join("\n") : "_Liste exacte non isolée via scan public._",
+        why: "- Confiance utilisateur et cohérence de marque.\n- Signal négatif possible pour Google Merchant Center.",
+        how: "Repérez chaque libellé et remplacez-le par sa traduction française (thème + apps).",
+        where: shopifyPath("english"),
+        next: "Corriger via **Assistant Shopify**, puis relancer un scan Orkestra.",
+      });
+    }
+    case "probleme_promotion":
+      return six({
+        direct: "Une réduction n'est pas interdite, mais avant une demande GMC évitez les promotions agressives, permanentes ou floues qui créent une incohérence prix/offre.",
+        concerned: "_Promotions non confirmables via le scan public — à vérifier sur votre boutique : prix barrés, codes promo, bandeaux « -50% », urgence, comptes à rebours._",
+        why: "- Incohérence prix site / feed = risque de cohérence pour Google.\n- Urgence artificielle ou réduction permanente = impression d'offre trompeuse.",
+        how: "Clarifiez les conditions, supprimez les bandeaux d'urgence permanents, et vérifiez que le prix affiché = prix du feed. Boutique récente : privilégiez un site stable avant la demande.",
+        where: "Shopify → Réductions · bandeaux : Boutique en ligne → Thèmes → Personnaliser",
+        next: "Stabiliser les promotions, puis relancer l'audit **Merchant Shield**.",
+      });
+    case "claims":
+      return six({
+        direct: "Réécrivez les formulations trop marketing (« meilleur », « professionnel », « garanti ») de façon factuelle pour limiter le risque de misrepresentation.",
+        concerned: "Textes à vérifier sur vos fiches produits et promesses de marque.",
+        why: "- Google peut considérer un claim non prouvé comme trompeur.\n- Un texte factuel rassure autant et réduit le risque.",
+        how: "Remplacez les superlatifs par des faits : matériaux, dimensions, usages. Ex. « Reformer pliable en érable, stable à domicile » plutôt que « le meilleur reformer professionnel ».",
+        where: "Produits / Pages concernés → contenu et Aperçu du référencement naturel",
+        next: "Générer des textes factuels dans le **SEO Studio**.",
+      });
+    case "product_type": {
+      const prods = ctx.priorityProducts ?? [];
+      return six({
+        direct: `Renseignez le \`product_type\` sur les fiches concernées${ctx.noType ? ` (${ctx.noType} produit(s) sans type)` : ""} pour fiabiliser la catégorisation et le flux Shopping.`,
+        concerned: prods.length ? prods.slice(0, 5).map((p) => `- ${p.title} → type suggéré : « ${cap(singularize(p.title.split(" ")[0] || p.title))} »`).join("\n") : "_Produits non isolés via scan public._",
+        why: "- Catégorisation fiable des produits.\n- Flux Google Shopping plus propre.",
+        how: "Ouvrez chaque produit → « Organisation du produit » → « Type de produit » (cohérent d'un produit à l'autre).",
+        where: shopifyPath("product_type"),
+        next: "Voir la procédure pas-à-pas dans **Assistant Shopify**.",
+      });
+    }
+    case "page_legale": {
+      const missing = ctx.missingLegal ?? [];
+      return six({
+        direct: missing.length ? `Complétez ces pages avant de soumettre Google Merchant Center : ${missing.join(", ")}.` : "Vérifiez que vos pages essentielles sont présentes, accessibles et liées au footer.",
+        concerned: missing.length ? missing.map((m) => `- ${m}`).join("\n") : "_Pages essentielles : contact, retours, livraison, mentions, confidentialité._",
+        why: "- Pages de confiance = exigence fréquente de Merchant Center.\n- Leur absence est une cause courante de refus.",
+        how: "Politiques : Paramètres → Politiques. Autres pages (Contact, FAQ) : Boutique en ligne → Pages → Ajouter. Liez-les au footer.",
+        where: shopifyPath("legal"),
+        next: "Générer les textes de politiques (mode adapté) puis les publier.",
+      });
+    }
+    case "meta_description":
+      return six({
+        direct: `Rédigez des meta naturelles (title ≤ 60, description ≤ 155)${ctx.missingMeta ? ` — ${ctx.missingMeta} manquante(s)` : ""}.`,
+        concerned: ctx.collections?.length ? `Pages prioritaires : ${ctx.collections.slice(0, 4).join(", ")}.` : "_Pages concernées non isolées via scan public._",
+        why: "- Une meta claire améliore le taux de clic dans Google.\n- Évitez « Achetez maintenant », « Qualité premium ».",
+        how: "Title = mot-clé + attribut concret + marque. Description = bénéfice + critères + livraison soignée.",
+        where: shopifyPath("meta"),
+        next: "Générer 3 variantes dans le **SEO Studio** (workflow Meta).",
+      });
+    case "alt_text":
+      return six({
+        direct: `Ajoutez des alt text descriptifs et naturels${ctx.imagesNoAlt ? ` (${ctx.imagesNoAlt} image(s) sans alt)` : ""}, sans bourrage de mots-clés.`,
+        concerned: "Images des produits prioritaires et des collections principales.",
+        why: "- Mineur pour Merchant, utile pour le SEO images et l'accessibilité.",
+        how: "Décrivez ce que montre l'image avant de viser le mot-clé.",
+        where: shopifyPath("alt"),
+        next: "Générer les alt text dans le **SEO Studio** (workflow Alt text).",
+      });
+    case "h1":
+      return six({
+        direct: "Assurez un seul H1 par page (accueil, collection, produit).",
+        why: "- Un H1 unique = meilleure structure sémantique pour Google.",
+        how: "Vérifiez qu'un seul bloc sert de titre principal ; ajustez via l'éditeur de thème ou le code.",
+        where: shopifyPath("h1"),
+        next: "Voir la procédure dans **Assistant Shopify**.",
+      });
+    case "localisation_shopify": {
+      const sub = followupTopic(question);
+      return six({
+        direct: "Voici où agir dans Shopify pour ce point précis.",
+        where: shopifyPath(sub === "where" || sub === "generic" ? "meta" : sub),
+        how: "Suivez le chemin ci-dessus, modifiez le champ concerné, enregistrez, puis vérifiez le rendu.",
+        next: "Procédure détaillée dans **Assistant Shopify**.",
+      });
+    }
+    case "impact_priorite":
+      return six({
+        direct: "Voici l'impact et la priorité de ce point, sans refaire l'audit complet.",
+        concerned: ctx.problems?.length ? ctx.problems.slice(0, 4).map((p) => `- [${p.severity}] ${p.area}`).join("\n") : "_Précisez l'élément pour un impact ciblé._",
+        why: "- SEO : visibilité et trafic.\n- Merchant : confiance et conformité.\n- Conversion : clarté et réassurance.",
+        next: "Corriger en priorité les éléments critiques (pages de confiance, langue).",
+      });
+    case "explication_gmc":
+      return six({
+        direct: "Voici le risque Merchant Center sur ce point et comment le réduire.",
+        why: "- Merchant Center vérifie la cohérence et la confiance (pages légales, langue, prix, claims).\n- Orkestra réduit les risques visibles ; Google reste seul décisionnaire.",
+        how: "Corrigez d'abord les pages de confiance et la cohérence de langue, puis les données produit et les promotions.",
+        where: "Audit complet : **Merchant Shield**",
+        next: "Lancer / relancer l'audit dans **Merchant Shield**.",
+      });
+    case "generation_texte":
+      return six({
+        direct: "Pour un texte prêt à copier (meta, description, FAQ, alt, article), le **SEO Studio** produit la sortie structurée et copiable, alignée sur votre niche et conforme Merchant.",
+        next: "Ouvrir le **SEO Studio** et choisir le workflow correspondant.",
+      });
+    default:
+      return answerFollowup(mode, question, ctx);
+  }
 }
 
 /** Chemin Shopify probable selon le sujet (où corriger). */
