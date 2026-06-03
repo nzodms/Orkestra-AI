@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Sparkles,
-  Blocks,
   MessagesSquare,
   ShieldCheck,
   LifeBuoy,
@@ -29,7 +28,6 @@ const NAV: { group: string; items: { href: string; label: string; icon: React.El
     group: "Studios",
     items: [
       { href: "/seo", label: "SEO Studio", icon: Sparkles },
-      { href: "/sections", label: "Section Builder", icon: Blocks },
       { href: "/council", label: "AI Council", icon: MessagesSquare },
       { href: "/merchant", label: "Merchant Shield", icon: ShieldCheck },
       { href: "/assistant", label: "Assistant Shopify", icon: LifeBuoy },

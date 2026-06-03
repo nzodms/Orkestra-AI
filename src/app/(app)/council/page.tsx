@@ -363,6 +363,7 @@ function CouncilTurnCard({ result, meta, onAction }: { result: CouncilResult; me
         {meta?.live
           ? `Réponse générée avec OpenAI · ${meta.model}${meta.tokens ? ` · ${meta.tokens} tokens` : ""} · ${time}`
           : `Réponse simulée (template contextualisé)${meta?.fallbackReason ? ` · ${meta.fallbackReason}` : ""}`}
+        {meta?.routingNote ? ` · ${meta.routingNote}` : ""}
       </div>
 
       {/* Tabs */}

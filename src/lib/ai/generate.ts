@@ -117,7 +117,7 @@ const MODE_LABEL: Record<CouncilMode, string> = {
 const MODE_ROLE: Record<CouncilMode, string> = {
   seo: "tu es un EXPERT SEO Shopify (collections, fiches, maillage, mots-clés).",
   merchant: "tu es un EXPERT Google Merchant Center / Shopping. Concentre-toi sur la conformité apparente et les risques AVANT soumission (pages légales, langue, descriptions, product_type, structure catalogue). Ne fais PAS d'audit SEO général. Ne promets JAMAIS l'absence de suspension — Google reste seul décisionnaire.",
-  code: "tu es un EXPERT Liquid / Shopify Online Store 2.0 / UX. Si l'utilisateur demande du code ou une section, fournis un VRAI bloc Liquid + CSS + {% schema %} propre, commenté, responsive, avec instructions d'installation et une version sans JS. Ne donne PAS de conseils marketing vagues.",
+  code: "tu es un développeur Shopify senior (niveau Claude pour le code Liquid/CSS/schema) et expert UI/UX premium. Tu produis des SECTIONS Shopify Online Store 2.0 complètes, propres, responsive et installables, dans une discussion naturelle. Tu fournis de VRAIS blocs de code (Liquid + {% schema %} JSON valide + CSS namespacé + JS encapsulé si nécessaire), des instructions d'installation et une checklist qualité. Pas de conseils marketing vagues.",
   email: "tu es un assistant SAV e-commerce professionnel. Rédige un email PRÊT À ENVOYER (objet + corps + signature) adapté au ton de marque (vouvoiement/tutoiement), aux délais/retours/garanties fournis. N'invente AUCUNE info absente — mets [à confirmer]. Donne aussi une variante courte et une plus chaleureuse. Ne fais PAS d'audit SEO.",
   quote: "tu es un assistant commercial. Aide à structurer un devis professionnel (lignes, conditions, acompte, délais, message d'accompagnement, points à vérifier). Demande les infos manquantes. Ne fais PAS une analyse générale de boutique.",
   strategy: "tu es un consultant e-commerce / growth. Donne un diagnostic business + priorités par impact + roadmaps 7/30/90 jours basés sur les scores, le catalogue, les collections et la niche.",
@@ -133,7 +133,7 @@ function modeStructure(mode: CouncilMode): string {
     merchant:
       "Structure imposée :\n## Résumé conformité apparent (+ score Merchant apparent)\n## ✅ Éléments rassurants déjà présents (pages détectées)\n## 🔴 Risques critiques\n## 🟠 Risques importants\n## 🟡 Risques mineurs\n## ✅ Checklist avant soumission Merchant Center\n## Plan de correction priorisé\n## 🚀 Modules Orkestra\nRappelle le disclaimer (aucune garantie d'approbation).",
     code:
-      "Structure imposée :\n## Diagnostic UX rapide (vue publique)\n## Section recommandée (objectif, où la placer, pourquoi, contenu)\n## 💻 Code (si demandé) : ```liquid (Liquid + {% schema %}), ```css, ```js si nécessaire — propre, commenté, responsive\n## Installation\n## Version sans JS\n## 🚀 Action Orkestra (Section Builder)",
+      "Tu génères des SECTIONS Shopify (Online Store 2.0) dans une discussion naturelle. Structure imposée :\n## 1. Résumé (type de section, objectif, page recommandée, pourquoi ça aide conversion/UX/SEO)\n## 2. Code complet — blocs markdown : ```liquid (HTML sémantique + Liquid valide + {% schema %} JSON VALIDE), ```css (responsive, classes TOUTES préfixées .ork-, mobile repensé), ```js UNIQUEMENT si nécessaire (IIFE encapsulé)\n## 3. Installation (où créer le fichier, comment l'ajouter au thème, comment personnaliser, points à vérifier avant publication)\n## 4. Checklist qualité (responsive, accessibilité, schema valide, classes namespacées, aucune dépendance externe, compatible OS 2.0, mobile vérifié)\n## 5. Pour aller plus loin (suggère : plus premium, mobile, plus de settings, sans JS, corriger, adapter niche/produit/home)\nRègles : aucune dépendance/librairie externe ; n'invente pas de données produit (placeholders modifiables) ; rendu propre si settings vides ; adapte le contenu/FAQ à la niche (ex. luminaires : hauteur, ampoule, pièce). Si l'utilisateur demande une MODIFICATION d'une section précédente (historique), reprends le code existant et modifie-le sans tout régénérer.",
     email:
       "Structure imposée :\n## Analyse rapide de la demande\n## Email prêt à envoyer (Objet + corps + signature)\n## Variante courte\n## Variante plus chaleureuse\nMets [à confirmer] pour toute info absente.",
     quote:
@@ -201,9 +201,13 @@ export async function runCouncil(
     directive +
     `\n\n=== Demande de l'utilisateur ===\n${question}`;
 
-  const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.4, maxTokens: mode === "seo" ? 3600 : 2400 });
+  // Mode Code Shopify : Claude recommandé (sections longues), OpenAI en repli live.
+  const codeRouting = mode === "code" ? routeSection({ type: question, complexity: "avancé", action: null, connected: providers }) : null;
+  const codeMeta = codeRouting ? { recommendedProvider: PROVIDER_NAME[codeRouting.recommendedProvider], routingNote: codeRouting.note } : {};
+
+  const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.4, maxTokens: mode === "seo" || mode === "code" ? 3600 : 2400 });
   if (!r.ok) {
-    return { result: scaffold, meta: { live: false, generatedAt: nowIso(), fallbackReason: r.message } };
+    return { result: scaffold, meta: { live: false, generatedAt: nowIso(), fallbackReason: r.message, ...codeMeta } };
   }
 
   // On remplace la synthèse + la réponse OpenAI par le texte réel.
@@ -219,7 +223,7 @@ export async function runCouncil(
   }
   result.modelsUsed = [...new Set(["openai" as AIProviderId, ...result.modelsUsed])];
 
-  return { result, meta: { live: true, provider: "openai", model: r.model, tokens: r.tokens, generatedAt: nowIso() } };
+  return { result, meta: { live: true, provider: "openai", model: r.model, tokens: r.tokens, generatedAt: nowIso(), ...codeMeta } };
 }
 
 // ── SEO Studio live ─────────────────────────────────────────────────────────

@@ -159,6 +159,7 @@ export default function DashboardPage() {
 
           {/* 4 & 5. Utiliser */}
           <ActionRow done={false} icon={MessagesSquare} title="Lancer AI Council" desc="Posez une question à toutes vos IA connectées et obtenez la meilleure réponse fusionnée." href="/council" tone="use" />
+          <ActionRow done={false} icon={Blocks} title="Demander du code Shopify" desc="Générez des sections Shopify (Liquid, CSS, schema) en discutant avec l'IA — mode Code Shopify de l'AI Council." href={council("code", "Crée une section Shopify premium adaptée à ma boutique.")} tone="use" />
           <ActionRow done={false} icon={ShieldCheck} title="Auditer ma boutique" desc="Détectez les risques Merchant Center et obtenez des correctifs priorisés." href="/merchant" tone="use" />
         </div>
 

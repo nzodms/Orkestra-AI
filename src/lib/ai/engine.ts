@@ -1875,22 +1875,44 @@ function sectionTypeFromQuestion(q: string): string {
 function codeAnswer(ctx: CouncilContext, question: string): string {
   const s = brandOf(ctx);
   const niche = nicheOf(ctx);
-  const wantsCode = /\b(code|liquid|crée|cree|génère|genere|code-moi|écris|ecris|section)\b/i.test(question);
+  const explainOnly = /\b(explique|où (l['’])?installer|où installer|comment (ajouter|installer)|où dans shopify|précaution|precaution)\b/i.test(question) && !/\b(crée|cree|génère|genere|code|écris|ecris|fais)\b/i.test(question);
   const type = sectionTypeFromQuestion(question);
 
-  // Diagnostic UX rapide à partir du scan.
-  const ux: string[] = [];
-  if (ctx.weakDescriptions) ux.push(`${ctx.weakDescriptions} fiches à description faible → pages produits peu convaincantes.`);
-  if (ctx.imagesNoAlt) ux.push(`${ctx.imagesNoAlt} images sans alt → accessibilité/SEO image.`);
-  if (ctx.englishCount) ux.push(`${ctx.englishCount} libellés anglais → cohérence/confiance.`);
-  ux.push("Réassurance (livraison, retours, paiement) souvent trop basse en page d'accueil.");
+  if (explainOnly) {
+    return `## 🧩 Installer une section dans Shopify
 
-  let codeBlock = "";
-  if (wantsCode) {
-    const sec = generateSection({ type, goal: `Section ${type} pour ${s} (${niche})`, animations: true });
-    codeBlock = `
+1. **Admin Shopify → Boutique en ligne → Thèmes → ⋯ → Modifier le code.**
+2. **Sections → Ajouter un fichier** → nommez-le \`ma-section.liquid\`.
+3. Collez le **Liquid + le \`{% schema %}\`** (le CSS et le JS éventuels vont dans la balise \`<style>\`/\`<script>\` du même fichier — aucun asset externe).
+4. Enregistrez, puis **Personnaliser** → ajoutez la section et réglez ses options.
+5. **Avant publication** : aperçu mobile, contenu réel, contraste, liens des CTA.
 
-### 💻 Code prêt à coller — « ${type} »
+> Dites-moi quel type de section vous voulez (FAQ, hero, réassurance, comparatif…) et je vous génère le code complet, adapté à ${s}.`;
+  }
+
+  // Génère une section premium adaptée à la niche/boutique.
+  const sec = generateSection({
+    type,
+    goal: `Section ${type} pour ${s} (${niche})`,
+    animations: true,
+    niche: ctx.niche,
+    brandName: ctx.brandName,
+    collection: ctx.collections?.[0],
+  });
+  const jsBlock = sec.js && !/aucun js/i.test(sec.js) ? `\n**JS (encapsulé, non bloquant)**\n\`\`\`js\n${sec.js}\n\`\`\`` : "\n_Aucun JavaScript nécessaire (CSS/Liquid suffisent)._";
+  const faqHint = niche.includes("lumi")
+    ? " — pour des luminaires, pensez aux questions : hauteur d'installation, type d'ampoule, choix selon la pièce (salon, salle à manger, chambre, escalier), entretien, livraison/retours."
+    : "";
+
+  return `## 🧩 Section Shopify — ${type} pour ${s}
+
+### 1. Résumé
+- **Type** : ${type}
+- **Objectif** : ${sectionPurpose(sectionKey(type))}${faqHint}
+- **Page recommandée** : ${sectionPlacement(sectionKey(type), undefined)}
+- **Pourquoi** : ${sectionWhy(sectionKey(type))}${ctx.collections?.length ? ` Aligné sur vos collections (${ctx.collections.slice(0, 3).join(", ")}).` : ""}
+
+### 2. Code complet (Online Store 2.0)
 **Liquid**
 \`\`\`liquid
 ${sec.liquid}
@@ -1899,36 +1921,22 @@ ${sec.liquid}
 \`\`\`css
 ${sec.css}
 \`\`\`
-**Schema (Online Store 2.0)**
+**Schema**
 \`\`\`liquid
 ${sec.schema}
-\`\`\`
-${sec.js && !/aucun js/i.test(sec.js) ? `**JS (optionnel)**\n\`\`\`js\n${sec.js}\n\`\`\`\n` : ""}
-**Installation** : ${sec.installSteps.join(" → ")}
-**Version sans JS** : retirez le bloc JS ; la section reste fonctionnelle (animations en moins).`;
-  }
+\`\`\`${jsBlock}
 
-  return `## 🧩 Recommandation Shopify (Liquid / UX) pour ${s}
+### 3. Installation
+${sec.installSteps.map((x, i) => `${i + 1}. ${x}`).join("\n")}
 
-### Diagnostic UX rapide (vue publique)
-${ux.map((u) => `- ${u}`).join("\n")}
+### 4. Checklist qualité
+${sec.responsiveChecklist.map((c) => `- ✅ ${c.label}`).join("\n")}
+- ✅ Schema JSON valide · classes namespacées \`.ork-\` · aucune dépendance externe${sec.warnings && sec.warnings.length ? `\n- ⚠️ ${sec.warnings.join(" · ")}` : ""}
 
-### Section recommandée : **${type}**
-- **Objectif** : ${type === "FAQ animée" ? "lever les objections (livraison, dimensions, usage) et capter les rich snippets FAQ" : type === "Bloc réassurance" ? "rassurer immédiatement (livraison, paiement, retours, garantie)" : "renforcer la clarté et la conversion"}.
-- **Où la placer** : ${type === "Bloc réassurance" ? "juste sous le hero (home) et sous le prix (fiche produit)" : type === "FAQ animée" ? "bas de page collection et bas de fiche produit" : "en page d'accueil, au-dessus de la ligne de flottaison"}.
-- **Pourquoi** : ${ctx.collections?.length ? `aligné sur vos collections (${ctx.collections.slice(0, 3).join(", ")})` : "adapté à votre niche"} et aux frictions détectées ci-dessus.
-- **Contenu recommandé** : titres orientés bénéfice, 3–5 points clés, FAQ adaptée à la niche${niche.includes("lumi") ? " (hauteur d'installation, type d'ampoule, pièce)" : ""}.
+### 5. Pour aller plus loin (demandez simplement)
+« Rends-la plus premium » · « Optimise le mobile » · « Ajoute plus de settings » · « Version sans JS » · « Corrige le code » · « Adapte à ma niche » · « Adapte pour ma page produit » · « Adapte pour la home » · « Fais une version plus luxe »
 
-### Bonnes pratiques Shopify (Online Store 2.0)
-- Section dédiée avec \`{% schema %}\` (réglages dans le customizer).
-- CSS responsive (\`clamp()\` + media queries), classes préfixées \`.ork-…\`.
-- JS optionnel non bloquant (IntersectionObserver) ; toujours prévoir une version sans JS.
-- Accessibilité : contraste, cibles tactiles ≥ 44px.${codeBlock}
-
-### 🚀 Action Orkestra
-- **Section Builder** : génère Liquid + CSS + schema complets + checklist responsive${wantsCode ? " (le code ci-dessus en est un exemple prêt à coller)" : ""}.
-
-${wantsCode ? "" : "> Demandez explicitement « crée une section " + type.toLowerCase() + " » pour obtenir le code Liquid/CSS/schema complet."}`;
+> ⚠️ **Mode démo** — ceci est un exemple de structure. Connectez OpenAI (ou Claude prochainement) pour générer/raffiner une version premium finale avant installation.`;
 }
 
 function merchantAnswer(ctx: CouncilContext): string {

@@ -12,7 +12,7 @@ import {
 
 const FEATURES = [
   { icon: Sparkles, title: "SEO Studio", desc: "Fiches produits, collections, FAQ, meta et blog optimisés pour Google." },
-  { icon: Blocks, title: "Section Builder", desc: "Sections Shopify codées (Liquid + CSS + schema 2.0) à la demande." },
+  { icon: Blocks, title: "Code Shopify", desc: "Sections Shopify (Liquid + CSS + schema 2.0) générées en discutant dans l'AI Council." },
   { icon: ShieldCheck, title: "Merchant Shield", desc: "Détecte les risques fréquents avant Google Merchant Center / Ads." },
   { icon: MessagesSquare, title: "AI Council", desc: "Plusieurs IA répondent, Orkestra fusionne la meilleure réponse finale." },
   { icon: Brain, title: "Mémoire boutique", desc: "Niche, ton de marque et mots-clés réutilisés dans toutes les générations." },
