@@ -411,6 +411,12 @@ export interface CouncilContext {
   priorityProducts?: { title: string; reason: string; contentScore: number }[];
   issuesSummary?: string[];
   scoresSummary?: string;
+  /** Liste structurée des textes anglais détectés (pour le drill-down). */
+  englishList?: { text: string; suggestion: string; source: string; impact: string }[];
+  /** Problèmes détectés structurés (drill-down). */
+  problems?: { area: string; severity: string; impact: string; fix: string; module: string }[];
+  /** Historique de conversation (provider-agnostique). */
+  history?: { role: "user" | "assistant"; content: string }[];
   /** Question précédente, pour la continuité de conversation. */
   previousQuestion?: string;
   /** Directive issue d'un bouton d'action. */
@@ -588,6 +594,10 @@ function modeBanner(mode: CouncilMode, ctx: CouncilContext): string {
 }
 
 function buildFinalAnswer(mode: CouncilMode, question: string, ctx: CouncilContext): string {
+  // Question de suivi → réponse courte et ciblée (pas de ré-audit complet).
+  if (isFollowupQuestion(question, ctx) && !isReviewIntent(question)) {
+    return modeBanner(mode, ctx) + answerFollowup(mode, question, ctx);
+  }
   const isPlan = /30\s*jours?|plan d'action|planning|roadmap|sur 30/i.test(question);
   switch (mode) {
     case "seo":
@@ -620,6 +630,125 @@ function detectIntent(q: string): CouncilMode {
   if (/\b(concurrent|concurrence|compétiteur|competiteur|marché|benchmark)\b/.test(t)) return "competitive";
   if (/\b(seo|référencement|referencement|mot-?clé|mot-?cle|meta|ranking|google|collection|maillage|longue traîne|backlink)\b/.test(t)) return "seo";
   return "free";
+}
+
+// ── Conversation / follow-up (logique commune à toutes les IA) ──────────────
+
+/** Une question est-elle un suivi du message précédent ? */
+export function isFollowupQuestion(question: string, ctx: CouncilContext): boolean {
+  if (!ctx.history?.length) return false;
+  const q = question.trim().toLowerCase();
+  if (q.split(/\s+/).length <= 6) return true; // question courte → suivi probable
+  return /\b(où|ou ça|quel|quels|quelle|c'est grave|comment corriger|donne|fais|juste|celui|celle|ça|cela|ce mot|le mot|cette|ces|résume|resume|plus court|plus premium|version|et pour|et le|et la)\b/i.test(q);
+}
+
+export type FollowupTopic =
+  | "english" | "meta" | "products" | "collections" | "alt" | "legal"
+  | "where" | "severity" | "code" | "plan" | "shorten" | "premium" | "generic";
+
+export function followupTopic(question: string): FollowupTopic {
+  const t = question.toLowerCase();
+  if (/anglais|english|mot.*(traduire|corriger)|traduire/.test(t)) return "english";
+  if (/meta|title|balise/.test(t)) return "meta";
+  if (/produit|fiche|article/.test(t)) return "products";
+  if (/collection|catégorie|categorie/.test(t)) return "collections";
+  if (/alt|image/.test(t)) return "alt";
+  if (/légal|legal|mention|cgv|confidential|retour|livraison|contact|garantie/.test(t)) return "legal";
+  if (/où|chemin|dans shopify|admin|trouver/.test(t)) return "where";
+  if (/grave|important|risque|priorit/.test(t)) return "severity";
+  if (/code|liquid|section|css/.test(t)) return "code";
+  if (/plan|7 jours|30 jours|roadmap|résume|resume/.test(t)) return "plan";
+  if (/plus court|raccourci|résume|resume/.test(t)) return "shorten";
+  if (/premium|améliore|ameliore|mieux/.test(t)) return "premium";
+  return "generic";
+}
+
+/** Chemin Shopify probable selon le sujet. */
+function shopifyPath(topic: FollowupTopic): string {
+  switch (topic) {
+    case "english": return "Admin Shopify → Paramètres → Langues → (langue) → Modifier les traductions du thème.";
+    case "meta": return "Admin → la page/collection/produit → section « Référencement sur les moteurs de recherche » → Modifier.";
+    case "alt": return "Admin → Contenu → Fichiers (ou la fiche produit → image → Modifier le texte alternatif).";
+    case "legal": return "Admin → Boutique en ligne → Pages (créer/éditer) puis lier dans Paramètres → Navigation (footer).";
+    case "code": return "Admin → Boutique en ligne → Thèmes → ⋯ → Modifier le code → Sections.";
+    default: return "Admin Shopify → la section concernée.";
+  }
+}
+
+/** Réponse COURTE et CIBLÉE à une question de suivi (mock). Pas de ré-audit. */
+function answerFollowup(mode: CouncilMode, question: string, ctx: CouncilContext): string {
+  const topic = followupTopic(question);
+  const s = brandOf(ctx);
+
+  if (topic === "english") {
+    const list = ctx.englishList ?? [];
+    if (!list.length) {
+      return `## Textes anglais détectés\n${ctx.englishCount ? `Le scan a détecté **${ctx.englishCount}** libellé(s) anglais, mais le détail exact n'est pas disponible (relancez un scan public pour les extraire).` : "_Donnée non disponible via scan public._"}\n\n**Où corriger** : ${shopifyPath("english")}\n**Module** : Merchant Shield.`;
+    }
+    return `## Textes anglais à corriger (${list.length})
+${list.slice(0, 8).map((e) => `- **« ${e.text} »** → « ${e.suggestion} » · source : ${e.source} · impact : ${e.impact}`).join("\n")}
+
+**Où corriger** : ${shopifyPath("english")}
+**Action Orkestra** : Merchant Shield → générer les corrections de langue.`;
+  }
+
+  if (topic === "products") {
+    const p = ctx.priorityProducts ?? [];
+    if (!p.length) return `_Aucun produit prioritaire isolé via le scan public. Élargissez le scan ou connectez l'API Shopify._`;
+    return `## Produits concernés (${p.length})
+${p.slice(0, 6).map((x, i) => `${i + 1}. **${x.title}** — ${x.reason.toLowerCase()} (contenu ${x.contentScore}/100).`).join("\n")}
+
+**Action** : ouvrez le **SEO Studio** (pré-rempli depuis ces produits) pour enrichir description + FAQ + alt text.`;
+  }
+
+  if (topic === "collections") {
+    const cols = ctx.collections ?? [];
+    return cols.length
+      ? `## Collections concernées\n${cols.slice(0, 8).map((c) => `- ${c}`).join("\n")}\n\n**Action** : texte SEO + FAQ par collection (SEO Studio).`
+      : `_Aucune collection détectée via le scan public._`;
+  }
+
+  if (topic === "meta") {
+    return `## Meta à corriger\n${ctx.missingMeta != null ? `**${ctx.missingMeta}** meta manquantes détectées (échantillon).` : "_Nombre exact non disponible via scan public._"}\n\nExemple prêt à coller : \`Découvrez nos ${(ctx.collections?.[0] || "produits").toLowerCase()} — sélection premium, livraison gratuite.\` (≤ 155 car.)\n**Où** : ${shopifyPath("meta")}`;
+  }
+
+  if (topic === "alt") {
+    return `## Images sans alt text\n${ctx.imagesNoAlt != null ? `**${ctx.imagesNoAlt}** images sans alt détectées.` : "_Nombre non disponible._"}\nExemple d'alt : « ${(ctx.collections?.[0] || "produit").toLowerCase()} — ${nicheOf(ctx)} ».\n**Où** : ${shopifyPath("alt")}`;
+  }
+
+  if (topic === "legal") {
+    const missing = ctx.missingLegal ?? [];
+    return missing.length
+      ? `## Pages légales manquantes\n${missing.map((m) => `- ${m}`).join("\n")}\n\n**Où** : ${shopifyPath("legal")}\n**Module** : Merchant Shield.`
+      : `## Pages légales\nAucune page essentielle manquante détectée${ctx.legalFound?.length ? ` (présentes : ${ctx.legalFound.join(", ")})` : ""}.`;
+  }
+
+  if (topic === "where") {
+    // Devine le sujet précédent depuis l'historique.
+    const prev = ctx.history?.slice().reverse().find((h) => h.role === "assistant")?.content || "";
+    const sub: FollowupTopic = /anglais/i.test(prev) ? "english" : /meta/i.test(prev) ? "meta" : /alt|image/i.test(prev) ? "alt" : /légal|legal|retour|livraison/i.test(prev) ? "legal" : "code";
+    return `## Où dans Shopify\n${shopifyPath(sub)}`;
+  }
+
+  if (topic === "severity") {
+    return `## Niveau de gravité\nPriorités à fort impact : ${ctx.weakDescriptions ? `**${ctx.weakDescriptions} descriptions faibles** (SEO/conversion)` : "contenu"}, ${ctx.englishCount ? `**${ctx.englishCount} textes anglais** (confiance/Merchant)` : "langue"}, pages légales manquantes${ctx.missingLegal?.length ? ` (${ctx.missingLegal.join(", ")})` : ""}. Le reste (alt text, tags) est secondaire.`;
+  }
+
+  if (topic === "code") {
+    return codeAnswer(ctx, question); // génère le code ciblé
+  }
+
+  if (topic === "plan") {
+    const cols = ctx.collections ?? [];
+    return `## Plan 7 jours (ciblé)
+- **J1** : corriger ${ctx.englishCount ?? 0} textes anglais + ${ctx.missingMeta ?? 0} meta manquantes.
+- **J2** : product_type manquants (${ctx.noType ?? 0}).
+- **J3–4** : texte SEO + FAQ sur « ${cols[0] || "collection principale"} »${cols[1] ? " et « " + cols[1] + " »" : ""}.
+- **J5–7** : enrichir les produits prioritaires (SEO Studio).`;
+  }
+
+  // generic / shorten / premium : réponse courte contextualisée
+  return `## Réponse ciblée\nConcernant « ${question.trim().slice(0, 100)} » pour ${s} : je réponds directement à ce point sans refaire l'audit complet.\n- ${ctx.englishCount ? `Textes anglais : ${ctx.englishCount} détecté(s).` : ""} ${ctx.weakDescriptions ? `Fiches faibles : ${ctx.weakDescriptions}.` : ""} ${ctx.missingMeta ? `Meta manquantes : ${ctx.missingMeta}.` : ""}\n> Précisez le point (meta, anglais, produits, collections, code…) pour une réponse encore plus directe.`;
 }
 
 /** Détecte une demande de review/analyse complète de site. */

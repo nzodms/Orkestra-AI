@@ -80,6 +80,15 @@ export default function CouncilPage() {
   async function runCouncil(q: string, directive: Directive | null = null, modeOverride?: CouncilMode) {
     if (!q.trim()) return;
     const useMode = modeOverride ?? mode;
+    // Historique AVANT d'ajouter le nouveau tour (provider-agnostique).
+    const history = councilMessages
+      .slice(-6)
+      .map((t) =>
+        t.role === "user"
+          ? { role: "user" as const, content: t.question || "" }
+          : { role: "assistant" as const, content: t.result?.finalAnswer?.slice(0, 800) || "" }
+      )
+      .filter((h) => h.content);
     setLoading(true);
     if (!directive) {
       addCouncilTurn({ id: crypto.randomUUID(), role: "user", mode: useMode, question: q });
@@ -134,6 +143,9 @@ export default function CouncilPage() {
             contentScore: p.contentScore,
           })),
           issuesSummary: analysis?.issues?.slice(0, 8).map((i) => `${i.area} (${i.severity}) — ${i.fix}`),
+          englishList: analysis?.englishTexts?.slice(0, 12),
+          problems: analysis?.issues?.slice(0, 10).map((i) => ({ area: i.area, severity: i.severity, impact: i.impact, fix: i.fix, module: i.module })),
+          history,
           scoresSummary: analysis
             ? `SEO ${analysis.scores.seo}, confiance ${analysis.scores.trust}, conversion ${analysis.scores.conversion}, Merchant ${analysis.scores.merchant}, contenu ${analysis.scores.content}`
             : undefined,

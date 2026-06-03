@@ -1,6 +1,8 @@
 import {
   generateCouncil,
   generateProductSeo,
+  isFollowupQuestion,
+  followupTopic,
   type CouncilContext,
   type ProductSeoInput,
 } from "./engine";
@@ -75,9 +77,26 @@ function contextBlock(ctx: CouncilContext): string {
       `Produits prioritaires à optimiser (score contenu /100) :\n` +
         ctx.priorityProducts.slice(0, 6).map((p) => `  - ${p.title} (${p.contentScore}, ${p.reason})`).join("\n")
     );
-  if (ctx.issuesSummary?.length) lines.push(`Problèmes détectés :\n- ${ctx.issuesSummary.slice(0, 8).join("\n- ")}`);
+  if (ctx.englishList?.length)
+    lines.push(
+      `Textes anglais exacts détectés :\n` +
+        ctx.englishList.slice(0, 10).map((e) => `  - « ${e.text} » → « ${e.suggestion} » (source ${e.source}, impact ${e.impact})`).join("\n")
+    );
+  if (ctx.problems?.length)
+    lines.push(
+      `Problèmes détectés (structurés) :\n` +
+        ctx.problems.slice(0, 10).map((p) => `  - [${p.severity}] ${p.area} → ${p.fix} (module ${p.module})`).join("\n")
+    );
+  else if (ctx.issuesSummary?.length) lines.push(`Problèmes détectés :\n- ${ctx.issuesSummary.slice(0, 8).join("\n- ")}`);
   if (ctx.scoresSummary) lines.push(`Scores : ${ctx.scoresSummary}.`);
   return lines.join("\n");
+}
+
+/** Bloc historique (provider-agnostique) injecté dans le prompt. */
+function historyBlock(ctx: CouncilContext): string {
+  if (!ctx.history?.length) return "";
+  const turns = ctx.history.slice(-6).map((h) => `${h.role === "user" ? "Utilisateur" : "Orkestra"} : ${h.content.slice(0, 700)}`);
+  return `\n\n=== Historique de la conversation ===\n${turns.join("\n")}`;
 }
 
 const MODE_LABEL: Record<CouncilMode, string> = {
@@ -147,11 +166,17 @@ export async function runCouncil(
     "Distingue toujours DIAGNOSTIC / CORRECTION / ACTION. Adapte le vocabulaire à la niche (ex. luminaires : pièce, hauteur d'installation, type d'ampoule, matériau, ambiance).\n" +
     `RÔLE POUR CE MODE — ${MODE_ROLE[mode]}`;
 
-  const structure = "\n\n" + modeStructure(mode);
+  // Logique de suivi COMMUNE à toutes les IA : si la question dépend du message
+  // précédent, on répond précisément au point demandé sans refaire l'audit.
+  const followup = isFollowupQuestion(question, ctx);
+  const directive = followup
+    ? `\n\n⚠️ QUESTION DE SUIVI (sujet probable : ${followupTopic(question)}). Réponds UNIQUEMENT et PRÉCISÉMENT à ce point précis, en t'appuyant sur l'historique et les données structurées fournies (ex. textes anglais exacts, produits prioritaires, pages légales). NE refais PAS l'audit complet, ne répète pas le plan ni les collections, sois court et direct. Donne : la donnée exacte demandée, la source/page si dispo, la correction, l'impact, le chemin Shopify probable, l'action Orkestra.`
+    : "\n\n" + modeStructure(mode);
   const prompt =
     `Mode sélectionné : ${MODE_LABEL[mode]} (réponds STRICTEMENT selon ce mode, pas un autre).\n\n` +
-    `=== Données réelles du scan & de la boutique ===\n${contextBlock(ctx) || "(aucune donnée de scan — précise-le et reste prudent)"}\n` +
-    structure +
+    `=== Données réelles du scan & de la boutique ===\n${contextBlock(ctx) || "(aucune donnée de scan — précise-le et reste prudent)"}` +
+    historyBlock(ctx) +
+    directive +
     `\n\n=== Demande de l'utilisateur ===\n${question}`;
 
   const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.4, maxTokens: mode === "seo" ? 3600 : 2400 });
