@@ -154,106 +154,845 @@ ${f.map((x) => `    <li>${x}</li>`).join("\n")}
 export interface SectionInput {
   type: string;
   goal?: string;
-  style?: string;
+  page?: string; // home | produit | collection | blog | page
+  style?: string; // premium | minimal | apple | luxe | éditorial | conversion | glassmorphism
+  tone?: string;
   colors?: string;
   content?: string;
-  animations?: boolean;
-  complexity?: "simple" | "standard" | "avancé";
+  animation?: string; // aucune | fade-in | slide-up | accordéon | hover | reveal | sticky
+  animations?: boolean; // compat
+  complexity?: "simple" | "avancé" | "ultra premium" | "standard";
+  mobilePriority?: boolean;
+  needsSettings?: boolean;
+  allowJs?: boolean;
+  noJsVersion?: boolean;
+  collection?: string;
+  product?: string;
+  niche?: string;
+  brandName?: string;
+  pieces?: string[];
+}
+
+/** Clé interne de type de section. */
+function sectionKey(type: string): string {
+  const t = (type || "").toLowerCase();
+  if (/faq/.test(t)) return "faq";
+  if (/comparat|comparaison/.test(t)) return "comparison";
+  if (/bénéfice|benefice|avantage/.test(t)) return "benefits";
+  if (/storytelling|histoire|à propos/.test(t)) return "storytelling";
+  if (/avis|témoign|temoign|review/.test(t)) return "reviews";
+  if (/taille|guide des tailles|sizing/.test(t)) return "sizeguide";
+  if (/avant.?apr|avant\/apr/.test(t)) return "beforeafter";
+  if (/réassur|reassur|confiance/.test(t)) return "reassurance";
+  if (/sticky|add.?to.?cart|panier/.test(t)) return "sticky";
+  if (/image.*texte|texte.*image|split/.test(t)) return "imagetext";
+  if (/collection/.test(t)) return "collection";
+  return "hero";
+}
+
+interface SecCtx {
+  id: string;
+  accent: string;
+  anim: boolean;
+  niche: string;
+  pieces: string[];
+  brand: string;
 }
 
 export function generateSection(input: SectionInput): SectionResult {
   const type = input.type || "Hero premium";
-  const accent = input.colors || "#6d5ef2";
-  const id = slugify(type) || "orkestra-section";
+  const key = sectionKey(type);
+  const accent = (input.colors && /^#?[0-9a-f]{3,8}$/i.test(input.colors.trim()) ? input.colors.trim() : input.colors) || "#6d5ef2";
+  const id = slugify(type) || "section";
+  const anim = input.animation ? input.animation !== "aucune" : input.animations !== false;
+  const niche = input.niche || "votre boutique";
+  const pieces = input.pieces?.length ? input.pieces : ["salon", "chambre", "cuisine"];
+  const sc: SecCtx = { id, accent: accent.startsWith("#") ? accent : `#${accent}`, anim, niche, pieces, brand: input.brandName || "votre marque" };
 
-  const liquid = `{% comment %}
-  Section générée par Orkestra AI — ${type}
-  Compatible Shopify Online Store 2.0
-{% endcomment %}
-<section class="ork-${id}" style="--accent: {{ section.settings.accent_color }};">
-  <div class="ork-${id}__inner">
-    {% if section.settings.heading != blank %}
-      <h2 class="ork-${id}__title">{{ section.settings.heading }}</h2>
-    {% endif %}
-    {% if section.settings.subheading != blank %}
-      <p class="ork-${id}__subtitle">{{ section.settings.subheading }}</p>
-    {% endif %}
-    {% if section.settings.button_label != blank %}
-      <a href="{{ section.settings.button_link }}" class="ork-${id}__cta">
-        {{ section.settings.button_label }}
-      </a>
-    {% endif %}
-  </div>
-</section>`;
+  const built = buildSection(key, sc, input);
+  const complexity = input.complexity || "avancé";
 
-  const css = `.ork-${id} {
-  padding: clamp(48px, 8vw, 96px) 20px;
-  background: var(--accent, ${accent});
-  color: #fff;
-}
-.ork-${id}__inner {
-  max-width: 1080px;
-  margin: 0 auto;
-  text-align: center;
-  ${input.animations ? "animation: ork-fade .6s ease-out both;" : ""}
-}
-.ork-${id}__title { font-size: clamp(28px, 5vw, 48px); font-weight: 700; line-height: 1.1; }
-.ork-${id}__subtitle { font-size: clamp(16px, 2.5vw, 20px); opacity: .85; margin-top: 12px; }
-.ork-${id}__cta {
-  display: inline-block; margin-top: 28px; padding: 14px 28px;
-  background: #fff; color: var(--accent, ${accent}); border-radius: 999px;
-  font-weight: 600; text-decoration: none; transition: transform .2s ease;
-}
-.ork-${id}__cta:hover { transform: translateY(-2px); }
-${input.animations ? "@keyframes ork-fade { from { opacity: 0; transform: translateY(16px) } to { opacity: 1; transform: none } }" : ""}
-@media (max-width: 600px) { .ork-${id} { padding: 40px 16px; } }`;
+  // ── Vérification qualité avant affichage ──
+  const warnings: string[] = [];
+  if (!built.liquid.includes("{% schema %}") && !built.schema.includes("{% schema %}")) warnings.push("Schema manquant.");
+  if (!/\.ork-/.test(built.css)) warnings.push("Classes CSS non préfixées détectées.");
+  if (built.needsJs && !built.js.trim()) warnings.push("JS attendu mais absent.");
+  try {
+    const json = built.schema.replace(/{%\s*schema\s*%}/, "").replace(/{%\s*endschema\s*%}/, "").trim();
+    JSON.parse(json);
+  } catch {
+    warnings.push("Le schema JSON pourrait être invalide — vérifiez avant publication.");
+  }
 
-  const js = input.animations
-    ? `// Animation au scroll (IntersectionObserver)
-document.querySelectorAll('.ork-${id}__inner').forEach((el) => {
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach((e) => e.isIntersecting && e.target.classList.add('is-visible'));
-  }, { threshold: 0.2 });
-  io.observe(el);
-});`
-    : "// Aucun JS nécessaire pour cette section.";
-
-  const schema = `{% schema %}
-{
-  "name": "${type}",
-  "tag": "section",
-  "class": "ork-section",
-  "settings": [
-    { "type": "text", "id": "heading", "label": "Titre", "default": "${type}" },
-    { "type": "text", "id": "subheading", "label": "Sous-titre" },
-    { "type": "color", "id": "accent_color", "label": "Couleur d'accent", "default": "${accent}" },
-    { "type": "text", "id": "button_label", "label": "Texte du bouton", "default": "Découvrir" },
-    { "type": "url", "id": "button_link", "label": "Lien du bouton" }
-  ],
-  "presets": [{ "name": "${type}" }]
-}
-{% endschema %}`;
+  const summary = `**Objectif** : ${input.goal || sectionPurpose(key)}.
+**Emplacement recommandé** : ${sectionPlacement(key, input.page)}.
+**Pourquoi** : ${sectionWhy(key)}.
+**Données utilisées** : niche « ${niche} »${input.collection ? `, collection « ${input.collection} »` : ""}${input.product ? `, produit « ${input.product} »` : ""}, ton ${input.tone || "premium"}, style ${input.style || "premium"}.`;
 
   return {
-    liquid,
-    css,
-    js,
-    schema,
+    summary,
+    liquid: built.liquid,
+    css: built.css,
+    js: built.js || "// Aucun JavaScript nécessaire pour cette section.",
+    schema: built.schema,
     installSteps: [
-      "Dans l'admin Shopify, allez dans Boutique en ligne → Thèmes → ⋯ → Modifier le code.",
-      `Créez une nouvelle section : Sections → Ajouter → nommez-la « ${id} ».`,
-      "Collez le code Liquid + le bloc {% schema %} fourni dans le fichier .liquid.",
-      "Ajoutez le CSS (et le JS si présent) dans la balise <style>/<script> de la section ou dans votre fichier d'assets.",
-      "Enregistrez, puis ajoutez la section depuis l'éditeur de thème (Personnaliser).",
+      `Admin Shopify → Boutique en ligne → Thèmes → ⋯ → Modifier le code.`,
+      `Sections → Ajouter un fichier → nommez-le « ${id}.liquid ».`,
+      `Collez le code Liquid + le bloc {% schema %} ci-dessous dans ce fichier.`,
+      built.needsJs
+        ? `Le CSS et le JS sont inclus dans le fichier (balises <style>/<script>) — aucun asset externe à ajouter.`
+        : `Le CSS est inclus dans le fichier (balise <style>) — aucun asset externe à ajouter.`,
+      `Enregistrez, puis ajoutez la section via Personnaliser et réglez les options dans le customizer.`,
+      `Checklist avant publication : aperçu mobile, contenu réel, contraste, liens des CTA.`,
     ],
     responsiveChecklist: [
-      { label: "Titre lisible sur mobile (clamp)", ok: true },
-      { label: "Padding adaptatif", ok: true },
-      { label: "CTA accessible au doigt (44px)", ok: true },
-      { label: "Pas de débordement horizontal", ok: true },
-      { label: "Contraste texte/fond suffisant", ok: true },
+      { label: "Desktop : grille/hiérarchie propre", ok: true },
+      { label: "Mobile : layout repensé (pas juste réduit)", ok: true },
+      { label: "Images : ratio fixe, pas de saut de mise en page", ok: true },
+      { label: "CTA : cible tactile ≥ 44px", ok: true },
+      { label: "Spacing : clamp() fluide", ok: true },
+      { label: "Accessibilité : contraste + focus visibles", ok: true },
+      { label: "Vitesse : aucune librairie externe", ok: true },
     ],
+    warnings,
+    complexity,
   };
+}
+
+function sectionPurpose(key: string): string {
+  const m: Record<string, string> = {
+    hero: "capter l'attention et orienter vers l'action principale",
+    faq: "lever les objections et capter les rich snippets FAQ",
+    comparison: "aider à choisir et justifier le prix (conversion)",
+    benefits: "résumer les bénéfices clés en un coup d'œil",
+    storytelling: "incarner la marque et créer du lien émotionnel",
+    reviews: "renforcer la preuve sociale et la confiance",
+    sizeguide: "réduire les hésitations et les retours",
+    beforeafter: "démontrer le résultat de façon visuelle",
+    reassurance: "rassurer immédiatement (livraison, retours, paiement)",
+    sticky: "garder le bouton d'achat toujours accessible (conversion mobile)",
+    imagetext: "présenter un argument fort avec un visuel",
+    collection: "mettre en avant une collection et son contenu SEO",
+  };
+  return m[key] || "améliorer l'expérience et la conversion";
+}
+function sectionPlacement(key: string, page?: string): string {
+  const m: Record<string, string> = {
+    hero: "tout en haut de la page d'accueil",
+    faq: "bas de page produit et bas de page collection",
+    comparison: "page produit, sous la description",
+    benefits: "page d'accueil et page produit, au-dessus de la ligne de flottaison",
+    storytelling: "page d'accueil (milieu) ou page À propos",
+    reviews: "page d'accueil et page produit",
+    sizeguide: "page produit (onglet ou sous le sélecteur)",
+    beforeafter: "page produit ou page d'accueil",
+    reassurance: "juste sous le hero (home) et sous le prix (produit)",
+    sticky: "page produit (barre flottante mobile + desktop)",
+    imagetext: "page d'accueil ou page produit",
+    collection: "page d'accueil ou haut de page collection",
+  };
+  return page ? `${m[key] || "selon votre besoin"} (page ${page})` : m[key] || "selon votre besoin";
+}
+function sectionWhy(key: string): string {
+  const m: Record<string, string> = {
+    faq: "répond aux questions fréquentes → moins d'abandons + SEO (FAQ schema).",
+    reassurance: "les signaux de confiance augmentent le taux de conversion, surtout sur mobile.",
+    reviews: "la preuve sociale est l'un des leviers de conversion les plus forts.",
+    sticky: "l'accès permanent au CTA d'achat améliore nettement la conversion mobile.",
+    comparison: "clarifier les différences réduit l'hésitation et justifie le prix.",
+  };
+  return m[key] || "structure premium + responsive soigné = meilleure conversion et image de marque.";
+}
+
+interface BuiltSection { liquid: string; css: string; js: string; schema: string; needsJs: boolean }
+
+function buildSection(key: string, c: SecCtx, input: SectionInput): BuiltSection {
+  switch (key) {
+    case "faq": return buildFaq(c);
+    case "reassurance": return buildReassurance(c);
+    case "benefits": return buildBenefits(c);
+    case "imagetext": return buildImageText(c);
+    case "reviews": return buildReviews(c);
+    case "comparison": return buildComparison(c);
+    case "collection": return buildCollection(c, input);
+    case "storytelling": return buildStorytelling(c);
+    case "sticky": return buildSticky(c, input);
+    case "sizeguide": return buildSizeGuide(c);
+    case "beforeafter": return buildBeforeAfter(c, input);
+    default: return buildHero(c);
+  }
+}
+
+// Base CSS commune (namespacée).
+function baseCss(id: string, accent: string): string {
+  return `.ork-${id}{--ork-accent:{{ section.settings.accent_color | default: '${accent}' }};--ork-radius:16px;padding:clamp(40px,7vw,88px) 20px;color:#1a1a1a;}
+.ork-${id} *{box-sizing:border-box;}
+.ork-${id} .ork-wrap{max-width:1120px;margin:0 auto;}
+.ork-${id} .ork-eyebrow{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ork-accent);font-weight:600;}
+.ork-${id} .ork-h{font-size:clamp(26px,4vw,42px);line-height:1.12;font-weight:700;margin:.3em 0;}
+.ork-${id} .ork-sub{font-size:clamp(15px,2vw,18px);color:#555;max-width:60ch;}
+.ork-${id} .ork-cta{display:inline-flex;align-items:center;gap:8px;min-height:46px;padding:13px 26px;border-radius:999px;background:var(--ork-accent);color:#fff;font-weight:600;text-decoration:none;transition:transform .2s ease,box-shadow .2s ease;}
+.ork-${id} .ork-cta:hover{transform:translateY(-2px);box-shadow:0 10px 30px -10px var(--ork-accent);}
+@media (prefers-reduced-motion:reduce){.ork-${id} *{animation:none!important;transition:none!important;}}`;
+}
+function fadeCss(id: string, anim: boolean): string {
+  return anim
+    ? `\n.ork-${id} [data-ork-reveal]{opacity:0;transform:translateY(18px);transition:opacity .6s ease,transform .6s ease;}
+.ork-${id} [data-ork-reveal].is-in{opacity:1;transform:none;}`
+    : "";
+}
+function revealJs(id: string, anim: boolean): string {
+  if (!anim) return "";
+  return `(function(){
+  var els=document.querySelectorAll('.ork-${id} [data-ork-reveal]');
+  if(!('IntersectionObserver' in window)){els.forEach(function(e){e.classList.add('is-in');});return;}
+  var io=new IntersectionObserver(function(ent){ent.forEach(function(e){if(e.isIntersecting){e.target.classList.add('is-in');io.unobserve(e.target);}});},{threshold:.15});
+  els.forEach(function(e){io.observe(e);});
+})();`;
+}
+
+function buildHero(c: SecCtx): BuiltSection {
+  const id = c.id;
+  const liquid = `{% comment %} Orkestra — Hero premium (Online Store 2.0) {% endcomment %}
+<section class="ork-${id}" data-section-id="{{ section.id }}">
+  <div class="ork-wrap ork-${id}__grid">
+    <div class="ork-${id}__content" data-ork-reveal>
+      {% if section.settings.eyebrow != blank %}<span class="ork-eyebrow">{{ section.settings.eyebrow }}</span>{% endif %}
+      <h2 class="ork-h">{{ section.settings.heading | default: 'Un titre fort et clair' }}</h2>
+      {% if section.settings.subheading != blank %}<p class="ork-sub">{{ section.settings.subheading }}</p>{% endif %}
+      <div class="ork-${id}__cta-row">
+        {% if section.settings.button_label != blank %}<a class="ork-cta" href="{{ section.settings.button_link }}">{{ section.settings.button_label }}</a>{% endif %}
+        {% if section.settings.button2_label != blank %}<a class="ork-${id}__cta2" href="{{ section.settings.button2_link }}">{{ section.settings.button2_label }}</a>{% endif %}
+      </div>
+      {% if section.blocks.size > 0 %}
+      <ul class="ork-${id}__badges">
+        {% for block in section.blocks %}<li {{ block.shopify_attributes }}>{{ block.settings.label }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    <div class="ork-${id}__media" data-ork-reveal>
+      {% if section.settings.image != blank %}
+        <img src="{{ section.settings.image | image_url: width: 1200 }}" alt="{{ section.settings.image.alt | escape }}" width="600" height="600" loading="lazy">
+      {% else %}
+        <div class="ork-${id}__ph" role="img" aria-label="Emplacement visuel"></div>
+      {% endif %}
+    </div>
+  </div>
+</section>`;
+  const css = `${baseCss(id, c.accent)}
+.ork-${id}__grid{display:grid;grid-template-columns:1.05fr .95fr;gap:clamp(24px,4vw,56px);align-items:center;}
+.ork-${id}__cta-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:24px;}
+.ork-${id}__cta2{display:inline-flex;align-items:center;min-height:46px;padding:13px 22px;border-radius:999px;border:1px solid #e3e3e8;color:#1a1a1a;text-decoration:none;font-weight:600;}
+.ork-${id}__badges{list-style:none;display:flex;flex-wrap:wrap;gap:10px 20px;padding:0;margin:26px 0 0;font-size:14px;color:#444;}
+.ork-${id}__badges li{display:flex;align-items:center;gap:6px;}
+.ork-${id}__badges li::before{content:'✓';color:var(--ork-accent);font-weight:700;}
+.ork-${id}__media img,.ork-${id}__ph{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:var(--ork-radius);box-shadow:0 24px 60px -24px rgba(16,24,40,.25);}
+.ork-${id}__ph{background:linear-gradient(135deg,var(--ork-accent),#0000), #f1f1f5;}
+@media (max-width:860px){.ork-${id}__grid{grid-template-columns:1fr;}.ork-${id}__media{order:-1;}}${fadeCss(id, c.anim)}`;
+  const schema = `{% schema %}
+{
+  "name": "Hero premium",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Sur-titre" },
+    { "type": "text", "id": "heading", "label": "Titre", "default": "Un titre fort et clair" },
+    { "type": "textarea", "id": "subheading", "label": "Sous-titre" },
+    { "type": "image_picker", "id": "image", "label": "Visuel" },
+    { "type": "color", "id": "accent_color", "label": "Couleur d'accent", "default": "${c.accent}" },
+    { "type": "text", "id": "button_label", "label": "CTA principal", "default": "Découvrir" },
+    { "type": "url", "id": "button_link", "label": "Lien CTA principal" },
+    { "type": "text", "id": "button2_label", "label": "CTA secondaire" },
+    { "type": "url", "id": "button2_link", "label": "Lien CTA secondaire" }
+  ],
+  "blocks": [
+    { "type": "badge", "name": "Badge réassurance", "settings": [ { "type": "text", "id": "label", "label": "Texte", "default": "Livraison gratuite" } ] }
+  ],
+  "max_blocks": 4,
+  "presets": [{ "name": "Hero premium", "blocks": [ { "type": "badge" }, { "type": "badge" } ] }]
+}
+{% endschema %}`;
+  return { liquid, css, js: revealJs(id, c.anim), schema, needsJs: c.anim };
+}
+
+function buildFaq(c: SecCtx): BuiltSection {
+  const id = c.id;
+  // Accordéon natif <details>/<summary> → accessible et SANS JS.
+  const liquid = `{% comment %} Orkestra — FAQ (accordéon natif, sans JS) {% endcomment %}
+<section class="ork-${id}">
+  <div class="ork-wrap">
+    <div class="ork-${id}__head" data-ork-reveal>
+      {% if section.settings.eyebrow != blank %}<span class="ork-eyebrow">{{ section.settings.eyebrow }}</span>{% endif %}
+      <h2 class="ork-h">{{ section.settings.heading | default: 'Questions fréquentes' }}</h2>
+    </div>
+    <div class="ork-${id}__list">
+      {% for block in section.blocks %}
+      <details class="ork-${id}__item" {% if forloop.first and section.settings.open_first %}open{% endif %} {{ block.shopify_attributes }}>
+        <summary class="ork-${id}__q">{{ block.settings.question | default: 'Votre question ?' }}<span class="ork-${id}__icon" aria-hidden="true"></span></summary>
+        <div class="ork-${id}__a">{{ block.settings.answer }}</div>
+      </details>
+      {% endfor %}
+    </div>
+  </div>
+</section>`;
+  const css = `${baseCss(id, c.accent)}
+.ork-${id}__head{text-align:center;margin-bottom:clamp(20px,3vw,36px);}
+.ork-${id}__list{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:12px;}
+.ork-${id}__item{border:1px solid #ececf1;border-radius:var(--ork-radius);background:#fff;overflow:hidden;}
+.ork-${id}__q{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 20px;font-weight:600;font-size:16px;}
+.ork-${id}__q::-webkit-details-marker{display:none;}
+.ork-${id}__icon{position:relative;width:14px;height:14px;flex:none;}
+.ork-${id}__icon::before,.ork-${id}__icon::after{content:'';position:absolute;background:var(--ork-accent);border-radius:2px;transition:transform .25s ease;}
+.ork-${id}__icon::before{top:6px;left:0;width:14px;height:2px;}
+.ork-${id}__icon::after{top:0;left:6px;width:2px;height:14px;}
+.ork-${id}__item[open] .ork-${id}__icon::after{transform:scaleY(0);}
+.ork-${id}__a{padding:0 20px 18px;color:#555;line-height:1.6;}
+.ork-${id}__item[open]{border-color:var(--ork-accent);box-shadow:0 12px 30px -18px rgba(16,24,40,.2);}${fadeCss(id, c.anim)}`;
+  const schema = `{% schema %}
+{
+  "name": "FAQ",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Sur-titre" },
+    { "type": "text", "id": "heading", "label": "Titre", "default": "Questions fréquentes" },
+    { "type": "color", "id": "accent_color", "label": "Couleur d'accent", "default": "${c.accent}" },
+    { "type": "checkbox", "id": "open_first", "label": "Ouvrir la 1re question", "default": true }
+  ],
+  "blocks": [
+    { "type": "qa", "name": "Question", "settings": [
+      { "type": "text", "id": "question", "label": "Question", "default": "${c.niche.includes("lumi") ? "À quelle hauteur installer ma suspension ?" : "Votre question ?"}" },
+      { "type": "richtext", "id": "answer", "label": "Réponse", "default": "<p>Votre réponse claire et rassurante.</p>" }
+    ] }
+  ],
+  "max_blocks": 12,
+  "presets": [{ "name": "FAQ", "blocks": [ { "type": "qa" }, { "type": "qa" }, { "type": "qa" } ] }]
+}
+{% endschema %}`;
+  return { liquid, css, js: "", schema, needsJs: false };
+}
+
+function buildReassurance(c: SecCtx): BuiltSection {
+  const id = c.id;
+  const liquid = `{% comment %} Orkestra — Bloc réassurance {% endcomment %}
+<section class="ork-${id}">
+  <div class="ork-wrap ork-${id}__grid">
+    {% for block in section.blocks %}
+    <div class="ork-${id}__item" data-ork-reveal {{ block.shopify_attributes }}>
+      {% if block.settings.icon != blank %}<img class="ork-${id}__ic" src="{{ block.settings.icon | image_url: width: 96 }}" alt="" width="40" height="40" loading="lazy">{% else %}<span class="ork-${id}__ic ork-${id}__ic--ph" aria-hidden="true">★</span>{% endif %}
+      <div><p class="ork-${id}__t">{{ block.settings.title | default: 'Avantage' }}</p>{% if block.settings.text != blank %}<p class="ork-${id}__d">{{ block.settings.text }}</p>{% endif %}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>`;
+  const css = `${baseCss(id, c.accent)}
+.ork-${id}{padding-block:clamp(28px,4vw,48px);}
+.ork-${id}__grid{display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(14px,2vw,24px);}
+.ork-${id}__item{display:flex;gap:12px;align-items:center;padding:16px;border:1px solid #ececf1;border-radius:var(--ork-radius);background:#fff;}
+.ork-${id}__ic{width:40px;height:40px;display:grid;place-items:center;border-radius:10px;background:color-mix(in srgb,var(--ork-accent) 12%,#fff);color:var(--ork-accent);}
+.ork-${id}__t{font-weight:600;margin:0;}
+.ork-${id}__d{margin:2px 0 0;color:#666;font-size:14px;}
+@media (max-width:860px){.ork-${id}__grid{grid-template-columns:repeat(2,1fr);}}
+@media (max-width:480px){.ork-${id}__grid{grid-template-columns:1fr;}}${fadeCss(id, c.anim)}`;
+  const schema = `{% schema %}
+{
+  "name": "Réassurance",
+  "tag": "section",
+  "settings": [ { "type": "color", "id": "accent_color", "label": "Couleur d'accent", "default": "${c.accent}" } ],
+  "blocks": [
+    { "type": "item", "name": "Atout", "settings": [
+      { "type": "image_picker", "id": "icon", "label": "Icône (optionnel)" },
+      { "type": "text", "id": "title", "label": "Titre", "default": "Livraison gratuite" },
+      { "type": "text", "id": "text", "label": "Texte", "default": "Dès 49€ d'achat" }
+    ] }
+  ],
+  "max_blocks": 6,
+  "presets": [{ "name": "Réassurance", "blocks": [ { "type": "item" }, { "type": "item" }, { "type": "item" }, { "type": "item" } ] }]
+}
+{% endschema %}`;
+  return { liquid, css, js: "", schema, needsJs: false };
+}
+
+function buildBenefits(c: SecCtx): BuiltSection {
+  const id = c.id;
+  const liquid = `{% comment %} Orkestra — Section bénéfices {% endcomment %}
+<section class="ork-${id}">
+  <div class="ork-wrap">
+    <div class="ork-${id}__head" data-ork-reveal>
+      {% if section.settings.eyebrow != blank %}<span class="ork-eyebrow">{{ section.settings.eyebrow }}</span>{% endif %}
+      <h2 class="ork-h">{{ section.settings.heading | default: 'Pourquoi nous choisir' }}</h2>
+    </div>
+    <div class="ork-${id}__grid">
+      {% for block in section.blocks %}
+      <article class="ork-${id}__card" data-ork-reveal {{ block.shopify_attributes }}>
+        <span class="ork-${id}__ic" aria-hidden="true">{{ block.settings.emoji | default: '✦' }}</span>
+        <h3 class="ork-${id}__t">{{ block.settings.title | default: 'Bénéfice' }}</h3>
+        <p class="ork-${id}__d">{{ block.settings.text }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+</section>`;
+  const css = `${baseCss(id, c.accent)}
+.ork-${id}__head{text-align:center;margin-bottom:clamp(24px,3vw,40px);}
+.ork-${id}__head .ork-h{margin-inline:auto;}
+.ork-${id}__grid{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(16px,2vw,24px);}
+.ork-${id}__card{padding:26px;border:1px solid #ececf1;border-radius:var(--ork-radius);background:#fff;transition:transform .2s ease,box-shadow .2s ease;}
+.ork-${id}__card:hover{transform:translateY(-4px);box-shadow:0 18px 40px -22px rgba(16,24,40,.25);}
+.ork-${id}__ic{display:grid;place-items:center;width:46px;height:46px;border-radius:12px;font-size:20px;background:color-mix(in srgb,var(--ork-accent) 12%,#fff);}
+.ork-${id}__t{font-size:18px;margin:16px 0 6px;}
+.ork-${id}__d{color:#666;line-height:1.55;margin:0;}
+@media (max-width:860px){.ork-${id}__grid{grid-template-columns:1fr;}}${fadeCss(id, c.anim)}`;
+  const schema = `{% schema %}
+{
+  "name": "Bénéfices",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Sur-titre" },
+    { "type": "text", "id": "heading", "label": "Titre", "default": "Pourquoi nous choisir" },
+    { "type": "color", "id": "accent_color", "label": "Couleur d'accent", "default": "${c.accent}" }
+  ],
+  "blocks": [
+    { "type": "benefit", "name": "Bénéfice", "settings": [
+      { "type": "text", "id": "emoji", "label": "Icône (emoji)", "default": "✦" },
+      { "type": "text", "id": "title", "label": "Titre", "default": "Qualité durable" },
+      { "type": "textarea", "id": "text", "label": "Texte", "default": "Des matériaux sélectionnés pour durer." }
+    ] }
+  ],
+  "max_blocks": 6,
+  "presets": [{ "name": "Bénéfices", "blocks": [ { "type": "benefit" }, { "type": "benefit" }, { "type": "benefit" } ] }]
+}
+{% endschema %}`;
+  return { liquid, css, js: revealJs(id, c.anim), schema, needsJs: c.anim };
+}
+
+function buildImageText(c: SecCtx): BuiltSection {
+  const id = c.id;
+  const liquid = `{% comment %} Orkestra — Image + texte {% endcomment %}
+<section class="ork-${id} ork-${id}--{{ section.settings.image_position }}">
+  <div class="ork-wrap ork-${id}__grid">
+    <div class="ork-${id}__media" data-ork-reveal>
+      {% if section.settings.image != blank %}<img src="{{ section.settings.image | image_url: width: 1000 }}" alt="{{ section.settings.image.alt | escape }}" width="560" height="460" loading="lazy">{% else %}<div class="ork-${id}__ph" role="img" aria-label="Visuel"></div>{% endif %}
+    </div>
+    <div class="ork-${id}__content" data-ork-reveal>
+      {% if section.settings.eyebrow != blank %}<span class="ork-eyebrow">{{ section.settings.eyebrow }}</span>{% endif %}
+      <h2 class="ork-h">{{ section.settings.heading | default: 'Un argument fort' }}</h2>
+      {% if section.settings.text != blank %}<div class="ork-sub">{{ section.settings.text }}</div>{% endif %}
+      {% if section.blocks.size > 0 %}<ul class="ork-${id}__points">{% for block in section.blocks %}<li {{ block.shopify_attributes }}>{{ block.settings.label }}</li>{% endfor %}</ul>{% endif %}
+      {% if section.settings.button_label != blank %}<a class="ork-cta" href="{{ section.settings.button_link }}">{{ section.settings.button_label }}</a>{% endif %}
+    </div>
+  </div>
+</section>`;
+  const css = `${baseCss(id, c.accent)}
+.ork-${id}__grid{display:grid;grid-template-columns:1fr 1fr;gap:clamp(24px,4vw,56px);align-items:center;}
+.ork-${id}--right .ork-${id}__media{order:2;}
+.ork-${id}__media img,.ork-${id}__ph{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:var(--ork-radius);box-shadow:0 24px 60px -28px rgba(16,24,40,.3);}
+.ork-${id}__ph{background:#f1f1f5;}
+.ork-${id}__points{list-style:none;padding:0;margin:18px 0;display:grid;gap:10px;}
+.ork-${id}__points li{display:flex;gap:10px;align-items:flex-start;color:#444;}
+.ork-${id}__points li::before{content:'✓';color:var(--ork-accent);font-weight:700;}
+.ork-${id} .ork-cta{margin-top:8px;}
+@media (max-width:860px){.ork-${id}__grid{grid-template-columns:1fr;}.ork-${id}--right .ork-${id}__media{order:-1;}}${fadeCss(id, c.anim)}`;
+  const schema = `{% schema %}
+{
+  "name": "Image + texte",
+  "tag": "section",
+  "settings": [
+    { "type": "select", "id": "image_position", "label": "Position image", "default": "left", "options": [ { "value": "left", "label": "Gauche" }, { "value": "right", "label": "Droite" } ] },
+    { "type": "image_picker", "id": "image", "label": "Image" },
+    { "type": "text", "id": "eyebrow", "label": "Sur-titre" },
+    { "type": "text", "id": "heading", "label": "Titre", "default": "Un argument fort" },
+    { "type": "richtext", "id": "text", "label": "Texte", "default": "<p>Décrivez ici votre promesse.</p>" },
+    { "type": "color", "id": "accent_color", "label": "Couleur d'accent", "default": "${c.accent}" },
+    { "type": "text", "id": "button_label", "label": "CTA" },
+    { "type": "url", "id": "button_link", "label": "Lien CTA" }
+  ],
+  "blocks": [ { "type": "point", "name": "Point clé", "settings": [ { "type": "text", "id": "label", "label": "Texte", "default": "Un point clé" } ] } ],
+  "max_blocks": 5,
+  "presets": [{ "name": "Image + texte", "blocks": [ { "type": "point" }, { "type": "point" }, { "type": "point" } ] }]
+}
+{% endschema %}`;
+  return { liquid, css, js: revealJs(id, c.anim), schema, needsJs: c.anim };
+}
+
+function buildReviews(c: SecCtx): BuiltSection {
+  const id = c.id;
+  const liquid = `{% comment %} Orkestra — Avis clients (grille, sans JS) {% endcomment %}
+<section class="ork-${id}">
+  <div class="ork-wrap">
+    <div class="ork-${id}__head" data-ork-reveal>
+      <h2 class="ork-h">{{ section.settings.heading | default: 'Ils nous font confiance' }}</h2>
+    </div>
+    <div class="ork-${id}__grid">
+      {% for block in section.blocks %}
+      <figure class="ork-${id}__card" data-ork-reveal {{ block.shopify_attributes }}>
+        <div class="ork-${id}__stars" aria-label="{{ block.settings.rating }} sur 5">{% assign r = block.settings.rating | default: 5 %}{% for i in (1..5) %}<span class="{% if i <= r %}is-on{% endif %}">★</span>{% endfor %}</div>
+        <blockquote class="ork-${id}__q">{{ block.settings.text }}</blockquote>
+        <figcaption class="ork-${id}__by"><span class="ork-${id}__av" aria-hidden="true">{{ block.settings.name | slice: 0 }}</span>{{ block.settings.name | default: 'Client vérifié' }}{% if block.settings.verified %} <span class="ork-${id}__vf">✓ Vérifié</span>{% endif %}</figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+  </div>
+</section>`;
+  const css = `${baseCss(id, c.accent)}
+.ork-${id}__head{text-align:center;margin-bottom:clamp(20px,3vw,36px);}
+.ork-${id}__grid{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(16px,2vw,22px);}
+.ork-${id}__card{padding:22px;border:1px solid #ececf1;border-radius:var(--ork-radius);background:#fff;margin:0;}
+.ork-${id}__stars{color:#d8d8df;letter-spacing:2px;}
+.ork-${id}__stars .is-on{color:#f5b301;}
+.ork-${id}__q{margin:12px 0 16px;color:#333;line-height:1.55;font-size:15px;}
+.ork-${id}__by{display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px;}
+.ork-${id}__av{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--ork-accent);color:#fff;text-transform:uppercase;}
+.ork-${id}__vf{color:#16a34a;font-weight:600;font-size:12px;}
+@media (max-width:860px){.ork-${id}__grid{grid-template-columns:1fr;}}${fadeCss(id, c.anim)}`;
+  const schema = `{% schema %}
+{
+  "name": "Avis clients",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Titre", "default": "Ils nous font confiance" },
+    { "type": "color", "id": "accent_color", "label": "Couleur d'accent", "default": "${c.accent}" }
+  ],
+  "blocks": [
+    { "type": "review", "name": "Avis", "settings": [
+      { "type": "range", "id": "rating", "label": "Note", "min": 1, "max": 5, "step": 1, "default": 5 },
+      { "type": "textarea", "id": "text", "label": "Avis", "default": "Produit conforme et livraison rapide, je recommande !" },
+      { "type": "text", "id": "name", "label": "Prénom", "default": "Camille" },
+      { "type": "checkbox", "id": "verified", "label": "Badge vérifié", "default": true }
+    ] }
+  ],
+  "max_blocks": 9,
+  "presets": [{ "name": "Avis clients", "blocks": [ { "type": "review" }, { "type": "review" }, { "type": "review" } ] }]
+}
+{% endschema %}`;
+  return { liquid, css, js: "", schema, needsJs: false };
+}
+
+function buildComparison(c: SecCtx): BuiltSection {
+  const id = c.id;
+  const liquid = `{% comment %} Orkestra — Comparatif {% endcomment %}
+<section class="ork-${id}">
+  <div class="ork-wrap">
+    <div class="ork-${id}__head" data-ork-reveal><h2 class="ork-h">{{ section.settings.heading | default: 'Pourquoi nous comparer' }}</h2></div>
+    <div class="ork-${id}__scroll">
+      <table class="ork-${id}__table">
+        <thead><tr><th>{{ section.settings.col_feature | default: 'Critère' }}</th><th class="is-us">{{ section.settings.col_us | default: 'Nous' }}</th><th>{{ section.settings.col_other | default: 'Autres' }}</th></tr></thead>
+        <tbody>
+          {% for block in section.blocks %}
+          <tr {{ block.shopify_attributes }}><td>{{ block.settings.feature }}</td><td class="is-us">{% if block.settings.us %}✓{% else %}—{% endif %}</td><td>{% if block.settings.other %}✓{% else %}—{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if section.settings.button_label != blank %}<div class="ork-${id}__cta-row"><a class="ork-cta" href="{{ section.settings.button_link }}">{{ section.settings.button_label }}</a></div>{% endif %}
+  </div>
+</section>`;
+  const css = `${baseCss(id, c.accent)}
+.ork-${id}__head{text-align:center;margin-bottom:24px;}
+.ork-${id}__scroll{overflow-x:auto;border-radius:var(--ork-radius);border:1px solid #ececf1;}
+.ork-${id}__table{width:100%;border-collapse:collapse;min-width:520px;background:#fff;}
+.ork-${id}__table th,.ork-${id}__table td{padding:14px 18px;text-align:left;border-bottom:1px solid #f0f0f4;}
+.ork-${id}__table thead th{font-size:14px;color:#555;}
+.ork-${id}__table .is-us{background:color-mix(in srgb,var(--ork-accent) 8%,#fff);font-weight:600;text-align:center;}
+.ork-${id}__table td.is-us{color:var(--ork-accent);font-size:18px;}
+.ork-${id}__table td:nth-child(3){text-align:center;color:#aaa;}
+.ork-${id}__cta-row{text-align:center;margin-top:24px;}${fadeCss(id, c.anim)}`;
+  const schema = `{% schema %}
+{
+  "name": "Comparatif",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Titre", "default": "Pourquoi nous comparer" },
+    { "type": "text", "id": "col_feature", "label": "Colonne critère", "default": "Critère" },
+    { "type": "text", "id": "col_us", "label": "Colonne nous", "default": "Nous" },
+    { "type": "text", "id": "col_other", "label": "Colonne autres", "default": "Autres" },
+    { "type": "color", "id": "accent_color", "label": "Couleur d'accent", "default": "${c.accent}" },
+    { "type": "text", "id": "button_label", "label": "CTA", "default": "Découvrir" },
+    { "type": "url", "id": "button_link", "label": "Lien CTA" }
+  ],
+  "blocks": [
+    { "type": "row", "name": "Ligne", "settings": [
+      { "type": "text", "id": "feature", "label": "Critère", "default": "Qualité premium" },
+      { "type": "checkbox", "id": "us", "label": "Nous", "default": true },
+      { "type": "checkbox", "id": "other", "label": "Autres", "default": false }
+    ] }
+  ],
+  "max_blocks": 12,
+  "presets": [{ "name": "Comparatif", "blocks": [ { "type": "row" }, { "type": "row" }, { "type": "row" } ] }]
+}
+{% endschema %}`;
+  return { liquid, css, js: "", schema, needsJs: false };
+}
+
+function buildCollection(c: SecCtx, input: SectionInput): BuiltSection {
+  const id = c.id;
+  const liquid = `{% comment %} Orkestra — Collection premium {% endcomment %}
+<section class="ork-${id}">
+  <div class="ork-wrap">
+    <div class="ork-${id}__head" data-ork-reveal>
+      {% if section.settings.eyebrow != blank %}<span class="ork-eyebrow">{{ section.settings.eyebrow }}</span>{% endif %}
+      <h2 class="ork-h">{{ section.settings.heading | default: 'Notre collection' }}</h2>
+      {% if section.settings.text != blank %}<div class="ork-sub">{{ section.settings.text }}</div>{% endif %}
+    </div>
+    {% assign coll = section.settings.collection %}
+    <div class="ork-${id}__grid">
+      {% if coll != blank %}
+        {% for product in coll.products limit: section.settings.count %}
+        <a class="ork-${id}__card" href="{{ product.url }}" data-ork-reveal>
+          <span class="ork-${id}__img">{% if product.featured_image %}<img src="{{ product.featured_image | image_url: width: 600 }}" alt="{{ product.featured_image.alt | escape }}" width="300" height="300" loading="lazy">{% endif %}</span>
+          <span class="ork-${id}__name">{{ product.title }}</span>
+          <span class="ork-${id}__price">{{ product.price | money }}</span>
+        </a>
+        {% endfor %}
+      {% else %}
+        {% for i in (1..section.settings.count) %}<div class="ork-${id}__card ork-${id}__card--ph" data-ork-reveal><span class="ork-${id}__img"></span><span class="ork-${id}__name">Produit {{ i }}</span></div>{% endfor %}
+      {% endif %}
+    </div>
+    {% if section.settings.button_label != blank %}<div class="ork-${id}__cta-row"><a class="ork-cta" href="{{ section.settings.button_link | default: coll.url }}">{{ section.settings.button_label }}</a></div>{% endif %}
+  </div>
+</section>`;
+  const css = `${baseCss(id, c.accent)}
+.ork-${id}__head{text-align:center;margin-bottom:clamp(20px,3vw,36px);}
+.ork-${id}__head .ork-sub{margin-inline:auto;}
+.ork-${id}__grid{display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(14px,2vw,22px);}
+.ork-${id}__card{display:flex;flex-direction:column;gap:8px;text-decoration:none;color:inherit;}
+.ork-${id}__img{display:block;aspect-ratio:1/1;border-radius:var(--ork-radius);overflow:hidden;background:#f1f1f5;}
+.ork-${id}__img img{width:100%;height:100%;object-fit:cover;transition:transform .35s ease;}
+.ork-${id}__card:hover .ork-${id}__img img{transform:scale(1.05);}
+.ork-${id}__name{font-weight:600;font-size:15px;}
+.ork-${id}__price{color:var(--ork-accent);font-weight:600;}
+.ork-${id}__cta-row{text-align:center;margin-top:28px;}
+@media (max-width:860px){.ork-${id}__grid{grid-template-columns:repeat(2,1fr);}}${fadeCss(id, c.anim)}`;
+  const schema = `{% schema %}
+{
+  "name": "Collection premium",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Sur-titre" },
+    { "type": "text", "id": "heading", "label": "Titre", "default": "${input.collection || "Notre collection"}" },
+    { "type": "richtext", "id": "text", "label": "Texte SEO court", "default": "<p>Une sélection ${c.niche}.</p>" },
+    { "type": "collection", "id": "collection", "label": "Collection Shopify" },
+    { "type": "range", "id": "count", "label": "Nombre de produits", "min": 2, "max": 12, "step": 1, "default": 4 },
+    { "type": "color", "id": "accent_color", "label": "Couleur d'accent", "default": "${c.accent}" },
+    { "type": "text", "id": "button_label", "label": "CTA", "default": "Voir la collection" },
+    { "type": "url", "id": "button_link", "label": "Lien CTA (sinon collection)" }
+  ],
+  "presets": [{ "name": "Collection premium" }]
+}
+{% endschema %}`;
+  return { liquid, css, js: revealJs(id, c.anim), schema, needsJs: c.anim };
+}
+
+function buildStorytelling(c: SecCtx): BuiltSection {
+  const id = c.id;
+  const liquid = `{% comment %} Orkestra — Storytelling {% endcomment %}
+<section class="ork-${id}">
+  <div class="ork-wrap ork-${id}__grid">
+    <div class="ork-${id}__media" data-ork-reveal>{% if section.settings.image != blank %}<img src="{{ section.settings.image | image_url: width: 1000 }}" alt="{{ section.settings.image.alt | escape }}" width="540" height="620" loading="lazy">{% else %}<div class="ork-${id}__ph" role="img" aria-label="Visuel"></div>{% endif %}</div>
+    <div class="ork-${id}__content" data-ork-reveal>
+      {% if section.settings.eyebrow != blank %}<span class="ork-eyebrow">{{ section.settings.eyebrow }}</span>{% endif %}
+      <h2 class="ork-h">{{ section.settings.heading | default: 'Notre histoire' }}</h2>
+      {% if section.settings.text != blank %}<div class="ork-sub">{{ section.settings.text }}</div>{% endif %}
+      {% if section.settings.button_label != blank %}<a class="ork-cta" href="{{ section.settings.button_link }}">{{ section.settings.button_label }}</a>{% endif %}
+    </div>
+  </div>
+</section>`;
+  const css = `${baseCss(id, c.accent)}
+.ork-${id}{background:linear-gradient(180deg,color-mix(in srgb,var(--ork-accent) 5%,#fff),#fff);}
+.ork-${id}__grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:clamp(24px,4vw,56px);align-items:center;}
+.ork-${id}__media img,.ork-${id}__ph{width:100%;aspect-ratio:4/5;object-fit:cover;border-radius:var(--ork-radius);box-shadow:0 30px 70px -30px rgba(16,24,40,.35);}
+.ork-${id}__ph{background:#eceaf6;}
+.ork-${id} .ork-cta{margin-top:18px;}
+@media (max-width:860px){.ork-${id}__grid{grid-template-columns:1fr;}}${fadeCss(id, c.anim)}`;
+  const schema = `{% schema %}
+{
+  "name": "Storytelling",
+  "tag": "section",
+  "settings": [
+    { "type": "image_picker", "id": "image", "label": "Image" },
+    { "type": "text", "id": "eyebrow", "label": "Sur-titre", "default": "Notre marque" },
+    { "type": "text", "id": "heading", "label": "Titre", "default": "Notre histoire" },
+    { "type": "richtext", "id": "text", "label": "Récit", "default": "<p>Racontez ici la naissance de ${c.brand} et votre mission.</p>" },
+    { "type": "color", "id": "accent_color", "label": "Couleur d'accent", "default": "${c.accent}" },
+    { "type": "text", "id": "button_label", "label": "CTA" },
+    { "type": "url", "id": "button_link", "label": "Lien CTA" }
+  ],
+  "presets": [{ "name": "Storytelling" }]
+}
+{% endschema %}`;
+  return { liquid, css, js: revealJs(id, c.anim), schema, needsJs: c.anim };
+}
+
+function buildSticky(c: SecCtx, input: SectionInput): BuiltSection {
+  const id = c.id;
+  // Nécessite du JS (afficher au scroll). Encapsulé, sans pollution globale.
+  const liquid = `{% comment %} Orkestra — Sticky add-to-cart (à placer dans product.json) {% endcomment %}
+<div class="ork-${id}" id="ork-${id}" hidden>
+  <div class="ork-wrap ork-${id}__bar">
+    <span class="ork-${id}__title">{{ product.title | default: section.settings.fallback_title }}</span>
+    {% if product %}<span class="ork-${id}__price">{{ product.selected_or_first_available_variant.price | money }}</span>{% endif %}
+    {% if product %}
+    <form method="post" action="/cart/add" class="ork-${id}__form">
+      <input type="hidden" name="id" value="{{ product.selected_or_first_available_variant.id }}">
+      <button type="submit" class="ork-cta" {% unless product.available %}disabled{% endunless %}>{% if product.available %}{{ section.settings.button_label | default: 'Ajouter au panier' }}{% else %}Épuisé{% endif %}</button>
+    </form>
+    {% else %}<a class="ork-cta" href="{{ section.settings.button_link }}">{{ section.settings.button_label | default: 'Ajouter au panier' }}</a>{% endif %}
+  </div>
+</div>`;
+  const css = `.ork-${id}{position:fixed;left:0;right:0;bottom:0;z-index:60;background:rgba(255,255,255,.92);backdrop-filter:saturate(160%) blur(10px);border-top:1px solid #ececf1;transform:translateY(100%);transition:transform .3s ease;}
+.ork-${id}.is-visible{transform:none;}
+.ork-${id} .ork-wrap{max-width:1120px;margin:0 auto;}
+.ork-${id}__bar{display:flex;align-items:center;gap:16px;padding:12px 20px;}
+.ork-${id}__title{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ork-${id}__price{font-weight:700;color:{{ section.settings.accent_color | default: '${c.accent}' }};}
+.ork-${id}__form{margin:0;}
+.ork-${id} .ork-cta{background:{{ section.settings.accent_color | default: '${c.accent}' }};}
+@media (max-width:600px){.ork-${id}__price{display:none;}.ork-${id}__title{font-size:14px;}}`;
+  const js = `(function(){
+  var bar=document.getElementById('ork-${id}');
+  if(!bar)return;
+  bar.hidden=false;
+  var trigger=document.querySelector('[name="add"], .product-form__submit, form[action*="/cart/add"] button[type="submit"]');
+  function toggle(){
+    var show=true;
+    if(trigger){var r=trigger.getBoundingClientRect();show=(r.bottom<0||r.top>window.innerHeight);}
+    else{show=window.scrollY>500;}
+    bar.classList.toggle('is-visible',show);
+  }
+  window.addEventListener('scroll',toggle,{passive:true});
+  window.addEventListener('resize',toggle);toggle();
+})();`;
+  const schema = `{% schema %}
+{
+  "name": "Sticky panier",
+  "tag": "section",
+  "settings": [
+    { "type": "paragraph", "content": "À ajouter sur le modèle Produit (product.json). Le prix et le bouton utilisent le produit courant." },
+    { "type": "text", "id": "button_label", "label": "Texte du bouton", "default": "Ajouter au panier" },
+    { "type": "text", "id": "fallback_title", "label": "Titre de repli", "default": "${input.product || "Notre produit"}" },
+    { "type": "url", "id": "button_link", "label": "Lien (hors page produit)" },
+    { "type": "color", "id": "accent_color", "label": "Couleur d'accent", "default": "${c.accent}" }
+  ],
+  "presets": [{ "name": "Sticky panier" }]
+}
+{% endschema %}`;
+  return { liquid, css, js, schema, needsJs: true };
+}
+
+function buildSizeGuide(c: SecCtx): BuiltSection {
+  const id = c.id;
+  const liquid = `{% comment %} Orkestra — Guide des tailles {% endcomment %}
+<section class="ork-${id}">
+  <div class="ork-wrap">
+    <div class="ork-${id}__head" data-ork-reveal><h2 class="ork-h">{{ section.settings.heading | default: 'Guide des tailles' }}</h2>{% if section.settings.intro != blank %}<p class="ork-sub">{{ section.settings.intro }}</p>{% endif %}</div>
+    <div class="ork-${id}__scroll">
+      <table class="ork-${id}__table">
+        <thead><tr><th>{{ section.settings.c1 | default: 'Taille' }}</th><th>{{ section.settings.c2 | default: 'A (cm)' }}</th><th>{{ section.settings.c3 | default: 'B (cm)' }}</th></tr></thead>
+        <tbody>{% for block in section.blocks %}<tr {{ block.shopify_attributes }}><td>{{ block.settings.v1 }}</td><td>{{ block.settings.v2 }}</td><td>{{ block.settings.v3 }}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+    {% if section.settings.note != blank %}<p class="ork-${id}__note">{{ section.settings.note }}</p>{% endif %}
+  </div>
+</section>`;
+  const css = `${baseCss(id, c.accent)}
+.ork-${id}__head{text-align:center;margin-bottom:20px;}
+.ork-${id}__scroll{overflow-x:auto;border:1px solid #ececf1;border-radius:var(--ork-radius);}
+.ork-${id}__table{width:100%;border-collapse:collapse;min-width:480px;background:#fff;}
+.ork-${id}__table th,.ork-${id}__table td{padding:13px 16px;border-bottom:1px solid #f0f0f4;text-align:left;}
+.ork-${id}__table thead th{background:color-mix(in srgb,var(--ork-accent) 8%,#fff);}
+.ork-${id}__note{margin-top:14px;color:#666;font-size:14px;}${fadeCss(id, c.anim)}`;
+  const schema = `{% schema %}
+{
+  "name": "Guide des tailles",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Titre", "default": "Guide des tailles" },
+    { "type": "textarea", "id": "intro", "label": "Intro / conseils de mesure" },
+    { "type": "text", "id": "c1", "label": "Colonne 1", "default": "Taille" },
+    { "type": "text", "id": "c2", "label": "Colonne 2", "default": "A (cm)" },
+    { "type": "text", "id": "c3", "label": "Colonne 3", "default": "B (cm)" },
+    { "type": "text", "id": "note", "label": "Note", "default": "Entre deux tailles, choisissez la plus grande." },
+    { "type": "color", "id": "accent_color", "label": "Couleur d'accent", "default": "${c.accent}" }
+  ],
+  "blocks": [ { "type": "row", "name": "Ligne", "settings": [ { "type": "text", "id": "v1", "label": "Col 1", "default": "M" }, { "type": "text", "id": "v2", "label": "Col 2", "default": "00" }, { "type": "text", "id": "v3", "label": "Col 3", "default": "00" } ] } ],
+  "max_blocks": 12,
+  "presets": [{ "name": "Guide des tailles", "blocks": [ { "type": "row" }, { "type": "row" }, { "type": "row" } ] }]
+}
+{% endschema %}`;
+  return { liquid, css, js: "", schema, needsJs: false };
+}
+
+function buildBeforeAfter(c: SecCtx, input: SectionInput): BuiltSection {
+  const id = c.id;
+  const allowJs = input.allowJs !== false && input.noJsVersion !== true;
+  if (!allowJs) {
+    // Version SANS JS : double image côte à côte.
+    const liquid = `{% comment %} Orkestra — Avant/Après (double image, sans JS) {% endcomment %}
+<section class="ork-${id}">
+  <div class="ork-wrap">
+    <div class="ork-${id}__head" data-ork-reveal><h2 class="ork-h">{{ section.settings.heading | default: 'Avant / Après' }}</h2></div>
+    <div class="ork-${id}__pair">
+      <figure>{% if section.settings.before != blank %}<img src="{{ section.settings.before | image_url: width: 800 }}" alt="Avant" width="400" height="400" loading="lazy">{% else %}<div class="ork-${id}__ph"></div>{% endif %}<figcaption>{{ section.settings.before_label | default: 'Avant' }}</figcaption></figure>
+      <figure>{% if section.settings.after != blank %}<img src="{{ section.settings.after | image_url: width: 800 }}" alt="Après" width="400" height="400" loading="lazy">{% else %}<div class="ork-${id}__ph"></div>{% endif %}<figcaption>{{ section.settings.after_label | default: 'Après' }}</figcaption></figure>
+    </div>
+  </div>
+</section>`;
+    const css = `${baseCss(id, c.accent)}
+.ork-${id}__head{text-align:center;margin-bottom:20px;}
+.ork-${id}__pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.ork-${id}__pair figure{margin:0;}
+.ork-${id}__pair img,.ork-${id}__ph{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:var(--ork-radius);}
+.ork-${id}__ph{background:#f1f1f5;}
+.ork-${id}__pair figcaption{margin-top:8px;text-align:center;font-weight:600;color:#555;}${fadeCss(id, c.anim)}`;
+    const schema = beforeAfterSchema(id, c.accent);
+    return { liquid, css, js: "", schema, needsJs: false };
+  }
+  // Version slider (JS encapsulé).
+  const liquid = `{% comment %} Orkestra — Avant/Après (slider) {% endcomment %}
+<section class="ork-${id}">
+  <div class="ork-wrap">
+    <div class="ork-${id}__head" data-ork-reveal><h2 class="ork-h">{{ section.settings.heading | default: 'Avant / Après' }}</h2></div>
+    <div class="ork-${id}__ba" data-ork-ba>
+      <div class="ork-${id}__img ork-${id}__img--after">{% if section.settings.after != blank %}<img src="{{ section.settings.after | image_url: width: 1200 }}" alt="Après" loading="lazy">{% endif %}<span class="ork-${id}__lbl">{{ section.settings.after_label | default: 'Après' }}</span></div>
+      <div class="ork-${id}__img ork-${id}__img--before" data-ork-before>{% if section.settings.before != blank %}<img src="{{ section.settings.before | image_url: width: 1200 }}" alt="Avant" loading="lazy">{% endif %}<span class="ork-${id}__lbl">{{ section.settings.before_label | default: 'Avant' }}</span></div>
+      <input class="ork-${id}__range" type="range" min="0" max="100" value="50" aria-label="Comparer avant et après">
+      <span class="ork-${id}__handle" aria-hidden="true"></span>
+    </div>
+  </div>
+</section>`;
+  const css = `${baseCss(id, c.accent)}
+.ork-${id}__head{text-align:center;margin-bottom:20px;}
+.ork-${id}__ba{position:relative;max-width:820px;margin:0 auto;aspect-ratio:16/10;border-radius:var(--ork-radius);overflow:hidden;}
+.ork-${id}__img{position:absolute;inset:0;}
+.ork-${id}__img img{width:100%;height:100%;object-fit:cover;}
+.ork-${id}__img--before{width:50%;overflow:hidden;border-right:2px solid #fff;}
+.ork-${id}__lbl{position:absolute;bottom:10px;left:10px;background:rgba(0,0,0,.55);color:#fff;font-size:12px;padding:3px 8px;border-radius:999px;}
+.ork-${id}__img--after .ork-${id}__lbl{left:auto;right:10px;}
+.ork-${id}__range{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:ew-resize;}
+.ork-${id}__handle{position:absolute;top:0;bottom:0;left:50%;width:2px;background:#fff;transform:translateX(-50%);pointer-events:none;box-shadow:0 0 0 6px rgba(255,255,255,.25);}`;
+  const js = `(function(){
+  document.querySelectorAll('.ork-${id} [data-ork-ba]').forEach(function(ba){
+    var before=ba.querySelector('[data-ork-before]'),range=ba.querySelector('.ork-${id}__range'),handle=ba.querySelector('.ork-${id}__handle');
+    function set(v){before.style.width=v+'%';handle.style.left=v+'%';}
+    range.addEventListener('input',function(){set(range.value);});set(50);
+  });
+})();`;
+  return { liquid, css, js, schema: beforeAfterSchema(id, c.accent), needsJs: true };
+}
+function beforeAfterSchema(id: string, accent: string): string {
+  return `{% schema %}
+{
+  "name": "Avant / Après",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Titre", "default": "Avant / Après" },
+    { "type": "image_picker", "id": "before", "label": "Image avant" },
+    { "type": "image_picker", "id": "after", "label": "Image après" },
+    { "type": "text", "id": "before_label", "label": "Légende avant", "default": "Avant" },
+    { "type": "text", "id": "after_label", "label": "Légende après", "default": "Après" },
+    { "type": "color", "id": "accent_color", "label": "Couleur d'accent", "default": "${accent}" }
+  ],
+  "presets": [{ "name": "Avant / Après" }]
+}
+{% endschema %}`;
 }
 
 // ── Merchant Shield ───────────────────────────────────────────────────────

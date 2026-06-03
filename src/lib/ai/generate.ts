@@ -1,12 +1,14 @@
 import {
   generateCouncil,
   generateProductSeo,
+  generateSection,
   isFollowupQuestion,
   followupTopic,
   type CouncilContext,
   type ProductSeoInput,
+  type SectionInput,
 } from "./engine";
-import type { CouncilMode, AIProviderId, CouncilResult, ProductSeoResult, GenMeta } from "../types";
+import type { CouncilMode, AIProviderId, CouncilResult, ProductSeoResult, SectionResult, GenMeta } from "../types";
 import { chatComplete } from "./openai";
 import { getPreset } from "../niche";
 import { getEncrypted } from "../server/keyStore";
@@ -275,5 +277,124 @@ function coerceSeo(p: any, mock: ProductSeoResult): ProductSeoResult {
     seoScore: typeof p?.seoScore === "number" ? p.seoScore : mock.seoScore,
     conversionScore: typeof p?.conversionScore === "number" ? p.conversionScore : mock.conversionScore,
     recommendations: arr(p?.recommendations, mock.recommendations),
+  };
+}
+
+// ── Section Builder live ────────────────────────────────────────────────────
+
+/**
+ * Modèle recommandé pour le Section Builder.
+ * Aujourd'hui : OpenAI (seul live). Demain : Claude pour les sections longues/
+ * complexes, OpenAI pour corriger/optimiser, OpenRouter pour router.
+ */
+export const recommendedProviderForSectionBuilder = {
+  current: "openai" as AIProviderId,
+  futureComplex: "anthropic" as AIProviderId, // Claude (sections longues/complexes)
+  futureReview: "openai" as AIProviderId, // correction / optimisation / responsive
+};
+
+export interface SectionImprove {
+  /** Directive d'amélioration : premium | mobile | nojs | fix | settings | simplify | niche | product | home */
+  directive?: string;
+  /** Code existant à modifier (au lieu de régénérer). */
+  existing?: { liquid: string; css: string; js: string; schema: string };
+}
+
+const IMPROVE_LABEL: Record<string, string> = {
+  premium: "rends la section plus premium (hiérarchie, espacements, ombres subtiles, micro-interactions) sans la complexifier inutilement",
+  mobile: "optimise fortement le rendu mobile (layout repensé, tailles tactiles, pas de débordement)",
+  nojs: "supprime tout le JavaScript et propose une version 100% CSS/Liquid (utilise <details>/<summary> ou équivalent si besoin)",
+  fix: "corrige le code (Liquid valide, schema JSON valide, classes préfixées, pas de dépendance externe)",
+  settings: "ajoute davantage de settings utiles dans le {% schema %} (textes, couleurs, alignement, spacing, activation animations, nombre d'items, CTA, liens)",
+  simplify: "simplifie le code tout en gardant le rendu premium et responsive",
+  niche: "adapte le contenu et le vocabulaire à la niche de la boutique",
+  product: "adapte la section pour une PAGE PRODUIT (placement, contenu, settings)",
+  home: "adapte la section pour la PAGE D'ACCUEIL (placement, contenu, settings)",
+};
+
+export async function runSection(
+  input: SectionInput,
+  ctx: CouncilContext,
+  refs?: KeyRefs,
+  opts?: SectionImprove
+): Promise<{ result: SectionResult; meta: GenMeta }> {
+  const mock = generateSection({
+    ...input,
+    niche: input.niche ?? ctx.niche,
+    brandName: input.brandName ?? ctx.brandName,
+    collection: input.collection ?? ctx.collections?.[0],
+  });
+
+  if (!liveEnabled()) return { result: mock, meta: { live: false, generatedAt: nowIso(), fallbackReason: "Mode démo (ORKESTRA_MOCK_MODE)" } };
+  const key = await resolveOpenAIKey(refs);
+  if (!key) return { result: mock, meta: { live: false, generatedAt: nowIso(), fallbackReason: "Aucune clé OpenAI connectée" } };
+
+  const system =
+    "Tu es un expert thèmes Shopify (Liquid, Online Store 2.0) et UI/UX premium (qualité Apple/Linear/Framer). Tu génères des SECTIONS Shopify autonomes, propres, modernes et responsive.\n" +
+    "Réponds UNIQUEMENT par un objet JSON valide avec EXACTEMENT ces clés : summary (string markdown), liquid (string), css (string), js (string, vide si inutile), schema (string contenant le bloc {% schema %} ... {% endschema %} avec un JSON VALIDE), installSteps (string[]), responsiveChecklist (array de {label, ok:boolean}).\n" +
+    "RÈGLES STRICTES : compatible Online Store 2.0 ; section autonome ; HTML sémantique ; Liquid valide ; AUCUNE dépendance/librairie externe ; classes CSS TOUTES préfixées par `.ork-<nom>` (jamais .container/.button/.title nus) ; responsive solide (mobile repensé, clamp(), media queries) ; éviter le JS si CSS/Liquid suffit, sinon JS encapsulé en IIFE sans variable globale ; schema JSON VALIDE (settings + blocks si pertinent) ; rendu propre même si les settings sont vides (utilise `default`) ; n'invente PAS de données produit — utilise des placeholders modifiables ; accessibilité (contraste, focus, aria).";
+
+  let task: string;
+  if (opts?.existing) {
+    task =
+      `Améliore la section EXISTANTE suivante : ${IMPROVE_LABEL[opts.directive || "premium"] || opts.directive}. ` +
+      `Modifie le code fourni sans tout régénérer inutilement, garde la cohérence.\n\n` +
+      `LIQUID:\n${opts.existing.liquid}\n\nCSS:\n${opts.existing.css}\n\nJS:\n${opts.existing.js}\n\nSCHEMA:\n${opts.existing.schema}`;
+  } else {
+    task =
+      `Crée une section « ${input.type} ».\n` +
+      `Objectif : ${input.goal || "(non précisé)"}\nPage cible : ${input.page || "(non précisé)"}\nStyle : ${input.style || "premium"}\nTon : ${input.tone || "élégant"}\n` +
+      `Couleur d'accent : ${input.colors || "#6d5ef2"}\nAnimation : ${input.animation || (input.animations ? "fade-in" : "aucune")}\nComplexité : ${input.complexity || "avancé"}\n` +
+      `Mobile priority : ${input.mobilePriority ? "oui" : "non"}\nSettings customizer : ${input.needsSettings === false ? "minimal" : "oui"}\nJS : ${input.allowJs === false ? "interdit" : "autorisé si utile"}\nVersion sans JS : ${input.noJsVersion ? "oui" : "si possible"}\n` +
+      `Contenu à intégrer : ${input.content || "(générer un contenu placeholder crédible et modifiable)"}`;
+  }
+
+  const prompt =
+    `=== Contexte boutique ===\n${contextBlock(ctx) || "(peu de données — utilise des placeholders)"}\n\n=== Tâche ===\n${task}`;
+
+  const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.3, maxTokens: 3600, json: true });
+  if (!r.ok) return { result: mock, meta: { live: false, generatedAt: nowIso(), fallbackReason: r.message } };
+
+  try {
+    const p = JSON.parse(r.text);
+    const result = coerceSection(p, mock, input.complexity);
+    return { result, meta: { live: true, provider: "openai", model: r.model, tokens: r.tokens, generatedAt: nowIso() } };
+  } catch {
+    return { result: mock, meta: { live: false, generatedAt: nowIso(), fallbackReason: "Réponse OpenAI non parsable — fallback mock" } };
+  }
+}
+
+/** Coerce + vérification qualité du résultat de section. */
+function coerceSection(p: any, mock: SectionResult, complexity?: string): SectionResult {
+  const str = (v: any, fb: string) => (typeof v === "string" && v.trim() ? v : fb);
+  const liquid = str(p?.liquid, mock.liquid);
+  const css = str(p?.css, mock.css);
+  const js = typeof p?.js === "string" ? p.js : mock.js;
+  const schema = str(p?.schema, mock.schema);
+
+  const warnings: string[] = [];
+  if (!liquid) warnings.push("Liquid manquant.");
+  if (!css) warnings.push("CSS manquant.");
+  if (!/\{%\s*schema\s*%\}/.test(schema)) warnings.push("Bloc {% schema %} manquant ou invalide.");
+  if (!/\.ork-/.test(css)) warnings.push("Classes CSS non préfixées (.ork-) — risque de conflit avec le thème.");
+  try {
+    JSON.parse(schema.replace(/{%\s*schema\s*%}/, "").replace(/{%\s*endschema\s*%}/, "").trim());
+  } catch {
+    warnings.push("Le schema JSON pourrait être invalide — vérifiez avant publication.");
+  }
+
+  return {
+    summary: str(p?.summary, mock.summary || ""),
+    liquid,
+    css,
+    js: js || "// Aucun JavaScript nécessaire pour cette section.",
+    schema,
+    installSteps: Array.isArray(p?.installSteps) && p.installSteps.length ? p.installSteps.map(String) : mock.installSteps,
+    responsiveChecklist:
+      Array.isArray(p?.responsiveChecklist) && p.responsiveChecklist.length
+        ? p.responsiveChecklist.map((x: any) => ({ label: String(x?.label ?? x), ok: x?.ok !== false }))
+        : mock.responsiveChecklist,
+    warnings,
+    complexity: complexity || mock.complexity,
   };
 }

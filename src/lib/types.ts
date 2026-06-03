@@ -162,12 +162,18 @@ export interface ProductSeoResult {
 }
 
 export interface SectionResult {
+  /** Résumé : objectif, emplacement, pourquoi, données utilisées. */
+  summary?: string;
   liquid: string;
   css: string;
   js: string;
   schema: string;
   installSteps: string[];
   responsiveChecklist: { label: string; ok: boolean }[];
+  /** Avertissements qualité (bloc manquant, schema suspect…). */
+  warnings?: string[];
+  /** Niveau de complexité produit. */
+  complexity?: string;
 }
 
 export type MerchantSeverity = "critique" | "important" | "mineur";

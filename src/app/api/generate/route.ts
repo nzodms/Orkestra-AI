@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import {
-  generateSection,
   generateMerchantAudit,
   type ProductSeoInput,
   type SectionInput,
 } from "@/lib/ai/engine";
-import { runCouncil, runProductSeo, type KeyRefs } from "@/lib/ai/generate";
+import { runCouncil, runProductSeo, runSection, type KeyRefs, type SectionImprove } from "@/lib/ai/generate";
 import type { AIProviderId, CouncilMode } from "@/lib/types";
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -30,9 +29,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, result, meta });
     }
 
-    case "section":
-      await new Promise((r) => setTimeout(r, 400));
-      return NextResponse.json({ ok: true, result: generateSection(body.input as SectionInput) });
+    case "section": {
+      const { result, meta } = await runSection(
+        body.input as SectionInput,
+        body.context || {},
+        keyRefs,
+        body.improve as SectionImprove | undefined
+      );
+      return NextResponse.json({ ok: true, result, meta });
+    }
 
     case "merchant-audit":
       return NextResponse.json({ ok: true, result: generateMerchantAudit(body.context || {}) });
