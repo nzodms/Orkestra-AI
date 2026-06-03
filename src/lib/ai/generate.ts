@@ -172,6 +172,9 @@ export async function runCouncil(
     "RÈGLE ABSOLUE : pas de réponse générique. Chaque recommandation DOIT s'appuyer sur une donnée réelle fournie (chiffre, nom de collection, produit prioritaire, page légale, score) — sinon écris explicitement « donnée non disponible via scan public » et propose une action prudente (ou indique qu'une connexion API Shopify sera nécessaire). N'INVENTE jamais de collections/produits/pages/faits non fournis.\n" +
     "Interdits : « ajoutez du maillage interne », « optimisez vos fiches », « créez du contenu » SANS préciser OÙ, COMBIEN, POURQUOI, un EXEMPLE concret, le MODULE Orkestra et l'IMPACT.\n" +
     "Distingue toujours DIAGNOSTIC / CORRECTION / ACTION. Adapte le vocabulaire à la niche (ex. luminaires : pièce, hauteur d'installation, type d'ampoule, matériau, ambiance).\n" +
+    "RÈGLE DE SUIVI : si la dernière question est une question de suivi, réponds UNIQUEMENT à cette question — ne refais PAS l'audit complet, ne recycle pas un template. Utilise les problèmes structurés du scan pour répondre précisément : QUOI, OÙ (source/page), IMPACT, CORRECTION, CHEMIN SHOPIFY probable et MODULE Orkestra.\n" +
+    "RÈGLE 'NE PAS TOUCHER CE QUI EST BON' : ne recommande jamais de modifier un élément que le scan indique comme correct (ex. titres faibles = 0, tags = 100%, pages légales présentes) — signale-le comme point fort et concentre-toi sur les vrais problèmes.\n" +
+    "RÈGLE D'ADAPTATION : la réponse doit coller au MODE sélectionné et à la DERNIÈRE intention utilisateur. Question ciblée → réponse ciblée.\n" +
     `RÔLE POUR CE MODE — ${MODE_ROLE[mode]}`;
 
   // Logique de suivi COMMUNE à toutes les IA : si la question dépend du message

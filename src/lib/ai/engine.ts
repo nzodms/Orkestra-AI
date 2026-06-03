@@ -1378,41 +1378,46 @@ function detectIntent(q: string): CouncilMode {
 export function isFollowupQuestion(question: string, ctx: CouncilContext): boolean {
   if (!ctx.history?.length) return false;
   const q = question.trim().toLowerCase();
-  if (q.split(/\s+/).length <= 6) return true; // question courte → suivi probable
-  return /\b(où|ou ça|quel|quels|quelle|c'est grave|comment corriger|donne|fais|juste|celui|celle|ça|cela|ce mot|le mot|cette|ces|résume|resume|plus court|plus premium|version|et pour|et le|et la)\b/i.test(q);
+  if (q.split(/\s+/).length <= 7) return true; // question courte → suivi probable
+  return /\b(où|ou ça|lesquel|quel|quels|quelle|c'est grave|comment (je |le )?corrig|comment (je )?règle|comment regler|comment régler|donne|fais|juste|seulement|uniquement|liste|montre|celui|celle|ça|cela|ce mot|le mot|cette|ces|résume|resume|plus court|plus premium|version|et pour|et le|et la)\b/i.test(q);
 }
 
 export type FollowupTopic =
   | "english" | "meta" | "products" | "collections" | "alt" | "legal"
-  | "where" | "severity" | "code" | "plan" | "shorten" | "premium" | "generic";
+  | "product_type" | "h1" | "where" | "severity" | "code" | "plan" | "shorten" | "premium" | "generic";
 
 export function followupTopic(question: string): FollowupTopic {
   const t = question.toLowerCase();
-  if (/anglais|english|mot.*(traduire|corriger)|traduire/.test(t)) return "english";
-  if (/meta|title|balise/.test(t)) return "meta";
-  if (/produit|fiche|article/.test(t)) return "products";
-  if (/collection|catégorie|categorie/.test(t)) return "collections";
+  if (/anglais|english|mot.*(traduire|corriger)|traduire|libellé/.test(t)) return "english";
+  if (/product.?type|type de produit|catégorie produit|categorisation/.test(t)) return "product_type";
+  if (/\bh1\b|titre h1|balise h1|multiple h1/.test(t)) return "h1";
+  if (/meta|title|balise titre/.test(t)) return "meta";
   if (/alt|image/.test(t)) return "alt";
+  if (/collection|catégorie|categorie/.test(t)) return "collections";
+  if (/produit|fiche|article/.test(t)) return "products";
   if (/légal|legal|mention|cgv|confidential|retour|livraison|contact|garantie/.test(t)) return "legal";
-  if (/où|chemin|dans shopify|admin|trouver/.test(t)) return "where";
-  if (/grave|important|risque|priorit/.test(t)) return "severity";
-  if (/code|liquid|section|css/.test(t)) return "code";
-  if (/plan|7 jours|30 jours|roadmap|résume|resume/.test(t)) return "plan";
+  if (/où|chemin|dans shopify|admin|trouver|localis/.test(t)) return "where";
+  if (/grave|important|risque|priorit|sérieux|serieux/.test(t)) return "severity";
+  if (/code|liquid|section|css|schema/.test(t)) return "code";
+  if (/plan|7 jours|30 jours|roadmap/.test(t)) return "plan";
   if (/plus court|raccourci|résume|resume/.test(t)) return "shorten";
   if (/premium|améliore|ameliore|mieux/.test(t)) return "premium";
   return "generic";
 }
 
-/** Chemin Shopify probable selon le sujet. */
-function shopifyPath(topic: FollowupTopic): string {
-  switch (topic) {
-    case "english": return "Admin Shopify → Paramètres → Langues → (langue) → Modifier les traductions du thème.";
-    case "meta": return "Admin → la page/collection/produit → section « Référencement sur les moteurs de recherche » → Modifier.";
-    case "alt": return "Admin → Contenu → Fichiers (ou la fiche produit → image → Modifier le texte alternatif).";
-    case "legal": return "Admin → Boutique en ligne → Pages (créer/éditer) puis lier dans Paramètres → Navigation (footer).";
-    case "code": return "Admin → Boutique en ligne → Thèmes → ⋯ → Modifier le code → Sections.";
-    default: return "Admin Shopify → la section concernée.";
-  }
+/** Chemin Shopify probable selon le sujet (où corriger). */
+function shopifyPath(topic: string): string {
+  const m: Record<string, string> = {
+    english: "Shopify → Paramètres → Langues → Modifier le contenu du thème (rechercher le libellé).",
+    meta: "Shopify → Produits / Collections / Pages → Aperçu du référencement naturel → Modifier.",
+    alt: "Shopify → Produit concerné → Média → Modifier le texte alternatif.",
+    product_type: "Shopify → Produits → Produit concerné → Organisation du produit → Type de produit.",
+    h1: "Shopify → Boutique en ligne → Thèmes → Personnaliser → Page concernée (ou Modifier le code / sections).",
+    collections: "Shopify → Produits → Collections → Collection concernée → Description.",
+    legal: "Shopify → Paramètres → Politiques (retour, livraison, confidentialité, CGV) ou Boutique en ligne → Pages.",
+    code: "Shopify → Boutique en ligne → Thèmes → ⋯ → Modifier le code → Sections.",
+  };
+  return m[topic] || "Localisation exacte non disponible via scan public. Une connexion API Shopify permettra de localiser et corriger plus précisément.";
 }
 
 /** Réponse COURTE et CIBLÉE à une question de suivi (mock). Pas de ré-audit. */
@@ -1423,13 +1428,25 @@ function answerFollowup(mode: CouncilMode, question: string, ctx: CouncilContext
   if (topic === "english") {
     const list = ctx.englishList ?? [];
     if (!list.length) {
-      return `## Textes anglais détectés\n${ctx.englishCount ? `Le scan a détecté **${ctx.englishCount}** libellé(s) anglais, mais le détail exact n'est pas disponible (relancez un scan public pour les extraire).` : "_Donnée non disponible via scan public._"}\n\n**Où corriger** : ${shopifyPath("english")}\n**Module** : Merchant Shield.`;
+      if (!ctx.englishCount) return `### Textes anglais détectés\nAucun texte anglais visible détecté dans le scan public.`;
+      return `### Textes anglais détectés\nLe scan a détecté **${ctx.englishCount}** libellé(s) anglais. Source exacte non localisée via scan public : le texte est probablement dans le thème, une section ou les traductions Shopify.\n\n**Où corriger** : ${shopifyPath("english")}\n**Module Orkestra** : Merchant Shield / Assistant Shopify · **Priorité** : Haute.`;
     }
-    return `## Textes anglais à corriger (${list.length})
-${list.slice(0, 8).map((e) => `- **« ${e.text} »** → « ${e.suggestion} » · source : ${e.source} · impact : ${e.impact}`).join("\n")}
+    return `### Textes anglais détectés (${list.length})
+${list.slice(0, 10).map((e, i) => `${i + 1}. \`${e.text}\`
+   - Source/page : ${e.source}
+   - Correction française : \`${e.suggestion}\`
+   - Impact : ${e.impact} (cohérence linguistique, confiance, signal Merchant Center)
+   - Où corriger : ${shopifyPath("english")}
+   - Module Orkestra : Merchant Shield / Assistant Shopify
+   - Priorité : Haute`).join("\n")}`;
+  }
 
-**Où corriger** : ${shopifyPath("english")}
-**Action Orkestra** : Merchant Shield → générer les corrections de langue.`;
+  if (topic === "product_type") {
+    return `### Type de produit (product_type)\n${ctx.noType != null ? (ctx.noType > 0 ? `**${ctx.noType} produit(s)** sans \`product_type\` détecté(s).` : "Type de produit : OK sur l'échantillon — non prioritaire.") : "_Donnée non disponible via scan public._"}\n- Impact : catégorisation et flux Google Shopping moins fiables.\n- Où corriger : ${shopifyPath("product_type")}\n- Module : Merchant Shield · Priorité : ${ctx.noType ? "Moyenne" : "—"}.`;
+  }
+
+  if (topic === "h1") {
+    return `### Balises H1\nVérifiez qu'il y a **un seul H1** par page (home/collection/produit).\n- Impact : un H1 unique = meilleure structure sémantique SEO.\n- Où corriger : ${shopifyPath("h1")}\n- Module : SEO Studio / Code Shopify.`;
   }
 
   if (topic === "products") {
@@ -1449,29 +1466,47 @@ ${p.slice(0, 6).map((x, i) => `${i + 1}. **${x.title}** — ${x.reason.toLowerCa
   }
 
   if (topic === "meta") {
-    return `## Meta à corriger\n${ctx.missingMeta != null ? `**${ctx.missingMeta}** meta manquantes détectées (échantillon).` : "_Nombre exact non disponible via scan public._"}\n\nExemple prêt à coller : \`Découvrez nos ${(ctx.collections?.[0] || "produits").toLowerCase()} — sélection premium, livraison gratuite.\` (≤ 155 car.)\n**Où** : ${shopifyPath("meta")}`;
+    if (ctx.missingMeta === 0) return `### Meta descriptions\nMeta : OK selon le scan public (échantillon) — non prioritaire.`;
+    return `### Meta à corriger\n${ctx.missingMeta != null ? `**${ctx.missingMeta}** meta manquantes détectées (échantillon).` : "_Nombre exact non disponible via scan public._"}\n- Exemple prêt à coller : \`Découvrez nos ${(ctx.collections?.[0] || "produits").toLowerCase()} — sélection premium, livraison gratuite.\` (≤ 155 car.)\n- Où corriger : ${shopifyPath("meta")}\n- Module : SEO Studio · Priorité : Haute.`;
   }
 
   if (topic === "alt") {
-    return `## Images sans alt text\n${ctx.imagesNoAlt != null ? `**${ctx.imagesNoAlt}** images sans alt détectées.` : "_Nombre non disponible._"}\nExemple d'alt : « ${(ctx.collections?.[0] || "produit").toLowerCase()} — ${nicheOf(ctx)} ».\n**Où** : ${shopifyPath("alt")}`;
+    if (ctx.imagesNoAlt === 0) return `### Alt text des images\nAlt text : OK selon le scan public — non prioritaire.`;
+    return `### Images sans alt text\n${ctx.imagesNoAlt != null ? `**${ctx.imagesNoAlt}** image(s) sans alt détectée(s).` : "_Nombre non disponible._"}\n- Exemple d'alt : « ${(ctx.collections?.[0] || "produit").toLowerCase()} — ${nicheOf(ctx)} ».\n- Où corriger : ${shopifyPath("alt")}\n- Module : SEO Studio · Priorité : Basse/Moyenne.`;
   }
 
   if (topic === "legal") {
     const missing = ctx.missingLegal ?? [];
     return missing.length
-      ? `## Pages légales manquantes\n${missing.map((m) => `- ${m}`).join("\n")}\n\n**Où** : ${shopifyPath("legal")}\n**Module** : Merchant Shield.`
-      : `## Pages légales\nAucune page essentielle manquante détectée${ctx.legalFound?.length ? ` (présentes : ${ctx.legalFound.join(", ")})` : ""}.`;
+      ? `### Pages légales manquantes\n${missing.map((m) => `- **${m}** — Où : ${shopifyPath("legal")}`).join("\n")}\n\n**Module** : Merchant Shield · **Priorité** : Haute.`
+      : `### Pages légales\nAucune page essentielle manquante détectée${ctx.legalFound?.length ? ` (présentes : ${ctx.legalFound.join(", ")})` : ""} — socle de confiance propre.`;
   }
 
   if (topic === "where") {
     // Devine le sujet précédent depuis l'historique.
-    const prev = ctx.history?.slice().reverse().find((h) => h.role === "assistant")?.content || "";
-    const sub: FollowupTopic = /anglais/i.test(prev) ? "english" : /meta/i.test(prev) ? "meta" : /alt|image/i.test(prev) ? "alt" : /légal|legal|retour|livraison/i.test(prev) ? "legal" : "code";
-    return `## Où dans Shopify\n${shopifyPath(sub)}`;
+    const prev = (ctx.history?.slice().reverse().find((h) => h.role === "assistant")?.content || "").toLowerCase();
+    const sub =
+      /anglais/.test(prev) ? "english" :
+      /product.?type|type de produit/.test(prev) ? "product_type" :
+      /\bh1\b/.test(prev) ? "h1" :
+      /meta/.test(prev) ? "meta" :
+      /alt|image/.test(prev) ? "alt" :
+      /collection/.test(prev) ? "collections" :
+      /légal|legal|retour|livraison|mention|cgv/.test(prev) ? "legal" : "code";
+    return `### Où corriger dans Shopify\n${shopifyPath(sub)}`;
   }
 
   if (topic === "severity") {
-    return `## Niveau de gravité\nPriorités à fort impact : ${ctx.weakDescriptions ? `**${ctx.weakDescriptions} descriptions faibles** (SEO/conversion)` : "contenu"}, ${ctx.englishCount ? `**${ctx.englishCount} textes anglais** (confiance/Merchant)` : "langue"}, pages légales manquantes${ctx.missingLegal?.length ? ` (${ctx.missingLegal.join(", ")})` : ""}. Le reste (alt text, tags) est secondaire.`;
+    const high: string[] = [];
+    if (ctx.weakDescriptions) high.push(`**${ctx.weakDescriptions} descriptions faibles** (SEO/conversion)`);
+    if (ctx.englishCount) high.push(`**${ctx.englishCount} textes anglais** (confiance/Merchant)`);
+    if (ctx.missingLegal?.length) high.push(`pages légales manquantes (${ctx.missingLegal.join(", ")})`);
+    const ok: string[] = [];
+    if (ctx.weakTitles === 0) ok.push("titres produits");
+    if (ctx.tagsCoverage != null && ctx.tagsCoverage >= 90) ok.push("tags");
+    if (ctx.missingMeta === 0) ok.push("meta");
+    if (ctx.legalFound?.length && !ctx.missingLegal?.length) ok.push("pages légales");
+    return `### Niveau de gravité\n**À traiter en priorité** : ${high.length ? high.join(", ") : "rien de bloquant majeur sur l'échantillon."}\n**Secondaire** : alt text, tags, maillage.${ok.length ? `\n**Déjà bon (ne pas toucher)** : ${ok.join(", ")}.` : ""}`;
   }
 
   if (topic === "code") {
