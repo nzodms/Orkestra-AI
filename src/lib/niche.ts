@@ -41,7 +41,10 @@ interface NichePreset {
   productTypes: string[];
   primaryKeywords: string[];
   secondaryKeywords: string[];
+  /** Concurrents e-commerce SPÉCIALISÉS directs (prioritaires). */
   competitors: string[];
+  /** Acteurs généralistes / marketplaces (secondaires, à surveiller). */
+  generalists: string[];
   sampleProduct: string;
   homepageOrder: string[];
   productPageStructure: string[];
@@ -78,7 +81,8 @@ export const NICHES: Record<NicheKey, NichePreset> = {
     productTypes: ["Lustre", "Suspension", "Plafonnier", "Lampe de chevet", "Applique murale", "Lampadaire"],
     primaryKeywords: ["lustre salon", "suspension luminaire", "plafonnier moderne", "lampe design"],
     secondaryKeywords: ["lampe de chevet design", "applique murale", "luminaire LED", "éclairage intérieur"],
-    competitors: ["Maisons du Monde", "Leroy Merlin", "La Redoute Intérieurs"],
+    competitors: ["Lustria", "Lumeers", "Nedgis", "La Lumière", "Keria Luminaires"],
+    generalists: ["Maisons du Monde", "Leroy Merlin", "La Redoute Intérieurs", "ManoMano", "Amazon"],
     sampleProduct: "Suspension salle à manger laiton",
     homepageOrder: [
       "Hero ambiance (mise en scène lumineuse)",
@@ -109,7 +113,8 @@ export const NICHES: Record<NicheKey, NichePreset> = {
     productTypes: ["T-shirt", "Robe", "Pantalon", "Veste", "Sac", "Accessoire"],
     primaryKeywords: ["vêtements femme", "robe tendance", "mode éthique", "accessoires mode"],
     secondaryKeywords: ["t-shirt coton bio", "veste élégante", "tenue de soirée", "look casual"],
-    competitors: ["Zalando", "Asos", "Sézane"],
+    competitors: ["Sézane", "Balzac Paris", "Asphalte", "Loom", "Rouje"],
+    generalists: ["Zalando", "Asos", "Amazon", "La Redoute"],
     sampleProduct: "Robe midi en lin",
     homepageOrder: [
       "Hero lookbook (visuel mode fort)",
@@ -140,7 +145,8 @@ export const NICHES: Record<NicheKey, NichePreset> = {
     productTypes: ["Crème", "Sérum", "Nettoyant", "Huile", "Masque", "Coffret"],
     primaryKeywords: ["soin visage naturel", "sérum hydratant", "cosmétique bio", "routine peau"],
     secondaryKeywords: ["crème anti-âge", "soin cheveux", "maquillage naturel", "peau sensible"],
-    competitors: ["Sephora", "Typology", "Nuxe"],
+    competitors: ["Typology", "Respire", "Oh My Cream", "Les Petits Prödiges", "Avril"],
+    generalists: ["Sephora", "Nocibé", "Amazon", "Marionnaud"],
     sampleProduct: "Sérum hydratant à l'acide hyaluronique",
     homepageOrder: [
       "Hero promesse (résultat / bénéfice peau)",
@@ -171,7 +177,8 @@ export const NICHES: Record<NicheKey, NichePreset> = {
     productTypes: ["Jouet d'éveil", "Gigoteuse", "Biberon", "Tapis d'éveil", "Veilleuse", "Body"],
     primaryKeywords: ["jouet éveil bébé", "gigoteuse coton bio", "puériculture", "cadeau naissance"],
     secondaryKeywords: ["tapis d'éveil", "veilleuse bébé", "biberon anti-colique", "vêtement bébé bio"],
-    competitors: ["Vertbaudet", "Aubert", "Natalys"],
+    competitors: ["Vertbaudet", "Aubert", "Natalys", "Bambinou", "Berceau Magique"],
+    generalists: ["Amazon", "Cdiscount", "La Redoute"],
     sampleProduct: "Veilleuse nomade rechargeable",
     homepageOrder: [
       "Hero rassurant (univers doux)",
@@ -202,7 +209,8 @@ export const NICHES: Record<NicheKey, NichePreset> = {
     productTypes: ["Collier", "Bracelet", "Bague", "Boucles d'oreilles", "Montre"],
     primaryKeywords: ["bijoux femme", "collier plaqué or", "bague argent", "cadeau bijou"],
     secondaryKeywords: ["bracelet personnalisé", "boucles d'oreilles", "bijou minimaliste", "montre élégante"],
-    competitors: ["Pandora", "Histoire d'Or", "Gemmyo"],
+    competitors: ["Gemmyo", "Cléor", "Maty", "Histoire d'Or", "Aristocrazy"],
+    generalists: ["Amazon", "Pandora", "La Redoute"],
     sampleProduct: "Collier plaqué or pendentif lune",
     homepageOrder: STANDARD_HOME,
     productPageStructure: [
@@ -224,7 +232,8 @@ export const NICHES: Record<NicheKey, NichePreset> = {
     productTypes: ["Meuble", "Coussin", "Tableau", "Vaisselle", "Tapis", "Objet déco"],
     primaryKeywords: ["décoration intérieure", "mobilier design", "déco salon", "art de la table"],
     secondaryKeywords: ["coussin décoratif", "tapis salon", "tableau mural", "vase design"],
-    competitors: ["Maisons du Monde", "La Redoute Intérieurs", "Westwing"],
+    competitors: ["Westwing", "Miliboo", "Made.com", "Kave Home", "Bobochic"],
+    generalists: ["Maisons du Monde", "La Redoute Intérieurs", "IKEA", "Amazon"],
     sampleProduct: "Vase en céramique fait main",
     homepageOrder: STANDARD_HOME,
     productPageStructure: STANDARD_PRODUCT,
@@ -235,7 +244,8 @@ export const NICHES: Record<NicheKey, NichePreset> = {
     productTypes: ["Écouteurs", "Chargeur", "Coque", "Enceinte", "Accessoire connecté"],
     primaryKeywords: ["écouteurs sans fil", "chargeur rapide", "accessoires smartphone", "objet connecté"],
     secondaryKeywords: ["coque téléphone", "enceinte bluetooth", "batterie externe", "câble USB-C"],
-    competitors: ["Amazon", "Fnac/Darty", "Boulanger"],
+    competitors: ["Materiel.net", "LDLC", "Topachat", "Grosbill", "iColmum"],
+    generalists: ["Amazon", "Fnac/Darty", "Boulanger", "Cdiscount"],
     sampleProduct: "Écouteurs sans fil à réduction de bruit",
     homepageOrder: STANDARD_HOME,
     productPageStructure: [
@@ -257,7 +267,8 @@ export const NICHES: Record<NicheKey, NichePreset> = {
     productTypes: ["Legging", "Brassière", "Tapis", "Haltère", "Gourde", "Accessoire fitness"],
     primaryKeywords: ["vêtements de sport", "équipement fitness", "legging sport", "accessoires yoga"],
     secondaryKeywords: ["tapis de yoga", "brassière sport", "matériel musculation", "gourde sport"],
-    competitors: ["Decathlon", "Nike", "Gymshark"],
+    competitors: ["Gymshark", "Myprotein", "Bsoul", "Circle Sportswear", "AYBL"],
+    generalists: ["Decathlon", "Nike", "Amazon", "Intersport"],
     sampleProduct: "Legging de sport taille haute",
     homepageOrder: STANDARD_HOME,
     productPageStructure: STANDARD_PRODUCT,
@@ -268,7 +279,8 @@ export const NICHES: Record<NicheKey, NichePreset> = {
     productTypes: ["Croquettes", "Jouet", "Panier", "Laisse", "Gamelle", "Accessoire"],
     primaryKeywords: ["accessoires chien", "jouet chat", "alimentation animale", "panier animal"],
     secondaryKeywords: ["laisse chien", "arbre à chat", "croquettes naturelles", "couchage animal"],
-    competitors: ["Zooplus", "Maxi Zoo", "Wanimo"],
+    competitors: ["Wanimo", "Bitiba", "Croquetteland", "Polytrans", "Au Bonheur du Chien"],
+    generalists: ["Zooplus", "Maxi Zoo", "Amazon", "Cdiscount"],
     sampleProduct: "Panier orthopédique pour chien",
     homepageOrder: STANDARD_HOME,
     productPageStructure: STANDARD_PRODUCT,
@@ -279,7 +291,8 @@ export const NICHES: Record<NicheKey, NichePreset> = {
     productTypes: ["Produit phare", "Accessoire", "Pack", "Édition limitée"],
     primaryKeywords: ["votre mot-clé principal", "votre produit phare", "votre catégorie"],
     secondaryKeywords: ["mot-clé secondaire", "produit complémentaire", "longue traîne"],
-    competitors: ["Concurrent 1", "Concurrent 2", "Concurrent 3"],
+    competitors: ["boutique e-commerce spécialisée 1", "boutique spécialisée 2", "boutique spécialisée 3"],
+    generalists: ["Amazon", "Cdiscount"],
     sampleProduct: "Votre produit phare",
     homepageOrder: STANDARD_HOME,
     productPageStructure: STANDARD_PRODUCT,

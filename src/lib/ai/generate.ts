@@ -8,6 +8,7 @@ import {
 } from "./engine";
 import type { CouncilMode, AIProviderId, CouncilResult, ProductSeoResult, GenMeta } from "../types";
 import { chatComplete } from "./openai";
+import { getPreset } from "../niche";
 import { getEncrypted } from "../server/keyStore";
 import { decryptSecret } from "../crypto";
 
@@ -113,7 +114,7 @@ const MODE_ROLE: Record<CouncilMode, string> = {
   email: "tu es un assistant SAV e-commerce professionnel. Rédige un email PRÊT À ENVOYER (objet + corps + signature) adapté au ton de marque (vouvoiement/tutoiement), aux délais/retours/garanties fournis. N'invente AUCUNE info absente — mets [à confirmer]. Donne aussi une variante courte et une plus chaleureuse. Ne fais PAS d'audit SEO.",
   quote: "tu es un assistant commercial. Aide à structurer un devis professionnel (lignes, conditions, acompte, délais, message d'accompagnement, points à vérifier). Demande les infos manquantes. Ne fais PAS une analyse générale de boutique.",
   strategy: "tu es un consultant e-commerce / growth. Donne un diagnostic business + priorités par impact + roadmaps 7/30/90 jours basés sur les scores, le catalogue, les collections et la niche.",
-  competitive: "tu es un analyste concurrentiel. Sans crawl du site concurrent, reste INDICATIF et prudent : n'affirme aucun fait précis sur un concurrent. Utilise les concurrents probables de la niche et invite à fournir des URLs pour une analyse factuelle.",
+  competitive: "tu es un analyste e-commerce. Identifie 3 à 5 CONCURRENTS DIRECTS SPÉCIALISÉS de la niche (boutiques e-commerce qui vendent les mêmes catégories, positionnement proche) — PAS des marketplaces/généralistes (Amazon, Cdiscount, Leroy Merlin, Maisons du Monde, La Redoute, ManoMano…) qui ne vont QUE dans une section secondaire « acteurs généralistes à surveiller ». Sans crawl du site concurrent, reste INDICATIF (« analyse indicative basée sur la niche, pas sur un crawl live ») et n'affirme AUCUN fait précis non vérifié. Invite à ajouter 3 URLs concurrentes.",
   free: "détecte l'intention de la question et réponds comme l'expert correspondant (SEO, Merchant, Code, Email, Devis, Stratégie ou Concurrence).",
 };
 
@@ -133,7 +134,7 @@ function modeStructure(mode: CouncilMode): string {
     strategy:
       "Structure imposée :\n## Diagnostic business rapide\n## Priorités par impact\n## Opportunités de croissance (SEO, conversion, contenu, Ads/Merchant)\n## Roadmap 7 jours\n## Roadmap 30 jours\n## Roadmap 90 jours\n## Quick wins\n## Risques\n## 🚀 Modules Orkestra",
     competitive:
-      "Structure imposée :\n## Concurrents probables (indicatif)\n## Angles différenciants\n## Comparaison (SEO / UX / offre / contenu) — prudente\n## Opportunités de différenciation + mots-clés à attaquer + sections à ajouter\n## Stratégie pour dépasser\nRappelle que sans crawl concurrent, l'analyse est indicative.",
+      "Structure imposée :\n## 1. Concurrents directs recommandés (3–5 spécialisés, PAS de généralistes ici)\n## 2. Pourquoi ce sont vos concurrents (niche, catalogue, positionnement, audience, catégories)\n## 3. Analyse rapide par concurrent (type, positionnement probable, catégories fortes, angle SEO, forces UX, opportunité, ce qu'Orkestra recommande de faire mieux)\n## 4. Opportunités pour ma boutique (collections à renforcer, pages SEO/guides, maillage interne, différenciation, réassurance, sections UX, contenu)\n## 5. Acteurs généralistes à surveiller (liste SECONDAIRE, non prioritaire)\n## 6. Prochaine étape (ajouter 3 URLs concurrentes pour une analyse comparative)\nRappelle que sans crawl concurrent, l'analyse est indicative.",
     free: "Détecte l'intention et applique la structure de l'expert correspondant.",
   };
   return map[mode];
@@ -172,9 +173,23 @@ export async function runCouncil(
   const directive = followup
     ? `\n\n⚠️ QUESTION DE SUIVI (sujet probable : ${followupTopic(question)}). Réponds UNIQUEMENT et PRÉCISÉMENT à ce point précis, en t'appuyant sur l'historique et les données structurées fournies (ex. textes anglais exacts, produits prioritaires, pages légales). NE refais PAS l'audit complet, ne répète pas le plan ni les collections, sois court et direct. Donne : la donnée exacte demandée, la source/page si dispo, la correction, l'impact, le chemin Shopify probable, l'action Orkestra.`
     : "\n\n" + modeStructure(mode);
+  // En mode Concurrence, on suggère des concurrents DIRECTS spécialisés (niche)
+  // + les généralistes en secondaire, pour éviter une liste de marketplaces.
+  let competitorHint = "";
+  if (mode === "competitive") {
+    const { preset } = getPreset(ctx);
+    const generalists = preset.generalists ?? [];
+    const direct = (ctx.competitors?.filter((c) => !generalists.some((g) => g.toLowerCase() === c.toLowerCase())) ?? []);
+    const directList = direct.length ? direct : preset.competitors;
+    competitorHint =
+      `\n\n=== Concurrents (suggestions niche) ===\n` +
+      `Concurrents DIRECTS spécialisés à privilégier : ${directList.slice(0, 5).join(", ")}.\n` +
+      `Acteurs généralistes (section SECONDAIRE uniquement, pas concurrents directs) : ${generalists.join(", ")}.`;
+  }
   const prompt =
     `Mode sélectionné : ${MODE_LABEL[mode]} (réponds STRICTEMENT selon ce mode, pas un autre).\n\n` +
     `=== Données réelles du scan & de la boutique ===\n${contextBlock(ctx) || "(aucune donnée de scan — précise-le et reste prudent)"}` +
+    competitorHint +
     historyBlock(ctx) +
     directive +
     `\n\n=== Demande de l'utilisateur ===\n${question}`;

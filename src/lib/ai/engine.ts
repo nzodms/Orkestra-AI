@@ -1418,41 +1418,62 @@ function strategyPlan30(ctx: CouncilContext): string {
 Taux de conversion, panier moyen, CAC, LTV, ROAS.`;
 }
 
+function competitorBlock(name: string, ctx: CouncilContext, vocab: NicheVocab): string {
+  const niche = nicheOf(ctx);
+  const cats = (ctx.collections?.length ? ctx.collections : (ctx.productTypes ?? [])).slice(0, 4).join(", ") || niche;
+  return `**${name}**
+- *Type* : boutique e-commerce spécialisée ${niche}.
+- *Positionnement probable* : proche du vôtre (${ctx.positioning || "premium"}), spécialiste de la catégorie.
+- *Catégories fortes* : ${cats}.
+- *Angle SEO probable* : pages collections optimisées + guides d'achat (${vocab.descHints.split(",").slice(0, 2).join(",")}).
+- *Forces UX/conversion* : fiches riches, réassurance visible, avis clients.
+- *Opportunité pour vous* : créer des collections plus riches + un meilleur maillage interne par ${vocab.pieces[0] ? "pièce (" + vocab.pieces.slice(0, 3).join(", ") + ")" : "usage"}.
+- *Orkestra recommande* : les dépasser sur la profondeur de contenu (FAQ, guides) et la spécificité longue traîne.`;
+}
+
 function competitiveAnswer(ctx: CouncilContext): string {
   const s = brandOf(ctx);
-  const hasComp = Boolean(ctx.competitors?.length);
-  const comp = hasComp ? ctx.competitors! : [];
+  const niche = nicheOf(ctx);
   const key = detectNiche(`${ctx.niche ?? ""} ${ctx.brandName ?? ""}`);
   const { preset } = getPreset(ctx);
-  const probable = hasComp ? comp : preset.competitors;
   const vocab = nicheVocab(key);
 
-  return `## ⚔️ Analyse concurrentielle — ${s} (niche ${nicheOf(ctx)})
+  // Concurrents DIRECTS spécialisés (saisis par l'utilisateur, sinon preset),
+  // en excluant les généralistes.
+  const generalists = preset.generalists ?? [];
+  const userDirect = (ctx.competitors ?? []).filter((c) => !generalists.some((g) => g.toLowerCase() === c.toLowerCase()));
+  const direct = (userDirect.length ? userDirect : preset.competitors).slice(0, 5);
+  const cols = ctx.collections ?? [];
 
-> ℹ️ **Analyse indicative** : aucun site concurrent n'a été crawlé. Elle s'appuie sur les concurrents probables de la niche et vos données de scan. **Ajoutez des URLs concurrentes** (dans la Mémoire boutique) pour une analyse factuelle et comparée.
+  return `## ⚔️ Analyse concurrentielle — ${s} (niche ${niche})
 
-### Concurrents probables
-${probable.slice(0, 5).map((c) => `- ${c}`).join("\n")}
+> ℹ️ **Analyse indicative basée sur la niche, pas sur un crawl concurrent live.** Aucun site concurrent n'a été analysé. Les noms ci-dessous sont des **concurrents directs probables** ; aucun fait précis n'est affirmé sans crawl. **Ajoutez 3 URLs concurrentes** (Mémoire boutique) pour une comparaison fiable.
 
-### Angles différenciants possibles pour ${s}
-- **Spécialisation niche** : ${nicheOf(ctx)} en profondeur (vs généralistes comme ${probable[0] || "les grandes enseignes"}).
-- **Contenu expert** : guides d'achat (${vocab.descHints.split(",").slice(0, 2).join(",")}) que les généralistes négligent.
-- **Réassurance & service** : ${ctx.promises?.slice(0, 2).join(", ") || "livraison soignée, conseils personnalisés"}.
+## 1. Concurrents directs recommandés (spécialisés)
+${direct.map((c) => `- **${c}** — e-commerce spécialisé ${niche}.`).join("\n")}
 
-### Comparaison (à valider avec un crawl concurrent)
-| Axe | ${s} (détecté) | Concurrents typiques |
-|---|---|---|
-| SEO collections | ${ctx.collections?.length ? ctx.collections.length + " collections" : "à renforcer"} | souvent bien optimisés |
-| Contenu produit | ${ctx.weakDescriptions ? ctx.weakDescriptions + " fiches faibles" : "à vérifier"} | descriptions longues + avis |
-| Preuve sociale | à vérifier (vue publique) | avis nombreux |
-| UX / réassurance | ${ctx.englishCount ? "incohérences (anglais)" : "à confirmer"} | rodée |
+## 2. Pourquoi ce sont vos concurrents
+- **Même niche** : ${niche}${cols.length ? ` (catégories : ${cols.slice(0, 4).join(", ")})` : ""}.
+- **Positionnement proche** : ${ctx.positioning || "premium"}, ${ctx.language || "FR"}.
+- **Même audience & intention d'achat** : ils ciblent les mêmes requêtes que vous (pas une marketplace généraliste).
 
-### Opportunités pour se différencier
-- Mots-clés à attaquer (longue traîne) : ${nicheKeywords(key, vocab, ctx.collections ?? []).longtail.slice(0, 4).map((k) => `\`${k}\``).join(", ")}.
-- Sections à ajouter : FAQ de collection, comparatifs, guides d'achat, avis.
-- Stratégie pour dépasser : profondeur de contenu + maillage interne + service client supérieur.
+## 3. Analyse rapide par concurrent
+${direct.slice(0, 4).map((c) => competitorBlock(c, ctx, vocab)).join("\n\n")}
 
-> ⚠️ Aucun fait précis sur un concurrent n'est affirmé sans crawl de son site. Restez prudent tant que les URLs ne sont pas analysées.`;
+## 4. Opportunités pour ${s}
+- **Collections à renforcer** : ${cols.slice(0, 4).join(", ") || "vos collections principales"} (texte SEO + FAQ).
+- **Pages SEO à créer** : guides d'achat (${vocab.faqs(cols[0] || "produits")[0]}).
+- **Maillage interne** : par ${vocab.pieces[0] ? "pièce (" + vocab.pieces.slice(0, 3).join(", ") + ")" : "thématique"}, collection ↔ collection.
+- **Différenciation marque** : ${ctx.promises?.slice(0, 2).join(", ") || "service & conseil d'expert"}.
+- **Réassurance & UX** : avis clients, livraison/retours visibles, sections comparatives.
+- **Stratégie contenu** : longue traîne (${nicheKeywords(key, vocab, cols).longtail.slice(0, 3).map((k) => `« ${k} »`).join(", ")}).
+
+## 5. Acteurs généralistes à surveiller (secondaire)
+${generalists.length ? generalists.map((g) => `- ${g}`).join("\n") : "- (aucun identifié)"}
+> ⚠️ **Pas vos concurrents directs principaux** : difficiles à battre frontalement, mais à surveiller (prix, délais). Votre avantage = la **spécialisation** et la profondeur de contenu.
+
+## 6. Prochaine étape
+**Ajoutez les URLs de 3 concurrents** pour une analyse comparative précise. Orkestra pourra alors crawler leur home, détecter leurs collections, titles/meta et structure produit, puis les comparer à votre boutique.`;
 }
 
 function freeAnswer(q: string, ctx: CouncilContext): string {
