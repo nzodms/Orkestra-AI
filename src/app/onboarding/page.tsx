@@ -13,7 +13,7 @@ import Link from "next/link";
 import { scoreTone, cn } from "@/lib/utils";
 import {
   Sparkles, Check, ArrowRight, ArrowLeft, Store, Palette, Plug, ScanSearch, Eye, Lock, Globe, Wrench,
-  Gem, GraduationCap, Smile, Zap, ShieldCheck,
+  Gem, GraduationCap, Smile, Zap, ShieldCheck, Target, ChevronDown,
 } from "lucide-react";
 
 const MODULE_ROUTE: Record<ModuleId, string> = {
@@ -38,37 +38,57 @@ const POSITIONINGS: { id: Positioning; label: string }[] = [
   { id: "ecoresponsable", label: "Éco-responsable" },
 ];
 
-// Tons de marque sous forme de cartes (la voix d'Orkestra dans vos contenus).
+// Tons de marque sous forme de cartes (2-3 mots, la voix d'Orkestra).
 const TONES: { id: string; label: string; desc: string; icon: React.ElementType; style: string }[] = [
-  { id: "elegant", label: "Élégant", desc: "Raffiné, soigné, esthétique", icon: Sparkles, style: "Élégant, raffiné et soigné" },
-  { id: "expert", label: "Expert", desc: "Précis, technique, crédible", icon: GraduationCap, style: "Expert, précis et crédible" },
-  { id: "accessible", label: "Accessible", desc: "Simple, clair, chaleureux", icon: Smile, style: "Accessible, simple et clair" },
-  { id: "direct", label: "Direct", desc: "Concis, efficace, sans détour", icon: Zap, style: "Direct, concis et efficace" },
-  { id: "rassurant", label: "Rassurant", desc: "Bienveillant, de confiance", icon: ShieldCheck, style: "Rassurant et bienveillant" },
-  { id: "premium", label: "Premium discret", desc: "Haut de gamme, sobre", icon: Gem, style: "Premium discret, sobre et désirable" },
+  { id: "elegant", label: "Élégant", desc: "Sobre · fluide · soigné", icon: Sparkles, style: "Élégant, raffiné et soigné" },
+  { id: "expert", label: "Expert", desc: "Précis · crédible · technique", icon: GraduationCap, style: "Expert, précis et crédible" },
+  { id: "accessible", label: "Accessible", desc: "Clair · simple · humain", icon: Smile, style: "Accessible, simple et clair" },
+  { id: "direct", label: "Direct", desc: "Concis · efficace · franc", icon: Zap, style: "Direct, concis et efficace" },
+  { id: "rassurant", label: "Rassurant", desc: "Confiant · bienveillant", icon: ShieldCheck, style: "Rassurant et bienveillant" },
+  { id: "premium", label: "Premium discret", desc: "Haut de gamme · sobre", icon: Gem, style: "Premium discret, sobre et désirable" },
 ];
 
-// Résumé dynamique « Ce qu'Orkestra comprend » — se met à jour en direct.
+// Carte de regroupement (Identité, Marché…) — look setup premium, pas formulaire.
+function Group({ icon: Icon, title, children }: { icon: React.ElementType; title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-4 sm:p-5">
+      <div className="mb-3.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink-400">
+        <Icon className="h-3.5 w-3.5 text-brand-500" /> {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// Résumé dynamique « Ce qu'Orkestra comprend » — en chips, synthétique.
 function Understanding({ brand }: { brand: BrandMemory }) {
-  const has = Boolean(brand.storeName?.trim() || brand.niche?.trim());
+  const posLabel = POSITIONINGS.find((p) => p.id === brand.positioning)?.label;
+  const tone = brand.writingStyle ? brand.writingStyle.split(",")[0].trim() : "";
+  const items: { label: string; value: string }[] = [];
+  if (brand.storeName?.trim()) items.push({ label: "Boutique", value: brand.storeName.trim() });
+  if (brand.niche?.trim()) items.push({ label: "Niche", value: brand.niche.trim() });
+  if (posLabel) items.push({ label: "Position", value: posLabel });
+  if (tone) items.push({ label: "Ton", value: tone });
+  if (brand.country?.trim()) items.push({ label: "Cible", value: brand.country.trim() });
   return (
     <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-transparent p-4 dark:border-brand-900 dark:from-brand-950/40">
-      <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-brand-700 dark:text-brand-300">
+      <div className="mb-2.5 flex items-center gap-1.5 text-xs font-semibold text-brand-700 dark:text-brand-300">
         <Sparkles className="h-3.5 w-3.5" /> Ce qu&apos;Orkestra comprend
       </div>
-      {has ? (
-        <p className="text-sm leading-relaxed text-[var(--text-muted)]">
-          <span className="font-semibold text-[var(--text)]">{brand.storeName || "Votre boutique"}</span>
-          {brand.niche ? <> — {brand.niche}</> : null}
-          {brand.positioning ? <>, positionnement <span className="font-medium text-[var(--text)]">{brand.positioning}</span></> : null}
-          {brand.country ? <>, cible {brand.country}</> : null}
-          {brand.writingStyle ? <>, ton <span className="font-medium text-[var(--text)]">{brand.writingStyle.toLowerCase()}</span></> : null}.
-          {" "}Orkestra adaptera vos contenus, vos collections et vos priorités SEO en conséquence.
-        </p>
+      {items.length ? (
+        <div className="flex flex-wrap gap-2">
+          {items.map((it) => (
+            <span key={it.label} className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs">
+              <span className="text-[var(--text-muted)]">{it.label}</span>
+              <span className="font-semibold text-[var(--text)]">{it.value}</span>
+            </span>
+          ))}
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-600 px-3 py-1 text-xs font-medium text-white">
+            <Check className="h-3 w-3" /> Priorité : SEO + conversion
+          </span>
+        </div>
       ) : (
-        <p className="text-sm leading-relaxed text-[var(--text-muted)]">
-          Renseignez votre boutique pour qu&apos;Orkestra adapte le SEO, le contenu et le ton à votre marque.
-        </p>
+        <p className="text-sm text-[var(--text-muted)]">Votre profil s&apos;affiche ici en direct, au fil des réponses.</p>
       )}
     </div>
   );
@@ -189,48 +209,55 @@ export default function OnboardingPage() {
         <div className="card p-6 sm:p-8">
           {/* Step 1 */}
           {step === 1 && (
-            <div className="space-y-5 animate-step-in">
+            <div className="space-y-4 animate-step-in">
               <div>
-                <h2 className="text-xl font-bold">Parlez-nous de votre boutique</h2>
-                <p className="mt-1 text-sm text-[var(--text-muted)]">
-                  Ces informations nourrissent la mémoire boutique utilisée dans toutes vos générations.
-                </p>
+                <h2 className="text-xl font-bold">Configurez votre boutique</h2>
+                <p className="mt-1 text-sm text-[var(--text-muted)]">Quelques informations pour personnaliser Orkestra.</p>
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Nom de la boutique">
-                  <input className="input" value={brand.storeName} onChange={(e) => updateBrand({ storeName: e.target.value })} placeholder="Nom de votre boutique" />
-                </Field>
-                <Field label="URL Shopify">
-                  <input className="input" value={brand.shopifyUrl} onChange={(e) => updateBrand({ shopifyUrl: e.target.value })} placeholder="maboutique.myshopify.com" />
-                </Field>
-                <Field label="Niche">
-                  <input className="input" value={brand.niche} onChange={(e) => updateBrand({ niche: e.target.value })} placeholder="Ex : luminaires, mode, beauté, accessoires…" />
-                </Field>
-                <Field label="Pays / langue cible">
-                  <input className="input" value={brand.country} onChange={(e) => updateBrand({ country: e.target.value })} placeholder="Ex : France · Français" />
-                </Field>
-              </div>
-              <Field label="Positionnement">
-                <div className="flex flex-wrap gap-2">
-                  {POSITIONINGS.map((p) => {
-                    const sel = brand.positioning === p.id;
-                    return (
-                      <button
-                        key={p.id}
-                        onClick={() => updateBrand({ positioning: p.id })}
-                        className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-sm font-medium transition-all duration-200 hover:-translate-y-0.5 active:scale-95 ${
-                          sel
-                            ? "scale-[1.03] border-brand-500 bg-brand-50 text-brand-700 shadow-soft dark:bg-brand-950 dark:text-brand-300"
-                            : "border-[var(--border)] text-[var(--text-muted)] hover:border-brand-300"
-                        }`}
-                      >
-                        {sel && <Check className="h-3.5 w-3.5 animate-pop" />}
-                        {p.label}
-                      </button>
-                    );
-                  })}
+
+              <Group icon={Store} title="Identité">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Nom de la boutique">
+                    <input className="input" value={brand.storeName} onChange={(e) => updateBrand({ storeName: e.target.value })} placeholder="Ex : Reformio" />
+                  </Field>
+                  <Field label="URL de la boutique">
+                    <input className="input" value={brand.publicUrl} onChange={(e) => updateBrand({ publicUrl: e.target.value })} placeholder="https://maboutique.com" />
+                  </Field>
+                  <Field label="Pays / langue">
+                    <input className="input" value={brand.country} onChange={(e) => updateBrand({ country: e.target.value })} placeholder="Ex : France · Français" />
+                  </Field>
                 </div>
-              </Field>
+              </Group>
+
+              <Group icon={Target} title="Marché">
+                <Field label="Niche">
+                  <input className="input" value={brand.niche} onChange={(e) => updateBrand({ niche: e.target.value })} placeholder="Ex : Pilates, luminaires, mode…" />
+                </Field>
+                <div className="mt-4">
+                  <span className="label">Positionnement</span>
+                  <div className="flex flex-wrap gap-2">
+                    {POSITIONINGS.map((p) => {
+                      const sel = brand.positioning === p.id;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => updateBrand({ positioning: p.id })}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-sm font-medium transition-all duration-200 hover:-translate-y-0.5 active:scale-95",
+                            sel
+                              ? "scale-[1.03] border-brand-500 bg-brand-50 text-brand-700 shadow-soft dark:bg-brand-950 dark:text-brand-300"
+                              : "border-[var(--border)] text-[var(--text-muted)] hover:border-brand-300"
+                          )}
+                        >
+                          {sel && <Check className="h-3.5 w-3.5 animate-pop" />}
+                          {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </Group>
 
               <Understanding brand={brand} />
             </div>
@@ -241,11 +268,9 @@ export default function OnboardingPage() {
             <div className="space-y-5 animate-step-in">
               <div>
                 <h2 className="text-xl font-bold">Votre ton de marque</h2>
-                <p className="mt-1 text-sm text-[var(--text-muted)]">
-                  Orkestra rédigera tous vos contenus dans cette voix.
-                </p>
+                <p className="mt-1 text-sm text-[var(--text-muted)]">Comment Orkestra s&apos;exprime.</p>
               </div>
-              <Field label="Ton de marque" hint="La voix d'Orkestra dans tous vos contenus">
+              <Field label="Ton de marque">
                 <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                   {TONES.map((t) => {
                     const Icon = t.icon;
@@ -293,23 +318,34 @@ export default function OnboardingPage() {
                   })}
                 </div>
               </Field>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Mots à éviter" hint="Séparés par des virgules">
-                  <input className="input" defaultValue={brand.wordsToAvoid.join(", ")} onBlur={(e) => updateBrand({ wordsToAvoid: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="cheap, gadget" />
-                </Field>
-                <Field label="Délai de livraison">
-                  <input className="input" value={brand.shippingDelay} onChange={(e) => updateBrand({ shippingDelay: e.target.value })} />
-                </Field>
-                <Field label="Promesses principales" hint="Séparées par des virgules">
-                  <input className="input" defaultValue={brand.promises.join(", ")} onBlur={(e) => updateBrand({ promises: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="Ex : qualité durable, livraison rapide" />
-                </Field>
-                <Field label="Politique de retour">
-                  <input className="input" value={brand.returnPolicy} onChange={(e) => updateBrand({ returnPolicy: e.target.value })} />
-                </Field>
-              </div>
-              <Field label="Garanties" hint="Séparées par des virgules">
-                <input className="input" defaultValue={brand.guarantees.join(", ")} onBlur={(e) => updateBrand({ guarantees: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="Garantie 2 ans, paiement sécurisé" />
-              </Field>
+              <details className="group rounded-2xl border border-[var(--border)] bg-[var(--bg)]">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium text-[var(--text)]">
+                  <span className="flex items-center gap-2">
+                    <Palette className="h-4 w-4 text-brand-500" /> Détails de marque
+                    <span className="text-xs font-normal text-[var(--text-muted)]">(optionnel)</span>
+                  </span>
+                  <ChevronDown className="h-4 w-4 text-ink-400 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="space-y-4 px-4 pb-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Mots à éviter">
+                      <input className="input" defaultValue={brand.wordsToAvoid.join(", ")} onBlur={(e) => updateBrand({ wordsToAvoid: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="cheap, gadget" />
+                    </Field>
+                    <Field label="Délai de livraison">
+                      <input className="input" value={brand.shippingDelay} onChange={(e) => updateBrand({ shippingDelay: e.target.value })} placeholder="Ex : 3 à 5 jours" />
+                    </Field>
+                    <Field label="Promesses principales">
+                      <input className="input" defaultValue={brand.promises.join(", ")} onBlur={(e) => updateBrand({ promises: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="Ex : qualité durable, livraison soignée" />
+                    </Field>
+                    <Field label="Politique de retour">
+                      <input className="input" value={brand.returnPolicy} onChange={(e) => updateBrand({ returnPolicy: e.target.value })} placeholder="Ex : retours sous 14 jours" />
+                    </Field>
+                  </div>
+                  <Field label="Garanties">
+                    <input className="input" defaultValue={brand.guarantees.join(", ")} onBlur={(e) => updateBrand({ guarantees: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="Garantie 2 ans, paiement sécurisé" />
+                  </Field>
+                </div>
+              </details>
 
               <Understanding brand={brand} />
             </div>
@@ -320,9 +356,7 @@ export default function OnboardingPage() {
             <div className="space-y-5 animate-step-in">
               <div>
                 <h2 className="text-xl font-bold">Connectez vos IA</h2>
-                <p className="mt-1 text-sm text-[var(--text-muted)]">
-                  BYOK : vous utilisez vos propres clés. Connectez-en au moins une pour continuer.
-                </p>
+                <p className="mt-1 text-sm text-[var(--text-muted)]">Vos clés, vos crédits. Au moins une pour continuer.</p>
               </div>
               <div className="grid gap-3">
                 {PROVIDER_ORDER.map((id) => (
@@ -342,27 +376,19 @@ export default function OnboardingPage() {
                     <Eye className="h-3.5 w-3.5" /> Vue visiteur
                   </span>
                 </div>
-                <p className="mt-1 text-sm text-[var(--text-muted)]">
-                  Orkestra analyse votre boutique comme un client ou Google la voit publiquement. Simple, rapide, sans configuration technique.
-                </p>
+                <p className="mt-1 text-sm text-[var(--text-muted)]">Orkestra regarde votre boutique comme un visiteur, sans configuration technique.</p>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Lien public de la boutique" hint="L'adresse que voient vos clients">
-                  <input className="input" value={brand.publicUrl} onChange={(e) => updateBrand({ publicUrl: e.target.value })} placeholder="https://maboutique.com" />
-                </Field>
-                <Field label="Lien admin Shopify (optionnel)" hint="Sert uniquement à identifier votre boutique">
-                  <input className="input" value={brand.adminUrl} onChange={(e) => updateBrand({ adminUrl: e.target.value })} placeholder="https://admin.shopify.com/store/nom-boutique" />
-                </Field>
-              </div>
-
-              {/* Mention claire */}
-              <div className="flex items-start gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5">
-                <Globe className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
-                <p className="text-xs text-[var(--text-muted)]">
-                  Ce scan analyse votre boutique comme un visiteur. Pour une analyse complète des produits, meta, alt text et données internes Shopify, une connexion API sera disponible ensuite.
-                </p>
-              </div>
+              <Group icon={Eye} title="Vue client">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Lien public de la boutique">
+                    <input className="input" value={brand.publicUrl} onChange={(e) => updateBrand({ publicUrl: e.target.value })} placeholder="https://maboutique.com" />
+                  </Field>
+                  <Field label="Lien admin Shopify (optionnel)">
+                    <input className="input" value={brand.adminUrl} onChange={(e) => updateBrand({ adminUrl: e.target.value })} placeholder="https://admin.shopify.com/store/…" />
+                  </Field>
+                </div>
+              </Group>
 
               {/* Option avancée : API Shopify (bientôt) */}
               <div className="flex items-center justify-between rounded-xl border border-dashed border-[var(--border)] px-3.5 py-3 opacity-80">
