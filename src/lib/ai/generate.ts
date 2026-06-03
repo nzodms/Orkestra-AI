@@ -50,6 +50,7 @@ function contextBlock(ctx: CouncilContext): string {
   if (ctx.brandName) lines.push(`Boutique : ${ctx.brandName}`);
   if (ctx.niche) lines.push(`Niche : ${ctx.niche}`);
   if (ctx.positioning) lines.push(`Positionnement : ${ctx.positioning}`);
+  if (ctx.country) lines.push(`Pays cible : ${ctx.country}`);
   if (ctx.language) lines.push(`Langue : ${ctx.language}`);
   if (ctx.collections?.length) lines.push(`Collections : ${ctx.collections.slice(0, 10).join(", ")}`);
   if (ctx.productTypes?.length) lines.push(`Types de produits : ${ctx.productTypes.slice(0, 8).join(", ")}`);
@@ -114,7 +115,7 @@ const MODE_ROLE: Record<CouncilMode, string> = {
   email: "tu es un assistant SAV e-commerce professionnel. Rédige un email PRÊT À ENVOYER (objet + corps + signature) adapté au ton de marque (vouvoiement/tutoiement), aux délais/retours/garanties fournis. N'invente AUCUNE info absente — mets [à confirmer]. Donne aussi une variante courte et une plus chaleureuse. Ne fais PAS d'audit SEO.",
   quote: "tu es un assistant commercial. Aide à structurer un devis professionnel (lignes, conditions, acompte, délais, message d'accompagnement, points à vérifier). Demande les infos manquantes. Ne fais PAS une analyse générale de boutique.",
   strategy: "tu es un consultant e-commerce / growth. Donne un diagnostic business + priorités par impact + roadmaps 7/30/90 jours basés sur les scores, le catalogue, les collections et la niche.",
-  competitive: "tu es un analyste e-commerce. Identifie 3 à 5 CONCURRENTS DIRECTS SPÉCIALISÉS de la niche (boutiques e-commerce qui vendent les mêmes catégories, positionnement proche) — PAS des marketplaces/généralistes (Amazon, Cdiscount, Leroy Merlin, Maisons du Monde, La Redoute, ManoMano…) qui ne vont QUE dans une section secondaire « acteurs généralistes à surveiller ». Sans crawl du site concurrent, reste INDICATIF (« analyse indicative basée sur la niche, pas sur un crawl live ») et n'affirme AUCUN fait précis non vérifié. Invite à ajouter 3 URLs concurrentes.",
+  competitive: "tu es un analyste e-commerce. À partir UNIQUEMENT du contexte boutique fourni (niche, pays, langue, collections, produits, types, mots-clés, positionnement, style), GÉNÈRE 3 à 5 CONCURRENTS DIRECTS SPÉCIALISÉS probables (boutiques e-commerce vendant les mêmes catégories, positionnement proche), ADAPTÉS à cette niche précise — n'utilise la liste fallback fournie que comme inspiration, ne la recopie pas systématiquement. NE mets PAS de marketplaces/généralistes (Amazon, Cdiscount, Leroy Merlin, Maisons du Monde, La Redoute, ManoMano, Zalando, Sephora, Fnac…) en concurrents principaux : uniquement dans une section secondaire « acteurs généralistes à surveiller ». Il n'y a PAS de recherche web ni de crawl : annonce clairement « analyse indicative basée sur la niche, les produits et le positionnement détectés ; ajoutez les URLs de vos concurrents pour une analyse plus précise ». N'invente AUCUN chiffre (trafic, CA, conversion, parts de marché) ni fait précis non vérifié — emploie « probable », « à analyser », « à vérifier avec une URL ». Donne un niveau de confiance par concurrent.",
   free: "détecte l'intention de la question et réponds comme l'expert correspondant (SEO, Merchant, Code, Email, Devis, Stratégie ou Concurrence).",
 };
 
@@ -134,7 +135,7 @@ function modeStructure(mode: CouncilMode): string {
     strategy:
       "Structure imposée :\n## Diagnostic business rapide\n## Priorités par impact\n## Opportunités de croissance (SEO, conversion, contenu, Ads/Merchant)\n## Roadmap 7 jours\n## Roadmap 30 jours\n## Roadmap 90 jours\n## Quick wins\n## Risques\n## 🚀 Modules Orkestra",
     competitive:
-      "Structure imposée :\n## 1. Concurrents directs recommandés (3–5 spécialisés, PAS de généralistes ici)\n## 2. Pourquoi ce sont vos concurrents (niche, catalogue, positionnement, audience, catégories)\n## 3. Analyse rapide par concurrent (type, positionnement probable, catégories fortes, angle SEO, forces UX, opportunité, ce qu'Orkestra recommande de faire mieux)\n## 4. Opportunités pour ma boutique (collections à renforcer, pages SEO/guides, maillage interne, différenciation, réassurance, sections UX, contenu)\n## 5. Acteurs généralistes à surveiller (liste SECONDAIRE, non prioritaire)\n## 6. Prochaine étape (ajouter 3 URLs concurrentes pour une analyse comparative)\nRappelle que sans crawl concurrent, l'analyse est indicative.",
+      "Structure imposée :\n## 1. Concurrents directs probables (3–5 spécialisés) — pour chacun : nom, type, raison de pertinence, proximité avec la boutique, niveau de confiance (élevé/moyen/à vérifier)\n## 2. Pourquoi ce sont vos concurrents (même niche, catégories proches, audience similaire, positionnement proche, intention de recherche similaire)\n## 3. Analyse indicative par concurrent (positionnement probable, catégories fortes probables, angle SEO probable, forces UX/conversion à surveiller, opportunités pour notre boutique, ce qu'Orkestra recommande de faire mieux)\n## 4. Opportunités pour la boutique (collections à renforcer, pages SEO à créer, guides d'achat, FAQ, maillage interne, différenciation de marque, sections UX, réassurance, contenu longue traîne)\n## 5. Acteurs généralistes à surveiller (section SECONDAIRE uniquement, non prioritaire)\n## 6. Prochaine étape : « Ajoutez 3 URLs concurrentes pour une analyse comparative plus précise. »\nAnalyse indicative (pas de recherche web) — aucun chiffre inventé.",
     free: "Détecte l'intention et applique la structure de l'expert correspondant.",
   };
   return map[mode];
@@ -182,9 +183,9 @@ export async function runCouncil(
     const direct = (ctx.competitors?.filter((c) => !generalists.some((g) => g.toLowerCase() === c.toLowerCase())) ?? []);
     const directList = direct.length ? direct : preset.competitors;
     competitorHint =
-      `\n\n=== Concurrents (suggestions niche) ===\n` +
-      `Concurrents DIRECTS spécialisés à privilégier : ${directList.slice(0, 5).join(", ")}.\n` +
-      `Acteurs généralistes (section SECONDAIRE uniquement, pas concurrents directs) : ${generalists.join(", ")}.`;
+      `\n\n=== Concurrents — FALLBACK niche (inspiration, NE PAS recopier tel quel) ===\n` +
+      `Exemples de concurrents spécialisés de cette niche (à adapter/affiner selon les produits, collections et positionnement détectés, ou à remplacer par de meilleurs si pertinent) : ${directList.slice(0, 5).join(", ")}.\n` +
+      `Acteurs généralistes (UNIQUEMENT en section secondaire « à surveiller ») : ${generalists.join(", ")}.`;
   }
   const prompt =
     `Mode sélectionné : ${MODE_LABEL[mode]} (réponds STRICTEMENT selon ce mode, pas un autre).\n\n` +

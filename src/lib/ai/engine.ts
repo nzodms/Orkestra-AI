@@ -377,6 +377,7 @@ export interface CouncilContext {
   niche?: string;
   url?: string;
   positioning?: string;
+  country?: string;
   language?: string;
   collections?: string[];
   productTypes?: string[];
@@ -1425,8 +1426,8 @@ function competitorBlock(name: string, ctx: CouncilContext, vocab: NicheVocab): 
 - *Type* : boutique e-commerce spécialisée ${niche}.
 - *Positionnement probable* : proche du vôtre (${ctx.positioning || "premium"}), spécialiste de la catégorie.
 - *Catégories fortes* : ${cats}.
-- *Angle SEO probable* : pages collections optimisées + guides d'achat (${vocab.descHints.split(",").slice(0, 2).join(",")}).
-- *Forces UX/conversion* : fiches riches, réassurance visible, avis clients.
+- *Angle SEO probable* : pages collections optimisées + guides d'achat (${vocab.descHints.split(",").slice(0, 2).join(",")}) — à analyser.
+- *Forces UX/conversion à surveiller* : fiches riches, réassurance, avis clients (à vérifier avec une URL).
 - *Opportunité pour vous* : créer des collections plus riches + un meilleur maillage interne par ${vocab.pieces[0] ? "pièce (" + vocab.pieces.slice(0, 3).join(", ") + ")" : "usage"}.
 - *Orkestra recommande* : les dépasser sur la profondeur de contenu (FAQ, guides) et la spécificité longue traîne.`;
 }
@@ -1443,14 +1444,16 @@ function competitiveAnswer(ctx: CouncilContext): string {
   const generalists = preset.generalists ?? [];
   const userDirect = (ctx.competitors ?? []).filter((c) => !generalists.some((g) => g.toLowerCase() === c.toLowerCase()));
   const direct = (userDirect.length ? userDirect : preset.competitors).slice(0, 5);
+  const fromUser = userDirect.length > 0;
+  const conf = fromUser ? "confiance élevée (fourni)" : "confiance : à confirmer (basée sur la niche)";
   const cols = ctx.collections ?? [];
 
   return `## ⚔️ Analyse concurrentielle — ${s} (niche ${niche})
 
-> ℹ️ **Analyse indicative basée sur la niche, pas sur un crawl concurrent live.** Aucun site concurrent n'a été analysé. Les noms ci-dessous sont des **concurrents directs probables** ; aucun fait précis n'est affirmé sans crawl. **Ajoutez 3 URLs concurrentes** (Mémoire boutique) pour une comparaison fiable.
+> ℹ️ **Analyse indicative basée sur la niche, les produits et le positionnement détectés** (pas de recherche web ni de crawl concurrent). Les noms ci-dessous sont des **concurrents directs probables** ; aucun chiffre (trafic, CA, conversion, parts de marché) n'est affirmé. **Ajoutez les URLs de vos concurrents** pour une analyse plus précise.
 
-## 1. Concurrents directs recommandés (spécialisés)
-${direct.map((c) => `- **${c}** — e-commerce spécialisé ${niche}.`).join("\n")}
+## 1. Concurrents directs probables (spécialisés)
+${direct.map((c) => `- **${c}** — e-commerce spécialisé ${niche} · proche de ${s} (niche, ${ctx.positioning || "premium"}, ${ctx.country || "FR"}) · ${conf}.`).join("\n")}
 
 ## 2. Pourquoi ce sont vos concurrents
 - **Même niche** : ${niche}${cols.length ? ` (catégories : ${cols.slice(0, 4).join(", ")})` : ""}.
@@ -1473,7 +1476,7 @@ ${generalists.length ? generalists.map((g) => `- ${g}`).join("\n") : "- (aucun i
 > ⚠️ **Pas vos concurrents directs principaux** : difficiles à battre frontalement, mais à surveiller (prix, délais). Votre avantage = la **spécialisation** et la profondeur de contenu.
 
 ## 6. Prochaine étape
-**Ajoutez les URLs de 3 concurrents** pour une analyse comparative précise. Orkestra pourra alors crawler leur home, détecter leurs collections, titles/meta et structure produit, puis les comparer à votre boutique.`;
+**Ajoutez les URLs de 3 concurrents** dans la Mémoire boutique pour une analyse comparative plus précise (à confirmer avec leurs vraies pages).`;
 }
 
 function freeAnswer(q: string, ctx: CouncilContext): string {

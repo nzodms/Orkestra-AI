@@ -107,6 +107,7 @@ export default function CouncilPage() {
           niche: brand.niche || undefined,
           url: `${brand.publicUrl} ${brand.adminUrl}`.trim() || undefined,
           positioning: brand.positioning,
+          country: brand.country,
           language: brand.language,
           collections: brand.collections,
           productTypes: brand.productTypes,
