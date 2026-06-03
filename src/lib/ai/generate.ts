@@ -263,7 +263,8 @@ export async function runProductSeo(
 
   const system =
     "Tu es Orkestra, expert SEO e-commerce Shopify. Tu génères une fiche produit SEO complète en français. " +
-    "Réponds UNIQUEMENT par un objet JSON valide avec EXACTEMENT ces clés : optimizedTitle (string), h1 (string), shortDescription (string), longDescriptionHtml (string, HTML Shopify propre), benefits (string[]), features (string[]), faq (array de {q,a}), metaTitle (string ≤60), metaDescription (string ≤155), imageAltTexts (string[]), handle (string, slug), primaryKeywords (string[]), longTailKeywords (string[]), internalLinks (string[]), seoScore (number 0-100), conversionScore (number 0-100), recommendations (string[]).";
+    "Réponds UNIQUEMENT par un objet JSON valide avec EXACTEMENT ces clés : optimizedTitle (string), h1 (string), shortDescription (string), longDescriptionHtml (string, HTML Shopify propre), benefits (string[]), features (string[]), faq (array de {q,a}), metaTitle (string ≤60), metaDescription (string ≤155), imageAltTexts (string[]), handle (string, slug), primaryKeywords (string[]), longTailKeywords (string[]), internalLinks (string[]), tags (string[], tags Shopify), productType (string, type de produit), parentCollection (string, collection parente pour le maillage), merchantNote (string, recommandation Google Merchant : titre/type/description du flux), seoScore (number 0-100), conversionScore (number 0-100), recommendations (string[]). " +
+    "Titres et meta NATURELS et descriptifs (mot-clé + attribut concret + marque), adaptés SEO + Google Merchant Center. N'emploie PAS automatiquement « premium », « professionnel », « meilleur », « haut de gamme », « qualité premium », ni « Achetez maintenant / Livraison rapide ».";
   const prompt =
     `=== Boutique ===\n${contextBlock(ctx)}\n\n=== Produit ===\n` +
     `Nom : ${input.productName}\nCollection : ${input.collection || ""}\nCaractéristiques : ${input.features || ""}\n` +
@@ -307,6 +308,10 @@ function coerceSeo(p: any, mock: ProductSeoResult): ProductSeoResult {
     seoScore: typeof p?.seoScore === "number" ? p.seoScore : mock.seoScore,
     conversionScore: typeof p?.conversionScore === "number" ? p.conversionScore : mock.conversionScore,
     recommendations: arr(p?.recommendations, mock.recommendations),
+    tags: arr(p?.tags, mock.tags ?? []),
+    productType: p?.productType ?? mock.productType,
+    parentCollection: p?.parentCollection ?? mock.parentCollection,
+    merchantNote: p?.merchantNote ?? mock.merchantNote,
   };
 }
 

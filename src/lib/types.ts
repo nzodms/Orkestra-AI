@@ -163,6 +163,14 @@ export interface ProductSeoResult {
   seoScore: number;
   conversionScore: number;
   recommendations: string[];
+  /** Tags produit recommandés (organisation Shopify). */
+  tags?: string[];
+  /** Type de produit recommandé (product_type). */
+  productType?: string;
+  /** Collection parente suggérée (pour le maillage). */
+  parentCollection?: string;
+  /** Recommandation Google Merchant (titre/type/description du flux). */
+  merchantNote?: string;
 }
 
 export interface SectionResult {

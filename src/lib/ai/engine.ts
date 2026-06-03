@@ -61,8 +61,8 @@ export function generateProductSeo(input: ProductSeoInput): ProductSeoResult {
   const baseScore = 62 + depth * 9;
 
   return {
-    optimizedTitle: `${name} — ${primary[0] || "qualité premium"} | Livraison rapide`,
-    h1: `${name} : ${input.audience ? `pensé pour ${input.audience}` : "le choix premium"}`,
+    optimizedTitle: `${name}${benefits[0] ? ` — ${benefits[0].toLowerCase()}` : ""}`,
+    h1: `${name}${input.audience ? ` pour ${input.audience}` : ""}`,
     shortDescription: `Découvrez ${name}, ${
       benefits[0]?.toLowerCase() || "conçu pour durer"
     }. ${input.materials ? input.materials + ". " : ""}Idéal ${
@@ -74,7 +74,7 @@ export function generateProductSeo(input: ProductSeoInput): ProductSeoResult {
       : ["Qualité durable", "Confort optimal", "Design soigné"],
     features: features.length
       ? features
-      : ["Matériaux sélectionnés", "Finitions premium", "Garantie incluse"],
+      : ["Matériaux sélectionnés", "Finitions soignées", "Garantie incluse"],
     faq: [
       {
         q: `Quelles sont les caractéristiques de ${name} ?`,
@@ -84,17 +84,17 @@ export function generateProductSeo(input: ProductSeoInput): ProductSeoResult {
       },
       {
         q: "Quels sont les délais de livraison ?",
-        a: "La livraison est rapide et suivie. Vous recevez un numéro de suivi dès l'expédition.",
+        a: "La livraison est soignée et suivie. Vous recevez un numéro de suivi dès l'expédition.",
       },
       {
         q: "Puis-je retourner le produit ?",
         a: "Oui, vous bénéficiez d'une politique de retour claire sous 14 jours.",
       },
     ].slice(0, depth + 1),
-    metaTitle: `${name} | ${primary[0] || "Boutique"} de qualité`.slice(0, 60),
+    metaTitle: `${name}`.slice(0, 60),
     metaDescription: `${name} : ${
-      benefits[0]?.toLowerCase() || "qualité premium"
-    }. Livraison rapide, paiement sécurisé. Commandez dès maintenant.`.slice(0, 155),
+      benefits[0]?.toLowerCase() || "conçu pour répondre à votre besoin"
+    }. ${input.materials ? input.materials + ". " : ""}Livraison soignée et paiement sécurisé.`.slice(0, 155),
     imageAltTexts: [
       `${name} vue de face`,
       `${name} en situation ${input.audience ? "pour " + input.audience : "d'usage"}`,
@@ -104,9 +104,9 @@ export function generateProductSeo(input: ProductSeoInput): ProductSeoResult {
     primaryKeywords: primary.length ? primary : [slugify(name)],
     longTailKeywords: [
       `acheter ${name.toLowerCase()}`,
-      `${name.toLowerCase()} pas cher`,
-      `meilleur ${name.toLowerCase()} ${new Date().getFullYear()}`,
-      `${name.toLowerCase()} ${input.audience || "avis"}`,
+      `${name.toLowerCase()} avis`,
+      `comment choisir ${(primary[0] || name).toLowerCase()}`,
+      `${name.toLowerCase()} ${input.audience || "maison"}`,
     ],
     internalLinks: [
       input.collection ? `Collection « ${input.collection} »` : "Collection associée",
@@ -121,6 +121,14 @@ export function generateProductSeo(input: ProductSeoInput): ProductSeoResult {
       input.price ? "Affichez clairement le rapport qualité/prix." : "Indiquez le prix et les options de paiement.",
       depth < 3 ? "Passez en niveau « ultra » pour enrichir le maillage interne." : "Ajoutez une vidéo produit pour booster la conversion.",
     ],
+    productType: cap((input.collection ? singularize(input.collection) : name.split(/\s+/)[0]) || name),
+    parentCollection: input.collection || undefined,
+    tags: Array.from(new Set([
+      ...(input.audience ? [input.audience.toLowerCase()] : []),
+      ...features.slice(0, 2).map((f) => f.toLowerCase()),
+      ...(input.materials ? [input.materials.split(/[ ,]/)[0].toLowerCase()] : []),
+    ].filter(Boolean))).slice(0, 6),
+    merchantNote: `Flux Google Shopping : titre « ${name} », type « ${cap((input.collection ? singularize(input.collection) : name.split(/\s+/)[0]) || name)} », description factuelle (matériau, dimensions, usage).`,
   };
 }
 
@@ -130,11 +138,11 @@ function buildLongDescription(
   features: string[],
   input: ProductSeoInput
 ): string {
-  const b = benefits.length ? benefits : ["Qualité durable", "Confort optimal", "Design soigné"];
-  const f = features.length ? features : ["Matériaux premium", "Finitions soignées"];
+  const b = benefits.length ? benefits : ["Conçu pour durer", "Confortable à l'usage", "Design soigné"];
+  const f = features.length ? features : ["Matériaux sélectionnés", "Finitions soignées"];
   return `<div class="product-description">
   <h2>Pourquoi choisir ${name} ?</h2>
-  <p>${name} a été pensé ${input.audience ? `pour ${input.audience}` : "pour celles et ceux qui exigent le meilleur"}. ${
+  <p>${name} a été pensé ${input.audience ? `pour ${input.audience}` : "pour un usage au quotidien"}. ${
     input.materials ? `Fabriqué avec ${input.materials}, il ` : "Il "
   }allie qualité et longévité.</p>
   <h3>Les bénéfices</h3>
@@ -145,8 +153,139 @@ ${b.map((x) => `    <li><strong>${x}</strong></li>`).join("\n")}
   <ul>
 ${f.map((x) => `    <li>${x}</li>`).join("\n")}
   </ul>
-  <p>Commandez ${name} dès aujourd'hui et profitez d'une livraison rapide et d'un paiement 100% sécurisé.</p>
+  <p>Profitez d'une livraison soignée et d'un paiement 100% sécurisé.</p>
 </div>`;
+}
+
+// ── SEO Studio : générateurs additionnels (purs, niche/scan-aware) ──────────
+// Utilisables côté client (aucune dépendance serveur). Pas de superlatif forcé.
+
+export interface CollectionSeoResult {
+  title: string;
+  metaTitle: string;
+  metaDescription: string;
+  h1: string;
+  descriptionHtml: string;
+  outline: string[];
+  faq: { q: string; a: string }[];
+  primaryKeywords: string[];
+  longTailKeywords: string[];
+  internalLinks: string[];
+  where: string;
+}
+
+export function generateCollectionSeo(input: {
+  collection: string; niche?: string; brandName?: string; positioning?: string; keywords?: string; others?: string[];
+}): CollectionSeoResult {
+  const key = detectNiche(`${input.niche ?? ""} ${input.brandName ?? ""}`);
+  const vocab = nicheVocab(key);
+  const coll = input.collection || "Collection";
+  const sing = singularize(coll);
+  const ctx = { brandName: input.brandName, positioning: input.positioning } as CouncilContext;
+  const faqs = vocab.faqs(coll);
+  const hints = vocab.descHints.split(",").slice(0, 3).map((s) => s.trim());
+  const kwInput = (input.keywords || "").split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
+  const primary = kwInput.length ? kwInput.slice(0, 3) : [sing, `acheter ${sing}`, `${sing} ${vocab.pieces[0]}`];
+  const others = (input.others ?? []).filter((c) => c !== coll).slice(0, 3);
+  const descriptionHtml = `<h2>Comment choisir ${articled(sing)} ?</h2>
+<p>Découvrez notre sélection de ${coll.toLowerCase()}, ${nicheBenefit(key)}. Pour bien choisir, comparez ${hints.join(", ")}.</p>
+<p>Chaque modèle répond à un usage précis (${vocab.pieces.slice(0, 3).join(", ")}). Retrouvez ci-dessous nos best-sellers et nos conseils.</p>
+<h2>Nos conseils</h2>
+<ul>${hints.map((h) => `<li>${cap(h)}</li>`).join("")}</ul>`;
+  return {
+    title: titleFor(coll, ctx),
+    metaTitle: titleFor(coll, ctx),
+    metaDescription: metaFor(coll, key),
+    h1: coll,
+    descriptionHtml,
+    outline: [`H1 : ${coll}`, `H2 : Comment choisir ${articled(sing)}`, "H2 : Nos best-sellers", "H2 : Questions fréquentes"],
+    faq: [
+      { q: faqs[0], a: `Cela dépend de ${hints.join(", ")}.` },
+      { q: faqs[1], a: `Selon votre usage (${vocab.pieces.slice(0, 2).join(", ")}).` },
+      { q: "Quels sont les délais de livraison et la garantie ?", a: "Livraison soignée et suivie, avec une politique de retour claire." },
+    ],
+    primaryKeywords: primary,
+    longTailKeywords: [`quel ${sing} choisir`, `${sing} ${vocab.pieces[0]}`, `${sing} ${vocab.pieces[1] || vocab.pieces[0]}`],
+    internalLinks: others.length ? others.map((c) => `Lien vers « ${c} » (ancre « ${singularize(c)} ${vocab.pieces[0]} »)`) : ["Liens vers vos collections complémentaires"],
+    where: "Shopify → Produits → Collections → Collection concernée → Description",
+  };
+}
+
+export interface MetaVariant { title: string; metaDescription: string; titleLen: number; metaLen: number; }
+
+export function generateMetaVariants(input: {
+  subject: string; type: "produit" | "collection" | "accueil"; niche?: string; brandName?: string; keywords?: string;
+}): MetaVariant[] {
+  const key = detectNiche(`${input.niche ?? ""} ${input.brandName ?? ""}`);
+  const brand = input.brandName || "";
+  const s = (input.subject || (input.type === "accueil" ? input.niche || "Boutique" : "Page")).trim();
+  const cap1 = cap(s);
+  const kw = (input.keywords || "").split(/[,\n]/).map((x) => x.trim()).filter(Boolean)[0];
+  const benefit = nicheBenefit(key);
+  const suffix = brand ? ` | ${brand}` : "";
+  const raw: { title: string; metaDescription: string }[] = [
+    { title: `${cap1}${suffix}`, metaDescription: `Découvrez ${s.toLowerCase()}, ${benefit}. Conseils pour bien choisir et livraison soignée.` },
+    { title: kw ? `${cap(kw)}${suffix}` : `${cap1}${suffix}`, metaDescription: `${cap1} : ${benefit}. Livraison soignée et paiement sécurisé.` },
+    { title: `${cap1} en ligne${suffix}`.length <= 60 ? `${cap1} en ligne${suffix}` : `${cap1}${suffix}`, metaDescription: `Tout pour ${s.toLowerCase()} : sélection, conseils et FAQ. ${benefit}.` },
+  ];
+  return raw.map((v) => {
+    const title = v.title.slice(0, 60);
+    const md = v.metaDescription.slice(0, 155);
+    return { title, metaDescription: md, titleLen: title.length, metaLen: md.length };
+  });
+}
+
+export function generateAltTexts(input: { subject: string; niche?: string; count?: number }): string[] {
+  const key = detectNiche(input.niche ?? "");
+  const vocab = nicheVocab(key);
+  const s = (input.subject || "produit").trim();
+  const base = [
+    `${s} vue de face`,
+    `${s} en situation (${vocab.pieces[0]})`,
+    `Détail et finitions de ${s.toLowerCase()}`,
+    `${s} — ${vocab.pieces[1] || vocab.pieces[0]}`,
+    `${s} : dimensions et rangement`,
+    `${s} en usage au quotidien`,
+  ];
+  return base.slice(0, Math.max(3, Math.min(6, input.count ?? 5)));
+}
+
+export interface BlogOutlineResult {
+  title: string; metaTitle: string; metaDescription: string; keyword: string; intent: string;
+  intro: string; outline: string[]; faq: { q: string; a: string }[]; internalLink: string; cta: string;
+}
+
+export function generateBlogOutline(input: {
+  topic?: string; collection?: string; niche?: string; brandName?: string; keywords?: string;
+}): BlogOutlineResult {
+  const key = detectNiche(`${input.niche ?? ""} ${input.brandName ?? ""}`);
+  const vocab = nicheVocab(key);
+  const coll = input.collection || "votre collection";
+  const sing = singularize(coll);
+  const kw = (input.keywords || "").split(/[,\n]/).map((s) => s.trim()).filter(Boolean)[0] || `quel ${sing} choisir`;
+  const title = input.topic?.trim() || `Comment choisir ${articled(sing)} pour ${vocab.pieces[0]} ?`;
+  const faqs = vocab.faqs(coll);
+  const hints = vocab.descHints.split(",").slice(0, 3).map((s) => s.trim());
+  return {
+    title,
+    metaTitle: title.slice(0, 60),
+    metaDescription: `${title} Nos conseils pour bien choisir, comparer et acheter.`.slice(0, 155),
+    keyword: kw,
+    intent: "guide d'achat (informationnel → transactionnel)",
+    intro: `Vous hésitez sur ${articled(sing)} ? Ce guide aide à choisir selon ${hints.slice(0, 2).join(", ")}.`,
+    outline: [
+      `H2 : Pourquoi bien choisir ${articled(sing)} ?`,
+      `H2 : Les critères qui comptent (${hints.join(", ")})`,
+      "H2 : Notre sélection recommandée",
+      "H2 : Questions fréquentes",
+    ],
+    faq: [
+      { q: faqs[0], a: "Réponse courte orientée bénéfice, puis lien vers la collection." },
+      { q: faqs[1], a: "Réponse pédagogique avec un exemple concret." },
+    ],
+    internalLink: `Maillage : lien vers la collection « ${coll} » (ancre « ${sing} ${vocab.pieces[0]} »).`,
+    cta: `« Découvrir la collection ${coll} »`,
+  };
 }
 
 // ── Section Builder ───────────────────────────────────────────────────────
