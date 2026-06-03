@@ -385,9 +385,14 @@ export interface CouncilContext {
   competitors?: string[];
   promises?: string[];
   guarantees?: string[];
+  formality?: string;
+  shippingDelay?: string;
+  returnPolicy?: string;
   /** Données réelles issues du scan public (si une analyse existe). */
   englishCount?: number;
   missingLegal?: string[];
+  legalFound?: string[];
+  merchantScore?: number;
   pagesAnalyzed?: number;
   productsFound?: number;
   productsAnalyzed?: number;
@@ -570,26 +575,51 @@ function nextActionsFor(mode: CouncilMode): string[] {
 
 // ── Construction de la réponse finale (markdown structuré) ──────────────────
 
+/** Bandeau commun : Mode utilisé · Données utilisées · Limite. */
+function modeBanner(mode: CouncilMode, ctx: CouncilContext): string {
+  const data: string[] = [];
+  if (ctx.productsFound != null) data.push("scan public");
+  if (ctx.collections?.length) data.push("collections détectées");
+  if (ctx.productsEnriched) data.push("produits enrichis (products.json)");
+  if (ctx.priorityProducts?.length) data.push("produits prioritaires");
+  if (ctx.legalFound?.length || ctx.missingLegal?.length) data.push("pages légales");
+  const list = data.length ? data.join(", ") : "mémoire boutique";
+  return `> **Mode : ${MODE_LABEL[mode]}** · Données utilisées : ${list} · Limite : analyse basée sur la vue publique (API Shopify non connectée).\n\n`;
+}
+
 function buildFinalAnswer(mode: CouncilMode, question: string, ctx: CouncilContext): string {
   const isPlan = /30\s*jours?|plan d'action|planning|roadmap|sur 30/i.test(question);
   switch (mode) {
     case "seo":
-      return isPlan ? seoPlan30(ctx) : seoAnswer(ctx);
+      return modeBanner(mode, ctx) + (isPlan ? seoPlan30(ctx) : seoAnswer(ctx));
     case "code":
-      return codeAnswer(ctx);
+      return modeBanner(mode, ctx) + codeAnswer(ctx, question);
     case "merchant":
-      return merchantAnswer(ctx);
+      return modeBanner(mode, ctx) + merchantAnswer(ctx);
     case "email":
-      return emailAnswer(ctx);
+      return modeBanner(mode, ctx) + emailAnswer(ctx, question);
     case "quote":
-      return quoteAnswer(ctx);
+      return modeBanner(mode, ctx) + quoteAnswer(ctx, question);
     case "strategy":
-      return isPlan ? strategyPlan30(ctx) : strategyAnswer(ctx);
+      return modeBanner(mode, ctx) + (isPlan ? strategyPlan30(ctx) : strategyAnswer(ctx));
     case "competitive":
-      return competitiveAnswer(ctx);
+      return modeBanner(mode, ctx) + competitiveAnswer(ctx);
     default:
       return freeAnswer(question, ctx);
   }
+}
+
+/** Détection d'intention pour le mode « Question libre » → route vers le bon expert. */
+function detectIntent(q: string): CouncilMode {
+  const t = q.toLowerCase();
+  if (/\b(merchant|google ads|google shopping|shopping|suspend|bannis|conformit|misrepresentation)\b/.test(t)) return "merchant";
+  if (/\b(code|liquid|section|css|theme|thème|bouton|hero|faq|réassurance|reassurance|comparatif|sticky|avis|page produit|customizer)\b/.test(t)) return "code";
+  if (/\b(email|e-mail|mail|client|sav|réclamation|reclamation|relance|retard|remboursement|répondre au client)\b/.test(t)) return "email";
+  if (/\b(devis|quote|cotation|b2b|sur mesure|sur-mesure|remise volume)\b/.test(t)) return "quote";
+  if (/\b(stratégie|strategie|croissance|growth|business|roadmap|scaler|développer|chiffre d'affaires|ca\b)\b/.test(t)) return "strategy";
+  if (/\b(concurrent|concurrence|compétiteur|competiteur|marché|benchmark)\b/.test(t)) return "competitive";
+  if (/\b(seo|référencement|referencement|mot-?clé|mot-?cle|meta|ranking|google|collection|maillage|longue traîne|backlink)\b/.test(t)) return "seo";
+  return "free";
 }
 
 /** Détecte une demande de review/analyse complète de site. */
@@ -960,128 +990,280 @@ Plan structuré en 4 semaines, du plus fort impact au plus structurel.
 > Je peux générer directement les fiches produits (SEO Studio) ou les meta — dites-moi par quoi commencer.`;
 }
 
-function codeAnswer(ctx: CouncilContext): string {
-  return `## Implémentation Shopify (Online Store 2.0)
+function sectionTypeFromQuestion(q: string): string {
+  const t = q.toLowerCase();
+  if (/faq|question/.test(t)) return "FAQ animée";
+  if (/réassur|reassur|confiance|garantie|livraison/.test(t)) return "Bloc réassurance";
+  if (/comparatif|comparaison|versus/.test(t)) return "Comparatif produit";
+  if (/avis|témoignage|temoignage|review/.test(t)) return "Avis clients";
+  if (/sticky|panier|add to cart/.test(t)) return "Sticky add-to-cart";
+  if (/storytelling|histoire|à propos/.test(t)) return "Storytelling";
+  if (/bénéfice|benefice|avantage/.test(t)) return "Section bénéfices";
+  if (/image|texte/.test(t)) return "Image + texte";
+  return "Hero premium";
+}
 
-Pour ${brandOf(ctx)}, voici l'approche propre et maintenable :
+function codeAnswer(ctx: CouncilContext, question: string): string {
+  const s = brandOf(ctx);
+  const niche = nicheOf(ctx);
+  const wantsCode = /\b(code|liquid|crée|cree|génère|genere|code-moi|écris|ecris|section)\b/i.test(question);
+  const type = sectionTypeFromQuestion(question);
 
-### Architecture recommandée
-- **Section dédiée** avec un bloc \`{% schema %}\` pour exposer les réglages dans le customizer.
-- **CSS responsive** : \`clamp()\` pour les tailles + media queries pour les points de rupture.
-- **JS optionnel** chargé via \`IntersectionObserver\` (animations au scroll), jamais bloquant.
+  // Diagnostic UX rapide à partir du scan.
+  const ux: string[] = [];
+  if (ctx.weakDescriptions) ux.push(`${ctx.weakDescriptions} fiches à description faible → pages produits peu convaincantes.`);
+  if (ctx.imagesNoAlt) ux.push(`${ctx.imagesNoAlt} images sans alt → accessibilité/SEO image.`);
+  if (ctx.englishCount) ux.push(`${ctx.englishCount} libellés anglais → cohérence/confiance.`);
+  ux.push("Réassurance (livraison, retours, paiement) souvent trop basse en page d'accueil.");
 
-### Bonnes pratiques
-- Préfixez vos classes (\`.ork-…\`) pour éviter les conflits avec le thème.
-- Pas de styles inline en dur : tout passe par les settings du schema.
-- Vérifiez l'accessibilité (contraste, cibles tactiles ≥ 44px).
+  let codeBlock = "";
+  if (wantsCode) {
+    const sec = generateSection({ type, goal: `Section ${type} pour ${s} (${niche})`, animations: true });
+    codeBlock = `
 
-### Étapes
-1. Créez la section dans **Modifier le code → Sections**.
-2. Collez Liquid + \`{% schema %}\`, puis le CSS dans le \`<style>\` de la section.
-3. Ajoutez la section depuis **Personnaliser**.
+### 💻 Code prêt à coller — « ${type} »
+**Liquid**
+\`\`\`liquid
+${sec.liquid}
+\`\`\`
+**CSS**
+\`\`\`css
+${sec.css}
+\`\`\`
+**Schema (Online Store 2.0)**
+\`\`\`liquid
+${sec.schema}
+\`\`\`
+${sec.js && !/aucun js/i.test(sec.js) ? `**JS (optionnel)**\n\`\`\`js\n${sec.js}\n\`\`\`\n` : ""}
+**Installation** : ${sec.installSteps.join(" → ")}
+**Version sans JS** : retirez le bloc JS ; la section reste fonctionnelle (animations en moins).`;
+  }
 
-> ⚡ Ouvrez le **Section Builder** : il génère le Liquid + CSS + schema complets, prêts à coller, avec checklist responsive.`;
+  return `## 🧩 Recommandation Shopify (Liquid / UX) pour ${s}
+
+### Diagnostic UX rapide (vue publique)
+${ux.map((u) => `- ${u}`).join("\n")}
+
+### Section recommandée : **${type}**
+- **Objectif** : ${type === "FAQ animée" ? "lever les objections (livraison, dimensions, usage) et capter les rich snippets FAQ" : type === "Bloc réassurance" ? "rassurer immédiatement (livraison, paiement, retours, garantie)" : "renforcer la clarté et la conversion"}.
+- **Où la placer** : ${type === "Bloc réassurance" ? "juste sous le hero (home) et sous le prix (fiche produit)" : type === "FAQ animée" ? "bas de page collection et bas de fiche produit" : "en page d'accueil, au-dessus de la ligne de flottaison"}.
+- **Pourquoi** : ${ctx.collections?.length ? `aligné sur vos collections (${ctx.collections.slice(0, 3).join(", ")})` : "adapté à votre niche"} et aux frictions détectées ci-dessus.
+- **Contenu recommandé** : titres orientés bénéfice, 3–5 points clés, FAQ adaptée à la niche${niche.includes("lumi") ? " (hauteur d'installation, type d'ampoule, pièce)" : ""}.
+
+### Bonnes pratiques Shopify (Online Store 2.0)
+- Section dédiée avec \`{% schema %}\` (réglages dans le customizer).
+- CSS responsive (\`clamp()\` + media queries), classes préfixées \`.ork-…\`.
+- JS optionnel non bloquant (IntersectionObserver) ; toujours prévoir une version sans JS.
+- Accessibilité : contraste, cibles tactiles ≥ 44px.${codeBlock}
+
+### 🚀 Action Orkestra
+- **Section Builder** : génère Liquid + CSS + schema complets + checklist responsive${wantsCode ? " (le code ci-dessus en est un exemple prêt à coller)" : ""}.
+
+${wantsCode ? "" : "> Demandez explicitement « crée une section " + type.toLowerCase() + " » pour obtenir le code Liquid/CSS/schema complet."}`;
 }
 
 function merchantAnswer(ctx: CouncilContext): string {
-  const cols = collectionsOf(ctx);
-  return `## Conformité Merchant Center pour ${brandOf(ctx)}
+  const s = brandOf(ctx);
+  const found = ctx.legalFound ?? [];
+  const missing = ctx.missingLegal ?? [];
+  const score = ctx.merchantScore;
 
-Voici les risques les plus fréquents et comment les réduire. *(Aucun outil ne garantit l'absence de suspension — Google reste seul décisionnaire.)*
+  const reassuring: string[] = [];
+  for (const f of found) reassuring.push(`${f} détectée : OK`);
+  if (!reassuring.length) reassuring.push("Aucune page de confiance détectée publiquement (à vérifier).");
 
-### Priorités critiques
-1. **Politique de retour** claire et accessible (délai, conditions, frais).
-2. **Cohérence de langue** : aucun libellé EN sur une boutique ${ctx.language || "FR"}.
+  const critical: string[] = [];
+  const important: string[] = [];
+  const minor: string[] = [];
+  for (const m of missing) {
+    if (/retour|livraison|mentions/i.test(m)) critical.push(`**${m} non détectée** → cause fréquente de refus/suspension Merchant.`);
+    else important.push(`**${m} non détectée** → à ajouter avant soumission.`);
+  }
+  if (ctx.englishCount) critical.push(`**${ctx.englishCount} textes anglais** sur une boutique ${ctx.language || "FR"} → incohérence de langue (signal négatif).`);
+  if (ctx.weakDescriptions) important.push(`**${ctx.weakDescriptions} fiches** à description faible → risque « contenu insuffisant / misrepresentation ».`);
+  if (ctx.noType) important.push(`**${ctx.noType} produits sans \`product_type\`** → catégorisation faible dans le flux Shopping.`);
+  if (ctx.imagesNoAlt) minor.push(`**${ctx.imagesNoAlt} images sans alt** → impact SEO/accessibilité, priorité Merchant **secondaire** vs pages légales/descriptions.`);
+  if (!found.includes("Garantie")) important.push("**Garantie** non détectée → à ajouter ou clarifier (rassure Google et l'acheteur).");
+  if (!critical.length) critical.push("Aucun risque critique évident détecté sur la vue publique — vérifiez tout de même les pages légales en profondeur.");
 
-### Priorités importantes
-3. **Mentions légales & page À propos** complètes (transparence entreprise).
-4. **Descriptions produits solides** sur ${cols.slice(0, 2).join(", ")} (200+ mots, pas de duplication).
+  return `## 🛡️ Audit conformité Merchant Center — ${s}
 
-### Priorités mineures
-5. Promotions non agressives (éviter les « -80% » permanents).
-6. Plusieurs moyens de contact + délai de réponse annoncé.
+> ⚠️ Aucun outil ne peut garantir l'absence de suspension. Orkestra **détecte les risques fréquents visibles publiquement** et aide à rendre la boutique plus propre **avant soumission** à Google Merchant Center / Shopping. Google reste seul décisionnaire.
 
-### ✅ Checklist
-- [ ] Pages légales présentes et liées au footer.
-- [ ] Libellés du thème traduits.
-- [ ] Prix cohérents entre fiche, panier et flux.
+### 📊 Résumé conformité apparent
+${dataUsed(ctx).filter((d) => /produit|collection|anglais|légal|meta|images|couverture/i.test(d)).map((d) => `- ${d}`).join("\n") || "- Données de scan limitées."}
+${score != null ? `\n**Score Merchant apparent : ${score}/100** (estimation vue publique).` : ""}
 
-> Lancez **Merchant Shield** pour un audit détaillé avec score et correctifs générables.`;
+### ✅ Éléments rassurants déjà présents
+${reassuring.map((r) => `- ${r}`).join("\n")}
+
+### 🔴 Risques critiques (à corriger avant Shopping)
+${critical.map((r) => `- ${r}`).join("\n")}
+
+### 🟠 Risques importants
+${important.length ? important.map((r) => `- ${r}`).join("\n") : "- Aucun risque important supplémentaire détecté."}
+
+### 🟡 Risques mineurs
+${minor.length ? minor.map((r) => `- ${r}`).join("\n") : "- Promotions trop agressives à éviter ; multiplier les moyens de contact."}
+
+### ✅ Checklist avant soumission Merchant Center
+- [ ] Politique de **retour** et de **livraison** claires, liées au footer.
+- [ ] **Mentions légales**, **CGV**, **confidentialité**, **contact** présentes.
+- [ ] **Garantie** et informations entreprise visibles.
+- [ ] **Aucun texte anglais** résiduel (${ctx.englishCount ?? 0} détecté(s)).
+- [ ] Descriptions produits solides (200+ mots) sur les best-sellers.
+- [ ] \`product_type\` renseigné, prix cohérents fiche/panier/flux.
+
+### 🗂️ Plan de correction priorisé
+1. Pages légales manquantes${missing.length ? ` (${missing.join(", ")})` : ""}.
+2. Traduction des libellés anglais.
+3. Enrichissement des descriptions + product_type.
+4. Alt text (priorité plus basse côté Merchant).
+
+### 🚀 Modules Orkestra
+- **Merchant Shield** : audit détaillé + correctifs générables.
+- **SEO Studio** : descriptions produits solides + meta.
+- **Section Builder** : bloc réassurance + pages de confiance.`;
 }
 
-function emailAnswer(ctx: CouncilContext): string {
-  const s = brandOf(ctx);
-  return `## Email client professionnel — ${s}
-
-**Objet :** clair et orienté bénéfice (ex. « Votre commande ${s} : voici la suite »).
-
----
-
-Bonjour [Prénom],
-
-Merci pour votre message. [Reformulation empathique de la demande pour montrer qu'on a compris.]
-
-Voici ce que je vous propose :
-- **Solution** : [action concrète].
-- **Délai** : [échéance réaliste].
-- **Prochaine étape** : [ce que le client doit faire, le cas échéant].
-
-Si vous avez la moindre question, je reste à votre disposition.
-
-Bien à vous,
-[Votre nom] — Service client ${s}
-
----
-
-> Ton aligné sur votre marque. Demandez **« rends-le plus chaleureux »** ou **« plus formel »** pour ajuster.`;
+type EmailCase = "retard" | "retour" | "dimensions" | "hesitant" | "b2b" | "reclamation" | "relance" | "devis" | "general";
+function detectEmailCase(q: string): EmailCase {
+  const t = q.toLowerCase();
+  if (/retard|pas reçu|pas recu|où est|ou est|suivi/.test(t)) return "retard";
+  if (/retour|rembours|rétract|retract|échange|echange/.test(t)) return "retour";
+  if (/dimension|taille|mesure|hauteur|largeur/.test(t)) return "dimensions";
+  if (/hésit|hesit|conseil|aider à choisir|lequel/.test(t)) return "hesitant";
+  if (/b2b|professionnel|grossiste|revendeur|entreprise/.test(t)) return "b2b";
+  if (/réclam|reclam|mécontent|mecontent|cassé|casse|défect|defect|plainte/.test(t)) return "reclamation";
+  if (/relance|sans réponse|sans reponse|panier abandonné/.test(t)) return "relance";
+  if (/devis|cotation|prix pour|tarif/.test(t)) return "devis";
+  return "general";
 }
 
-function quoteAnswer(ctx: CouncilContext): string {
+function emailAnswer(ctx: CouncilContext, question: string): string {
   const s = brandOf(ctx);
-  return `## Devis — ${s}
+  const vous = ctx.formality === "tutoiement" ? "tu" : "vous";
+  const greet = vous === "tu" ? "Bonjour [Prénom]," : "Bonjour [Prénom],";
+  const ship = ctx.shippingDelay || "[délai de livraison à confirmer]";
+  const ret = ctx.returnPolicy || "[politique de retour à confirmer]";
+  const c = detectEmailCase(question);
 
-**Émis par :** ${s}  ·  **Pour :** [Client]  ·  **Date :** [date]  ·  **Validité :** 30 jours
+  const cases: Record<EmailCase, { analyse: string; objet: string; corps: string }> = {
+    retard: { analyse: "Le client s'inquiète d'un retard de livraison → rassurer + donner une action concrète (suivi).", objet: `Votre commande ${s} — suivi et délai`, corps: `Merci pour votre message, et navré pour l'attente. Votre commande a bien été prise en compte ; le délai habituel est de ${ship}. Je vérifie immédiatement le suivi et reviens vers vous avec le statut exact. Si le colis devait dépasser le délai annoncé, nous trouverons une solution (renvoi ou geste commercial).` },
+    retour: { analyse: "Demande de retour/remboursement → rappeler la politique et faciliter la démarche.", objet: `Votre retour ${s} — marche à suivre`, corps: `Bien sûr, c'est possible. Notre politique : ${ret}. Pour lancer le retour, indiquez-${vous === "tu" ? "moi" : "moi"} votre numéro de commande ; je ${vous === "tu" ? "t'" : "vous "}envoie les instructions et l'étiquette le cas échéant. Le remboursement est traité dès réception et contrôle de l'article.` },
+    dimensions: { analyse: "Demande de dimensions/caractéristiques → donner les infos disponibles, ne pas inventer.", objet: `Dimensions & caractéristiques — ${s}`, corps: `Merci de votre intérêt. Pour ce produit, voici les informations [à compléter depuis la fiche : dimensions, matériau, ${ctx.niche?.includes("lumi") ? "hauteur d'installation, type d'ampoule" : "usage"}]. Si vous me précisez le modèle exact, je vous confirme les mesures et vous conseille selon votre besoin.` },
+    hesitant: { analyse: "Client hésitant → rassurer, conseiller, lever l'objection.", objet: `Je vous aide à choisir — ${s}`, corps: `Avec plaisir ! Pour bien vous conseiller : quel est votre besoin (pièce, style, budget) ? En général, ${vous === "tu" ? "tu peux" : "vous pouvez"} compter sur ${ctx.promises?.slice(0, 2).join(", ") || "notre sélection premium"}. Et si le produit ne convient pas, ${ret}.` },
+    b2b: { analyse: "Demande B2B/pro → ouvrir le dialogue, proposer conditions volume.", objet: `Demande professionnelle — ${s}`, corps: `Merci pour votre intérêt. Nous accompagnons les professionnels (revendeurs, projets). Pour vous faire une proposition adaptée : quels produits/quantités visez-vous, et pour quelle échéance ? Je reviens vers vous avec des conditions (tarifs volume, délais, livraison).` },
+    reclamation: { analyse: "Réclamation → empathie d'abord, puis solution rapide.", objet: `Votre réclamation — nous prenons en charge (${s})`, corps: `Je suis sincèrement navré pour ce désagrément, ce n'est pas le niveau de qualité que nous visons. Pouvez-${vous === "tu" ? "tu m'" : "vous m'"}envoyer une photo et votre numéro de commande ? Je vous propose immédiatement [remplacement / remboursement] et fais le nécessaire en priorité.` },
+    relance: { analyse: "Relance/panier abandonné → rappel doux + incitation.", objet: `Votre sélection ${s} vous attend`, corps: `Je reviens vers ${vous === "tu" ? "toi" : "vous"} : votre sélection est toujours disponible. Si une question vous a retenu (livraison, dimensions, choix), je suis là pour ${vous === "tu" ? "t'" : "vous "}aider. Pour rappel : ${ctx.promises?.slice(0, 2).join(", ") || "livraison soignée et retours simples"}.` },
+    devis: { analyse: "Demande de prix/devis par email → cadrer le besoin avant chiffrage.", objet: `Votre demande de devis — ${s}`, corps: `Merci pour votre demande. Pour établir un devis précis : quels produits/quantités, et pour quelle date de livraison souhaitée ? Dès réception, je vous envoie un devis détaillé (prix, délais, conditions).` },
+    general: { analyse: "Demande générale → réponse pro, claire, orientée solution.", objet: `Votre message — ${s}`, corps: `Merci pour votre message. [Reformulation de la demande.] Voici ce que je vous propose : [solution concrète], sous [délai]. ${ret}. Je reste à votre disposition pour toute question.` },
+  };
+  const e = cases[c];
 
-### Prestations
-| Prestation | Description | Qté | PU HT | Total HT |
-|---|---|---|---|---|
-| [Prestation 1] | [détail] | 1 | [€] | [€] |
-| [Prestation 2] | [détail] | 1 | [€] | [€] |
+  return `## ✉️ Email client — ${s}
 
-### Récapitulatif
-- **Total HT :** [€]
-- **TVA (20%) :** [€]
-- **Total TTC :** [€]
+**Analyse rapide** : ${e.analyse}
+
+### Email prêt à envoyer
+**Objet :** ${e.objet}
+
+---
+${greet}
+
+${e.corps}
+
+${vous === "tu" ? "À très vite," : "Bien à vous,"}
+[Votre prénom] — Service client ${s}
+---
+
+### Variante courte
+> ${greet} ${e.corps.split(".")[0]}. Je m'en occupe et reviens vers ${vous === "tu" ? "toi" : "vous"} rapidement. ${vous === "tu" ? "À bientôt" : "Bien à vous"}, ${s}.
+
+### Variante plus chaleureuse
+> Ajoutez une touche personnelle (remerciement sincère, petit geste) et un emoji léger si votre marque le permet.
+
+> ⚠️ Les informations entre [crochets] ne sont pas confirmées par le scan public — **à vérifier dans votre back-office** avant envoi (ton : ${ctx.formality || "vouvoiement"}${ctx.shippingDelay ? `, livraison ${ctx.shippingDelay}` : ""}).`;
+}
+
+function quoteAnswer(ctx: CouncilContext, question: string): string {
+  const s = brandOf(ctx);
+  const ship = ctx.shippingDelay || "[délai à confirmer]";
+  return `## 🧾 Assistant devis — ${s}
+
+**Résumé du besoin** : ${question ? `« ${question.trim().slice(0, 120)} »` : "devis commercial (à préciser)"}.
+
+### À demander si l'info manque
+- Produits/références exactes + **quantités**.
+- **Date de livraison** souhaitée + adresse (national/international).
+- Cadre : particulier, **B2B / revendeur**, projet **sur-mesure**, **lot**, livraison spéciale.
+- Budget indicatif (utile pour proposer une gamme).
+
+### Structure de devis recommandée
+**Émis par :** ${s} · **Pour :** [Client] · **Date :** [date] · **Validité :** 30 jours
+
+| Réf. | Désignation | Qté | PU HT | Remise | Total HT |
+|---|---|---|---|---|---|
+| [réf.1] | [produit] | [qté] | [€] | [%] | [€] |
+| [réf.2] | [produit] | [qté] | [€] | [%] | [€] |
+
+**Récapitulatif** : Total HT [€] · TVA 20% [€] · **Total TTC [€]**
 
 ### Conditions
-- Acompte de 30% à la commande, solde à la livraison.
-- Délai de réalisation : [X jours] après validation.
+- **Acompte** 30% à la commande, solde avant expédition (ajustable B2B).
+- **Délai** : ${ship} après validation (préciser si sur-mesure).
+- **Remise volume** : proposer un palier (ex. -5% dès [X] unités, -10% dès [Y]).
+- Frais de livraison : [selon poids/destination].
 
-> Exportez ce devis en HTML via le bouton **Convertir en HTML**.`;
+### Message d'accompagnement (email)
+> Bonjour [Prénom], suite à votre demande, voici votre devis en pièce jointe. Il est valable 30 jours et inclut [points clés]. Je reste disponible pour l'ajuster (quantités, délais, livraison). Bien à vous, ${s}.
+
+### ✅ À vérifier avant envoi
+- Prix et remises cohérents avec vos marges.
+- TVA et mentions légales (n° devis, SIRET).
+- Délais réalistes selon stock/sur-mesure.
+
+> Données produits/prix exactes : **non disponibles via scan public** — à renseigner depuis votre catalogue (l'API Shopify les rendra automatiques).`;
 }
 
 function strategyAnswer(ctx: CouncilContext): string {
-  return `## Stratégie e-commerce pour ${brandOf(ctx)}
+  const s = brandOf(ctx);
+  const cols = ctx.collections?.length ? ctx.collections : [];
+  return `## 📈 Diagnostic & stratégie e-commerce — ${s}
 
-Une croissance saine s'appuie sur trois moteurs travaillés en parallèle.
+### Diagnostic business rapide
+${dataUsed(ctx).slice(0, 6).map((d) => `- ${d}`).join("\n") || "- Lancez un scan pour un diagnostic chiffré."}
+- Niche : **${nicheOf(ctx)}**, positionnement **${ctx.positioning || "premium"}**.
 
-### 1. Acquisition
-- **SEO** : collections + fiches + blog longue traîne (canal durable).
-- **Ads** : Google Shopping/Meta sur vos best-sellers à forte marge.
+### Priorités par impact
+- **Haut** : ${ctx.weakDescriptions ? `enrichir ${ctx.weakDescriptions} fiches faibles + ` : ""}optimiser le SEO des collections (${cols.slice(0, 3).join(", ") || "principales"}) — ROI durable.
+- **Moyen** : réassurance + preuve sociale pour la conversion ; ${ctx.englishCount ? `traduire ${ctx.englishCount} libellés ; ` : ""}corriger les pages légales.
+- **Bas** : alt text, tags, structure catalogue.
 
-### 2. Conversion
-- Fiches produits premium (bénéfices, FAQ, preuve sociale).
-- Réassurance : livraison, retours, paiement sécurisé visibles.
-- Réduisez la friction du checkout.
+### Opportunités de croissance
+- **SEO** : ${ctx.productsFound ?? "de nombreux"} produits → fort potentiel longue traîne (clusters par collection).
+- **Conversion** : fiches premium + FAQ + avis = +taux de transformation sans coût d'acquisition.
+- **Contenu** : guides d'achat (« comment choisir… ») reliés aux collections.
+- **Ads/Merchant** : flux Shopping propre (product_type, descriptions) sur les best-sellers à marge.
 
-### 3. Rétention
-- Email/SMS : bienvenue, panier abandonné, post-achat.
-- Programme de fidélité / offres exclusives.
+### Roadmap
+**7 jours** — quick wins : meta manquantes (${ctx.missingMeta ?? 0}), textes anglais (${ctx.englishCount ?? 0}), product_type (${ctx.noType ?? 0}), réassurance home.
+**30 jours** — contenu SEO collections + 15–20 fiches enrichies + maillage interne + scénarios email (bienvenue, panier, post-achat).
+**90 jours** — clusters blog, programme fidélité, montée en puissance Google Shopping, optimisation continue (A/B fiches & home).
 
-### 🎯 Priorisation
-Commencez par la **conversion** (ROI immédiat), puis l'**acquisition** (volume), enfin la **rétention** (LTV).
+### ⚡ Quick wins
+- Bloc réassurance haut de home (Section Builder).
+- FAQ collections (rich snippets).
+- Avis clients visibles au-dessus de la ligne de flottaison.
 
-> Demandez **« plan d'action sur 30 jours »** pour un planning détaillé.`;
+### ⚠️ Risques
+- Conformité Merchant (pages légales/langue) avant d'investir en Ads.
+- Contenu dupliqué/fournisseur sur les fiches → pénalisant SEO.
+
+### 🚀 Modules Orkestra
+- **SEO Studio** (contenu), **Merchant Shield** (conformité avant Ads), **Section Builder** (conversion).
+
+> Demandez **« plan d'action sur 30 jours »** pour le détail hebdomadaire.`;
 }
 
 function strategyPlan30(ctx: CouncilContext): string {
@@ -1109,40 +1291,68 @@ Taux de conversion, panier moyen, CAC, LTV, ROAS.`;
 
 function competitiveAnswer(ctx: CouncilContext): string {
   const s = brandOf(ctx);
-  const comp = ctx.competitors?.length ? ctx.competitors : ["vos concurrents directs"];
-  return `## Analyse concurrentielle — niche ${nicheOf(ctx)}
+  const hasComp = Boolean(ctx.competitors?.length);
+  const comp = hasComp ? ctx.competitors! : [];
+  const key = detectNiche(`${ctx.niche ?? ""} ${ctx.brandName ?? ""}`);
+  const { preset } = getPreset(ctx);
+  const probable = hasComp ? comp : preset.competitors;
+  const vocab = nicheVocab(key);
 
-Cadre d'analyse pour positionner ${s} face à ${comp.slice(0, 3).join(", ")}.
+  return `## ⚔️ Analyse concurrentielle — ${s} (niche ${nicheOf(ctx)})
 
-### Axes à comparer
-- **Positionnement & prix** : où se situe ${s} (${ctx.positioning || "premium"}) face à ${comp[0]} ?
-- **USP** : promesse unique mise en avant en page d'accueil.
-- **Contenu SEO** : profondeur des fiches, blog, FAQ.
-- **Preuve sociale** : volume et qualité des avis.
-- **Expérience** : vitesse, mobile, réassurance.
+> ℹ️ **Analyse indicative** : aucun site concurrent n'a été crawlé. Elle s'appuie sur les concurrents probables de la niche et vos données de scan. **Ajoutez des URLs concurrentes** (dans la Mémoire boutique) pour une analyse factuelle et comparée.
 
-### Méthode
-1. Comparez-vous à ${comp.slice(0, 3).join(", ")}.
-2. Notez chaque axe de 1 à 5.
-3. Identifiez vos **angles différenciants** (là où vous pouvez gagner vite).
+### Concurrents probables
+${probable.slice(0, 5).map((c) => `- ${c}`).join("\n")}
 
-### 🎯 Sortie
-Un tableau forces/faiblesses + 3 angles à exploiter dans votre SEO et vos fiches.
+### Angles différenciants possibles pour ${s}
+- **Spécialisation niche** : ${nicheOf(ctx)} en profondeur (vs généralistes comme ${probable[0] || "les grandes enseignes"}).
+- **Contenu expert** : guides d'achat (${vocab.descHints.split(",").slice(0, 2).join(",")}) que les généralistes négligent.
+- **Réassurance & service** : ${ctx.promises?.slice(0, 2).join(", ") || "livraison soignée, conseils personnalisés"}.
 
-> Renseignez vos concurrents dans la **Mémoire boutique** pour des analyses personnalisées.`;
+### Comparaison (à valider avec un crawl concurrent)
+| Axe | ${s} (détecté) | Concurrents typiques |
+|---|---|---|
+| SEO collections | ${ctx.collections?.length ? ctx.collections.length + " collections" : "à renforcer"} | souvent bien optimisés |
+| Contenu produit | ${ctx.weakDescriptions ? ctx.weakDescriptions + " fiches faibles" : "à vérifier"} | descriptions longues + avis |
+| Preuve sociale | à vérifier (vue publique) | avis nombreux |
+| UX / réassurance | ${ctx.englishCount ? "incohérences (anglais)" : "à confirmer"} | rodée |
+
+### Opportunités pour se différencier
+- Mots-clés à attaquer (longue traîne) : ${nicheKeywords(key, vocab, ctx.collections ?? []).longtail.slice(0, 4).map((k) => `\`${k}\``).join(", ")}.
+- Sections à ajouter : FAQ de collection, comparatifs, guides d'achat, avis.
+- Stratégie pour dépasser : profondeur de contenu + maillage interne + service client supérieur.
+
+> ⚠️ Aucun fait précis sur un concurrent n'est affirmé sans crawl de son site. Restez prudent tant que les URLs ne sont pas analysées.`;
 }
 
 function freeAnswer(q: string, ctx: CouncilContext): string {
-  return `## Réponse de l'orchestre
+  // Routing intelligent : on bascule vers l'expert correspondant à l'intention.
+  const intent = detectIntent(q || "");
+  if (intent !== "free") {
+    return `> **Mode : Question libre** · intention détectée → **${MODE_LABEL[intent]}**. Pour une réponse encore plus ciblée, sélectionnez ce mode en haut.\n\n` + buildFinalAnswer(intent, q, ctx);
+  }
+  // Demande d'aide Shopify "comment faire" → mini guide pas à pas.
+  if (/comment|où|ou |pourquoi|aide/i.test(q)) {
+    return `> **Mode : Question libre** · Données : mémoire boutique\n\n## Réponse Orkestra — ${brandOf(ctx)}
 
-${q ? `Concernant votre demande « ${q.trim()} » :` : "Voici une réponse structurée et actionnable :"}
+Concernant « ${q.trim().slice(0, 120)} » :
+1. **Diagnostic** : ce que ça implique pour votre boutique (${nicheOf(ctx)}).
+2. **Étapes concrètes** : 3 à 5 actions ordonnées.
+3. **Module Orkestra** recommandé selon le sujet (SEO Studio / Merchant Shield / Section Builder / Assistant Shopify).
+4. **Mesure** : comment vérifier le résultat.
 
-- **Contexte** : analyse appliquée à ${brandOf(ctx)} (niche ${nicheOf(ctx)}).
+> Précisez un mode (SEO, Merchant Center, Code Shopify…) pour une réponse d'expert dédiée.`;
+  }
+  return `> **Mode : Question libre** · Données : mémoire boutique\n\n## Réponse Orkestra — ${brandOf(ctx)}
+
+${q ? `Concernant « ${q.trim().slice(0, 120)} » :` : "Voici une réponse structurée :"}
+- **Contexte** : ${nicheOf(ctx)}, positionnement ${ctx.positioning || "premium"}${ctx.productsFound ? `, ${ctx.productsFound} produits détectés` : ""}.
 - **Recommandation principale** : l'action à plus fort impact à lancer en premier.
-- **Étapes** : 3 à 5 actions concrètes et ordonnées.
-- **Mesure** : comment vérifier que ça fonctionne.
+- **Étapes** : 3 à 5 actions concrètes.
+- **Module Orkestra** recommandé + **mesure** du résultat.
 
-> Précisez un mode (SEO, Code Shopify, Merchant Center…) en haut pour une réponse encore plus ciblée.`;
+> Sélectionnez un mode en haut (SEO, Merchant, Code…) pour une réponse d'expert spécialisée.`;
 }
 
 // ── Review / analyse complète de site (adaptée à la boutique) ────────────────
