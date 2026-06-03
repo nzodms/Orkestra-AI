@@ -11,8 +11,12 @@ import {
 import type { CouncilMode, AIProviderId, CouncilResult, ProductSeoResult, SectionResult, GenMeta } from "../types";
 import { chatComplete } from "./openai";
 import { getPreset } from "../niche";
+import { routeSection, PROVIDER_NAME, type SectionMode } from "./sectionModelRouter";
 import { getEncrypted } from "../server/keyStore";
 import { decryptSecret } from "../crypto";
+
+// Modes orientés relecture/correction de code.
+const REVIEW_ORIENTED: SectionMode[] = ["review", "fix", "mobile", "nojs", "settings"];
 
 // ──────────────────────────────────────────────────────────────────────────
 // Orchestration des générations : LIVE (OpenAI) si une clé est connectée et
@@ -316,7 +320,8 @@ export async function runSection(
   input: SectionInput,
   ctx: CouncilContext,
   refs?: KeyRefs,
-  opts?: SectionImprove
+  opts?: SectionImprove,
+  connected: AIProviderId[] = []
 ): Promise<{ result: SectionResult; meta: GenMeta }> {
   const mock = generateSection({
     ...input,
@@ -325,12 +330,34 @@ export async function runSection(
     collection: input.collection ?? ctx.collections?.[0],
   });
 
-  if (!liveEnabled()) return { result: mock, meta: { live: false, generatedAt: nowIso(), fallbackReason: "Mode démo (ORKESTRA_MOCK_MODE)" } };
-  const key = await resolveOpenAIKey(refs);
-  if (!key) return { result: mock, meta: { live: false, generatedAt: nowIso(), fallbackReason: "Aucune clé OpenAI connectée" } };
+  // Routing IA/code : choisit le meilleur moteur dispo selon type/complexité/action.
+  const routing = routeSection({
+    type: input.type,
+    complexity: input.complexity,
+    action: opts?.directive ?? null,
+    connected: connected.length ? connected : refs?.openai ? ["openai"] : [],
+  });
+  const recProvider = PROVIDER_NAME[routing.recommendedProvider];
 
+  if (!liveEnabled())
+    return { result: mock, meta: { live: false, generatedAt: nowIso(), fallbackReason: "Mode démo (ORKESTRA_MOCK_MODE)", recommendedProvider: recProvider, routingNote: routing.note } };
+  // Seul OpenAI est live-capable aujourd'hui : si le routeur ne désigne pas un
+  // moteur live, on retombe proprement sur le mock enrichi.
+  const key = routing.usedProvider === "openai" ? await resolveOpenAIKey(refs) : null;
+  if (!key)
+    return { result: mock, meta: { live: false, generatedAt: nowIso(), fallbackReason: "Aucun moteur live disponible pour cette section", recommendedProvider: recProvider, routingNote: routing.note } };
+
+  // Prompt orienté selon le tier (long/robuste pour complexe/ultra ; review pour correction).
+  const depth =
+    routing.tier === "simple"
+      ? "Section concise mais soignée."
+      : "Section LONGUE et ROBUSTE : Liquid complet, schema détaillé (settings + blocks + presets), CSS robuste et responsive, accessibilité poussée. Ne prends aucun raccourci.";
+  const reviewLine = REVIEW_ORIENTED.includes(routing.mode)
+    ? "\nMODE RELECTURE/CORRECTION : agis comme un développeur qui relit le code — détecte et corrige les erreurs Liquid/schema, namespace les classes, optimise le mobile/l'accessibilité, supprime le JS inutile, et produis une version finale prête à coller."
+    : "";
   const system =
     "Tu es un expert thèmes Shopify (Liquid, Online Store 2.0) et UI/UX premium (qualité Apple/Linear/Framer). Tu génères des SECTIONS Shopify autonomes, propres, modernes et responsive.\n" +
+    depth + reviewLine + "\n" +
     "Réponds UNIQUEMENT par un objet JSON valide avec EXACTEMENT ces clés : summary (string markdown), liquid (string), css (string), js (string, vide si inutile), schema (string contenant le bloc {% schema %} ... {% endschema %} avec un JSON VALIDE), installSteps (string[]), responsiveChecklist (array de {label, ok:boolean}).\n" +
     "RÈGLES STRICTES : compatible Online Store 2.0 ; section autonome ; HTML sémantique ; Liquid valide ; AUCUNE dépendance/librairie externe ; classes CSS TOUTES préfixées par `.ork-<nom>` (jamais .container/.button/.title nus) ; responsive solide (mobile repensé, clamp(), media queries) ; éviter le JS si CSS/Liquid suffit, sinon JS encapsulé en IIFE sans variable globale ; schema JSON VALIDE (settings + blocks si pertinent) ; rendu propre même si les settings sont vides (utilise `default`) ; n'invente PAS de données produit — utilise des placeholders modifiables ; accessibilité (contraste, focus, aria).";
 
@@ -352,15 +379,27 @@ export async function runSection(
   const prompt =
     `=== Contexte boutique ===\n${contextBlock(ctx) || "(peu de données — utilise des placeholders)"}\n\n=== Tâche ===\n${task}`;
 
-  const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.3, maxTokens: 3600, json: true });
-  if (!r.ok) return { result: mock, meta: { live: false, generatedAt: nowIso(), fallbackReason: r.message } };
+  const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.3, maxTokens: routing.tier === "simple" ? 2600 : 3800, json: true });
+  if (!r.ok) return { result: mock, meta: { live: false, generatedAt: nowIso(), fallbackReason: r.message, recommendedProvider: recProvider, routingNote: routing.note } };
 
   try {
     const p = JSON.parse(r.text);
     const result = coerceSection(p, mock, input.complexity);
-    return { result, meta: { live: true, provider: "openai", model: r.model, tokens: r.tokens, generatedAt: nowIso() } };
+    return {
+      result,
+      meta: {
+        live: true,
+        provider: "openai",
+        model: r.model,
+        tokens: r.tokens,
+        generatedAt: nowIso(),
+        recommendedProvider: recProvider,
+        routingNote: routing.note,
+        reviewer: routing.reviewerProvider ? PROVIDER_NAME[routing.reviewerProvider] : undefined,
+      },
+    };
   } catch {
-    return { result: mock, meta: { live: false, generatedAt: nowIso(), fallbackReason: "Réponse OpenAI non parsable — fallback mock" } };
+    return { result: mock, meta: { live: false, generatedAt: nowIso(), fallbackReason: "Réponse OpenAI non parsable — fallback mock", recommendedProvider: recProvider, routingNote: routing.note } };
   }
 }
 

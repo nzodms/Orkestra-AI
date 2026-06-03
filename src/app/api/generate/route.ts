@@ -34,7 +34,8 @@ export async function POST(req: Request) {
         body.input as SectionInput,
         body.context || {},
         keyRefs,
-        body.improve as SectionImprove | undefined
+        body.improve as SectionImprove | undefined,
+        (body.providers as AIProviderId[]) || []
       );
       return NextResponse.json({ ok: true, result, meta });
     }

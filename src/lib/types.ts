@@ -355,6 +355,12 @@ export interface GenMeta {
   tokens?: number;
   generatedAt: string;
   fallbackReason?: string;
+  /** Section Builder : modèle idéal recommandé (peut différer de l'utilisé). */
+  recommendedProvider?: string;
+  /** Message de routing clair pour l'utilisateur. */
+  routingNote?: string;
+  /** Modèle de relecture appliqué (futur agent de code). */
+  reviewer?: string;
 }
 
 export interface CouncilResult {

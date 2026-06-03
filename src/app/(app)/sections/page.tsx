@@ -5,9 +5,10 @@ import { useOrkestra, connectedProviders } from "@/lib/store";
 import { PageHeader, Card, Field, Badge } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import type { SectionResult, GenMeta, GenerationRecord } from "@/lib/types";
+import { routeSection, PROVIDER_NAME } from "@/lib/ai/sectionModelRouter";
 import {
   Blocks, Copy, Check, Sparkles, Smartphone, Wand2, Bug, FileCode2, Settings2,
-  Scissors, Tag, ShoppingBag, Home, AlertTriangle, Eye,
+  Scissors, Tag, ShoppingBag, Home, AlertTriangle, Eye, Cpu,
 } from "lucide-react";
 
 const SECTION_TYPES = [
@@ -65,11 +66,15 @@ export default function SectionsPage() {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
+  // Routing client (pour l'aperçu du modèle recommandé).
+  const routing = routeSection({ type: form.type, complexity: form.complexity, action: null, connected: providers });
+
   function payloadBase() {
     return {
       kind: "section",
       input: { ...form, animations: form.animation !== "aucune", niche: brand.niche, brandName: brand.storeName },
       keyRefs: { openai: connections.openai?.keyId },
+      providers,
       context: {
         brandName: brand.storeName || undefined,
         niche: brand.niche || undefined,
@@ -220,6 +225,16 @@ export default function SectionsPage() {
                 </label>
               ))}
             </div>
+            <div className="flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3 text-xs text-[var(--text-muted)]">
+              <Cpu className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600" />
+              <div>
+                Orkestra choisit le meilleur modèle disponible pour votre section.{" "}
+                {routing.recommendedProvider !== "openai" && (
+                  <>Recommandé : <strong>{PROVIDER_NAME[routing.recommendedProvider]}</strong> (sections {routing.tier === "ultra" ? "ultra premium" : "complexes"}). </>
+                )}
+                {routing.usedProvider ? <>Utilisé : <strong>{PROVIDER_NAME[routing.usedProvider]} live</strong>.</> : "Mode démo (connectez OpenAI)."}
+              </div>
+            </div>
             <Button onClick={generate} loading={loading} size="lg" className="w-full" icon={!loading ? <Blocks className="h-4 w-4" /> : undefined}>
               {loading ? "Génération du code…" : "Générer la section"}
             </Button>
@@ -249,12 +264,17 @@ export default function SectionsPage() {
           {result && (
             <Card className="animate-fade-in">
               {/* Meta line */}
-              <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-                {meta?.live ? <Badge tone="good">OpenAI live</Badge> : <Badge tone="neutral">Mode démo</Badge>}
-                {result.complexity && <Badge tone="brand">{result.complexity}</Badge>}
-                <span className="text-[var(--text-muted)]">
-                  {meta?.live ? `Généré avec OpenAI · ${meta.model}${meta.tokens ? ` · ${meta.tokens} tokens` : ""}` : `Section simulée${meta?.fallbackReason ? ` · ${meta.fallbackReason}` : ""}`}
-                </span>
+              <div className="mb-3 space-y-1">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  {meta?.live ? <Badge tone="good">{meta.provider === "openai" ? "OpenAI live" : "Live"}</Badge> : <Badge tone="neutral">Mode démo</Badge>}
+                  {result.complexity && <Badge tone="brand">{result.complexity}</Badge>}
+                  <span className="text-[var(--text-muted)]">
+                    {meta?.live ? `Généré avec ${meta.model}${meta.tokens ? ` · ${meta.tokens} tokens` : ""}` : `Section simulée${meta?.fallbackReason ? ` · ${meta.fallbackReason}` : ""}`}
+                  </span>
+                </div>
+                {meta?.routingNote && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]"><Cpu className="h-3 w-3" /> {meta.routingNote}{meta.reviewer ? ` · relecture : ${meta.reviewer}` : ""}</div>
+                )}
               </div>
 
               {/* Warnings */}
