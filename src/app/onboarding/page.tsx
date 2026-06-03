@@ -60,36 +60,26 @@ function Group({ icon: Icon, title, children }: { icon: React.ElementType; title
   );
 }
 
-// Résumé dynamique « Ce qu'Orkestra comprend » — en chips, synthétique.
+// Profil en cours — chips discrètes (pas de paragraphe, pas de ton scolaire).
 function Understanding({ brand }: { brand: BrandMemory }) {
   const posLabel = POSITIONINGS.find((p) => p.id === brand.positioning)?.label;
   const tone = brand.writingStyle ? brand.writingStyle.split(",")[0].trim() : "";
   const items: { label: string; value: string }[] = [];
-  if (brand.storeName?.trim()) items.push({ label: "Boutique", value: brand.storeName.trim() });
   if (brand.niche?.trim()) items.push({ label: "Niche", value: brand.niche.trim() });
   if (posLabel) items.push({ label: "Position", value: posLabel });
-  if (tone) items.push({ label: "Ton", value: tone });
   if (brand.country?.trim()) items.push({ label: "Cible", value: brand.country.trim() });
+  if (tone) items.push({ label: "Ton", value: tone });
+  if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-transparent p-4 dark:border-brand-900 dark:from-brand-950/40">
-      <div className="mb-2.5 flex items-center gap-1.5 text-xs font-semibold text-brand-700 dark:text-brand-300">
-        <Sparkles className="h-3.5 w-3.5" /> Ce qu&apos;Orkestra comprend
-      </div>
-      {items.length ? (
-        <div className="flex flex-wrap gap-2">
-          {items.map((it) => (
-            <span key={it.label} className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs">
-              <span className="text-[var(--text-muted)]">{it.label}</span>
-              <span className="font-semibold text-[var(--text)]">{it.value}</span>
-            </span>
-          ))}
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-600 px-3 py-1 text-xs font-medium text-white">
-            <Check className="h-3 w-3" /> Priorité : SEO + conversion
-          </span>
-        </div>
-      ) : (
-        <p className="text-sm text-[var(--text-muted)]">Votre profil s&apos;affiche ici en direct, au fil des réponses.</p>
-      )}
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[11px] font-medium uppercase tracking-wide text-ink-400">Profil en cours</span>
+      {items.map((it) => (
+        <span key={it.label} className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-xs">
+          <span className="text-[var(--text-muted)]">{it.label}</span>
+          <span className="font-medium text-[var(--text)]">{it.value}</span>
+        </span>
+      ))}
+      <span className="inline-flex items-center rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 dark:bg-brand-950 dark:text-brand-300">Priorité : SEO + conversion</span>
     </div>
   );
 }
@@ -173,34 +163,33 @@ export default function OnboardingPage() {
 
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-5 pb-16 pt-2">
         {/* Stepper */}
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-8 flex items-start">
           {STEPS.map((s, i) => {
             const Icon = s.icon;
             const done = step > s.id;
             const active = step === s.id;
+            const first = i === 0;
+            const last = i === STEPS.length - 1;
             return (
-              <div key={s.id} className="flex flex-1 items-center">
-                <div className="flex flex-col items-center gap-1.5">
-                  <div
-                    className={`grid h-10 w-10 place-items-center rounded-xl border transition-all duration-300 ${
+              <div key={s.id} className="flex flex-1 flex-col items-center">
+                <div className="flex w-full items-center">
+                  <span className={`h-0.5 flex-1 rounded transition-colors duration-500 ${first ? "opacity-0" : step >= s.id ? "bg-brand-600" : "bg-[var(--border)]"}`} />
+                  <span
+                    className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl border transition-all duration-300 ${
                       done
                         ? "border-brand-600 bg-brand-600 text-white"
                         : active
-                        ? "scale-110 border-brand-400 bg-brand-50 text-brand-600 ring-4 ring-brand-500/15 dark:bg-brand-950"
+                        ? "scale-105 border-brand-400 bg-brand-50 text-brand-600 ring-4 ring-brand-500/15 dark:bg-brand-950"
                         : "border-[var(--border)] text-ink-400"
                     }`}
                   >
-                    {done ? <Check key="done" className="h-5 w-5 animate-pop" /> : <Icon className="h-5 w-5" />}
-                  </div>
-                  <span className={`text-xs transition-colors ${active ? "font-semibold text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
-                    {s.label}
+                    {done ? <Check className="h-5 w-5 animate-pop" /> : <Icon className="h-5 w-5" />}
                   </span>
+                  <span className={`h-0.5 flex-1 rounded transition-colors duration-500 ${last ? "opacity-0" : step > s.id ? "bg-brand-600" : "bg-[var(--border)]"}`} />
                 </div>
-                {i < STEPS.length - 1 && (
-                  <div className="mx-2 h-0.5 flex-1 overflow-hidden rounded bg-[var(--border)]">
-                    <div className={`h-full rounded bg-brand-600 transition-all duration-500 ${step > s.id ? "w-full" : "w-0"}`} />
-                  </div>
-                )}
+                <span className={`mt-2 text-center text-xs transition-colors ${active ? "font-semibold text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
+                  {s.label}
+                </span>
               </div>
             );
           })}
@@ -218,20 +207,20 @@ export default function OnboardingPage() {
               <Group icon={Store} title="Identité">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Nom de la boutique">
-                    <input className="input" value={brand.storeName} onChange={(e) => updateBrand({ storeName: e.target.value })} placeholder="Ex : Reformio" />
+                    <input className="input" value={brand.storeName} onChange={(e) => updateBrand({ storeName: e.target.value })} placeholder="Nom de votre boutique" />
                   </Field>
                   <Field label="URL de la boutique">
-                    <input className="input" value={brand.publicUrl} onChange={(e) => updateBrand({ publicUrl: e.target.value })} placeholder="https://maboutique.com" />
+                    <input className="input" value={brand.publicUrl} onChange={(e) => updateBrand({ publicUrl: e.target.value })} placeholder="https://votreboutique.com" />
                   </Field>
                   <Field label="Pays / langue">
-                    <input className="input" value={brand.country} onChange={(e) => updateBrand({ country: e.target.value })} placeholder="Ex : France · Français" />
+                    <input className="input" value={brand.country} onChange={(e) => updateBrand({ country: e.target.value })} placeholder="France · Français" />
                   </Field>
                 </div>
               </Group>
 
               <Group icon={Target} title="Marché">
                 <Field label="Niche">
-                  <input className="input" value={brand.niche} onChange={(e) => updateBrand({ niche: e.target.value })} placeholder="Ex : Pilates, luminaires, mode…" />
+                  <input className="input" value={brand.niche} onChange={(e) => updateBrand({ niche: e.target.value })} placeholder="Ex : luminaires, beauté, mode" />
                 </Field>
                 <div className="mt-4">
                   <span className="label">Positionnement</span>
@@ -382,7 +371,7 @@ export default function OnboardingPage() {
               <Group icon={Eye} title="Vue client">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Lien public de la boutique">
-                    <input className="input" value={brand.publicUrl} onChange={(e) => updateBrand({ publicUrl: e.target.value })} placeholder="https://maboutique.com" />
+                    <input className="input" value={brand.publicUrl} onChange={(e) => updateBrand({ publicUrl: e.target.value })} placeholder="https://votreboutique.com" />
                   </Field>
                   <Field label="Lien admin Shopify (optionnel)">
                     <input className="input" value={brand.adminUrl} onChange={(e) => updateBrand({ adminUrl: e.target.value })} placeholder="https://admin.shopify.com/store/…" />

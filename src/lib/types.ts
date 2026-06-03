@@ -399,3 +399,25 @@ export interface CouncilTurn {
   result?: CouncilResult;
   meta?: GenMeta;
 }
+
+// ── Assistant Shopify (exécution pas-à-pas, persisté) ───────────────────────
+export interface AssistantProc {
+  title: string;
+  /** Réponse courte d'introduction. */
+  short?: string;
+  steps: string[];
+  note?: string;
+  english?: { text: string; suggestion: string }[];
+  products?: { title: string }[];
+  missingLegal?: string[];
+  council?: { label: string; href: string };
+  seo?: boolean;
+  /** Actions suivantes proposées (questions de suivi). */
+  nextActions?: { label: string; q: string }[];
+  /** Réponse OpenAI live (markdown) pour les demandes hors-template. */
+  ai?: string;
+}
+export type AssistantTurn =
+  | { id: string; role: "user"; text: string }
+  | { id: string; role: "assistant"; proc: AssistantProc };
+

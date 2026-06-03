@@ -9,9 +9,25 @@ import type {
   GenerationRecord,
   CouncilTurn,
   StoreAnalysis,
+  AssistantTurn,
+  ProductSeoResult,
+  GenMeta,
 } from "./types";
+import type { CollectionSeoResult, MetaVariant, BlogOutlineResult } from "./ai/engine";
 import { PROVIDER_ORDER } from "./providers";
 import { DEFAULT_BRAND_MEMORY } from "./mock-data";
+
+// État persisté du SEO Studio : dernières générations par workflow.
+export interface SeoStudioState {
+  product: ProductSeoResult | null;
+  productMeta: GenMeta | null;
+  collection: CollectionSeoResult | null;
+  meta: MetaVariant[] | null;
+  alt: string[] | null;
+  altSubject: string;
+  blog: BlogOutlineResult | null;
+}
+const EMPTY_SEO: SeoStudioState = { product: null, productMeta: null, collection: null, meta: null, alt: null, altSubject: "", blog: null };
 
 // ──────────────────────────────────────────────────────────────────────────
 // Store client (zustand + persist localStorage).
@@ -49,6 +65,15 @@ interface OrkestraState {
   resolvedIssues: string[];
   /** Conversation AI Council persistée (survit à la navigation). */
   councilMessages: CouncilTurn[];
+  // ── Merchant Shield (persisté) ──
+  /** Date du dernier audit Merchant lancé (ISO) ou null. */
+  merchantAuditAt: string | null;
+  /** Clés des items Merchant marqués comme corrigés. */
+  merchantResolved: string[];
+  // ── Assistant Shopify (persisté) ──
+  assistantMessages: AssistantTurn[];
+  // ── SEO Studio (persisté) ──
+  seo: SeoStudioState;
 
   setOnboardingComplete: (v: boolean) => void;
   setStoreScanned: (v: boolean) => void;
@@ -61,6 +86,11 @@ interface OrkestraState {
   toggleIssue: (id: string) => void;
   addCouncilTurn: (turn: CouncilTurn) => void;
   clearCouncil: () => void;
+  setMerchantAudited: () => void;
+  toggleMerchantResolved: (key: string) => void;
+  addAssistantTurn: (turn: AssistantTurn) => void;
+  clearAssistant: () => void;
+  setSeo: (patch: Partial<SeoStudioState>) => void;
 }
 
 export const useOrkestra = create<OrkestraState>()(
@@ -75,6 +105,10 @@ export const useOrkestra = create<OrkestraState>()(
       history: [],
       resolvedIssues: [],
       councilMessages: [],
+      merchantAuditAt: null,
+      merchantResolved: [],
+      assistantMessages: [],
+      seo: EMPTY_SEO,
 
       setOnboardingComplete: (v) => set({ onboardingComplete: v }),
       setStoreScanned: (v) => set({ storeScanned: v }),
@@ -110,6 +144,17 @@ export const useOrkestra = create<OrkestraState>()(
       addCouncilTurn: (turn) =>
         set((s) => ({ councilMessages: [...s.councilMessages, turn] })),
       clearCouncil: () => set({ councilMessages: [] }),
+      setMerchantAudited: () => set({ merchantAuditAt: new Date().toISOString() }),
+      toggleMerchantResolved: (key) =>
+        set((s) => ({
+          merchantResolved: s.merchantResolved.includes(key)
+            ? s.merchantResolved.filter((x) => x !== key)
+            : [...s.merchantResolved, key],
+        })),
+      addAssistantTurn: (turn) =>
+        set((s) => ({ assistantMessages: [...s.assistantMessages, turn] })),
+      clearAssistant: () => set({ assistantMessages: [] }),
+      setSeo: (patch) => set((s) => ({ seo: { ...s.seo, ...patch } })),
     }),
     {
       name: "orkestra-store",
