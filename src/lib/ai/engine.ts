@@ -667,25 +667,6 @@ function nicheVocab(key: NicheKey): NicheVocab {
 }
 
 /** Bloc de correction concrète prêt à coller pour une collection. */
-function collectionCorrection(ctx: CouncilContext, coll: string): string {
-  const s = brandOf(ctx);
-  const key = detectNiche(`${ctx.niche ?? ""} ${ctx.brandName ?? ""}`);
-  const vocab = nicheVocab(key);
-  const faqs = vocab.faqs(coll);
-  return `**Collection « ${coll} »** — correction prête à appliquer :
-- **Title** : \`${coll} | ${s}\` (≤ 60 car.)
-- **Meta** : \`Découvrez notre sélection de ${coll.toLowerCase()} pour ${vocab.pieces.slice(0, 3).join(", ")}. Livraison gratuite, sélection premium.\` (≤ 155 car.)
-- **H1** : \`${coll} — la sélection ${s}\`
-- **Structure H2/H3** : « Pourquoi choisir nos ${coll.toLowerCase()} », « Comment bien choisir vos ${coll.toLowerCase()} (${vocab.descHints.split(",").slice(0, 3).join(",")}) », « Nos best-sellers »
-- **FAQ (5 questions)** :
-  - ${faqs[0]}
-  - ${faqs[1]}
-  - ${faqs[2]}
-  - Quelle garantie et quels délais de livraison ?
-  - Comment entretenir mon produit ?
-- **Maillage interne** : 3 liens vers ${collectionsOf(ctx).filter((c) => c !== coll).slice(0, 3).join(", ") || "les collections complémentaires"}`;
-}
-
 function productAction(reason: string, vocab: NicheVocab): string {
   const r = reason.toLowerCase();
   if (r.includes("type")) return `renseigner le **product_type** + enrichir la description (${vocab.descHints}) et ajouter une FAQ`;
@@ -718,79 +699,207 @@ function seoAnswer(ctx: CouncilContext): string {
   return ctx.productsFound != null ? dataDrivenSeoAudit(ctx) : seoAnswerGeneric(ctx);
 }
 
+function singularize(s: string): string {
+  const words = s.trim().split(" ");
+  words[0] = words[0].replace(/(s|x)$/i, "");
+  return words.join(" ").toLowerCase();
+}
+
+/** Stratégie mots-clés adaptée à la niche, dérivée des collections réelles. */
+function nicheKeywords(
+  key: NicheKey,
+  vocab: NicheVocab,
+  cols: string[]
+): { short: string[]; transactional: string[]; longtail: string[]; blog: string[]; faq: string[] } {
+  const sing = cols.map(singularize);
+  const short = key === "luminaires"
+    ? ["lustre", "suspension", "plafonnier", "lampe de chevet", "luminaire"]
+    : (sing.length ? sing : ["votre catégorie"]).slice(0, 5);
+  const transactional = cols.slice(0, 4).flatMap((c) => [`acheter ${c.toLowerCase()}`, `${c.toLowerCase()} design`]);
+  const piece = vocab.pieces;
+  let longtail: string[] = [];
+  if (key === "luminaires") {
+    longtail = [
+      `${sing[0] || "suspension"} salle à manger design`,
+      `hauteur ${sing[0] || "suspension"} salle à manger`,
+      "quel plafonnier pour une chambre",
+      "luminaire escalier haut plafond",
+      "lustre moderne salon contemporain",
+    ];
+  } else {
+    longtail = (sing.length ? sing : ["produit"]).slice(0, 3).flatMap((x) => [`comment choisir ${x}`, `meilleur ${x} ${new Date().getFullYear()}`]);
+  }
+  longtail = [...longtail, ...cols.slice(0, 3).map((c) => `${c.toLowerCase()} pour ${piece[0]}`)].slice(0, 9);
+  const blog = (cols.length ? cols : ["votre collection"]).slice(0, 3).map((c) => `Guide : comment choisir ${singularize(c)}`);
+  const faq = vocab.faqs(cols[0] || "produits");
+  return { short, transactional, longtail, blog, faq };
+}
+
+/** Bloc SEO complet pour UNE collection réelle (proposition prête à coller). */
+function collectionSeoBlock(ctx: CouncilContext, coll: string, vocab: NicheVocab, others: string[]): string {
+  const s = brandOf(ctx);
+  const sing = singularize(coll);
+  const faqs = vocab.faqs(coll);
+  const secondary = vocab.pieces.slice(0, 3).map((p) => `${sing} ${p}`);
+  const internal = others.filter((c) => c !== coll).slice(0, 3);
+  return `**📁 Collection « ${coll} »**
+- *Problème probable* : texte SEO d'introduction et FAQ absents (à confirmer page par page — donnée partielle via scan public).
+- *Mot-clé principal* : \`${sing}\`
+- *Mots-clés secondaires* : ${secondary.map((k) => `\`${k}\``).join(", ")}
+- *Title proposé* : \`${coll} ${vocab.pieces[0] ? "— " + vocab.pieces[0] : ""} | ${s}\` (≤ 60 car.)
+- *Meta proposée* : \`Découvrez nos ${coll.toLowerCase()} pour ${vocab.pieces.slice(0, 3).join(", ")}. Sélection premium, livraison gratuite.\` (≤ 155 car.)
+- *Texte SEO (150–300 mots)* : intro (bénéfice + ${vocab.descHints.split(",").slice(0, 2).join(",")}) → **H2 « Comment bien choisir vos ${coll.toLowerCase()} »** → **H2 « Nos best-sellers »** → bloc FAQ.
+- *FAQ (4–6)* :
+  - ${faqs[0]}
+  - ${faqs[1]}
+  - ${faqs[2]}
+  - Quelle garantie et quels délais de livraison ?
+- *Maillage interne à ajouter* : ${internal.length ? internal.map((c) => `lien vers « ${c} » (ancre « ${singularize(c)} ${vocab.pieces[0]} »)`).join(" ; ") : "vers les collections complémentaires une fois détectées"}.`;
+}
+
+/** Bloc SEO pour UN produit prioritaire réel. */
+function productSeoBlock(p: { title: string; reason: string; contentScore: number }, vocab: NicheVocab): string {
+  const target = singularize(p.title.split(" ").slice(0, 4).join(" "));
+  return `**🛍️ ${p.title}** (score contenu ${p.contentScore}/100)
+- *Problème* : ${p.reason.toLowerCase()}.
+- *Mot-clé cible* : \`${target}\`
+- *Correction* : ${productAction(p.reason, vocab)}.
+- *Alt text proposé* : « ${p.title} — ${vocab.pieces[0]} ».
+- *FAQ produit* : « ${vocab.faqs(p.title)[0]} » ; « Quels sont les délais de livraison et la garantie ? »
+- *Action* : ouvrir le **SEO Studio** (pré-rempli depuis ce produit) → générer description 200+ mots + FAQ + meta + alt text.`;
+}
+
+/** Matrice de maillage interne à partir des collections réelles. */
+function maillageBlock(cols: string[], vocab: NicheVocab): string {
+  if (cols.length < 2) return "_Maillage interne : au moins 2 collections détectées sont nécessaires (donnée partielle via scan public)._";
+  const rows: string[] = ["| Source | Cible | Ancre | Impact |", "|---|---|---|---|"];
+  for (let i = 0; i < Math.min(cols.length, 4); i++) {
+    const src = cols[i];
+    const dst = cols[(i + 1) % cols.length];
+    rows.push(`| ${src} | ${dst} | « ${singularize(dst)} ${vocab.pieces[0] || ""} » | Renforce le cocon sémantique ${vocab.pieces[0] ? "(" + vocab.pieces[0] + ")" : ""} |`);
+  }
+  return rows.join("\n");
+}
+
+/** Corrections prêtes à copier (2 meta, 2 titles, 3 FAQ, 3 alt, 3 ancres). */
+function readyToCopyBlock(ctx: CouncilContext, cols: string[], vocab: NicheVocab): string {
+  const s = brandOf(ctx);
+  const c0 = cols[0] || "Collection";
+  const c1 = cols[1] || cols[0] || "Collection";
+  const faqs = vocab.faqs(c0);
+  return `**Titles**
+- \`${c0} ${vocab.pieces[0] ? "— " + vocab.pieces[0] : ""} | ${s}\`
+- \`${c1} design ${vocab.pieces[1] ? "pour " + vocab.pieces[1] : ""} | ${s}\`
+
+**Meta descriptions**
+- \`Découvrez nos ${c0.toLowerCase()} pour ${vocab.pieces.slice(0, 3).join(", ")}. Sélection premium, livraison gratuite.\`
+- \`Nos ${c1.toLowerCase()} au meilleur rapport qualité/prix. Conseils d'expert, paiement sécurisé et retours simplifiés.\`
+
+**FAQ**
+- ${faqs[0]}
+- ${faqs[1]}
+- ${faqs[2]}
+
+**Alt text**
+- « ${singularize(c0)} ${vocab.pieces[0]} — ${s} »
+- « ${singularize(c1)} design ${vocab.pieces[1] || ""} »
+- « ambiance ${vocab.pieces[0]} avec ${singularize(c0)} »
+
+**Ancres de maillage**
+- « ${singularize(c1)} ${vocab.pieces[0]} » (vers « ${c1} »)
+- « nos ${c0.toLowerCase()} » (depuis une fiche produit)
+- « guide : comment choisir ${singularize(c0)} » (depuis un article de blog)`;
+}
+
 function dataDrivenSeoAudit(ctx: CouncilContext): string {
   const s = brandOf(ctx);
   const niche = nicheOf(ctx);
-  const cols = collectionsOf(ctx);
   const key = detectNiche(`${ctx.niche ?? ""} ${ctx.brandName ?? ""}`);
   const vocab = nicheVocab(key);
+  // « Ne pas inventer » : on n'utilise que les données réellement détectées.
+  const realCols = ctx.collections?.length ? ctx.collections : [];
+  const cols = realCols.length ? realCols : collectionsOf(ctx);
   const prio = ctx.priorityProducts ?? [];
+  const kw = nicheKeywords(key, vocab, realCols);
 
-  const good: string[] = [];
-  if (ctx.productsFound && ctx.productsFound > 50) good.push(`Catalogue riche : **${ctx.productsFound} produits** exposés publiquement (bonne base SEO).`);
-  if (ctx.catalogSource) good.push(`Catalogue accessible via **${ctx.catalogSource}** — Orkestra peut analyser en profondeur.`);
-  if (ctx.missingLegal && ctx.missingLegal.length === 0) good.push("Pages légales/confiance présentes.");
-  if (!good.length) good.push("Boutique en ligne et explorable — point de départ exploitable.");
+  // Priorités par impact.
+  const high: string[] = [];
+  const mid: string[] = [];
+  const low: string[] = [];
+  if (ctx.weakDescriptions) high.push(`Enrichir les **${ctx.weakDescriptions} fiches** à description faible (commencer par les best-sellers).`);
+  if (realCols.length) high.push(`Ajouter texte SEO + FAQ sur les collections : ${realCols.slice(0, 4).join(", ")}.`);
+  if (ctx.missingMeta) high.push(`Réécrire les **${ctx.missingMeta} meta descriptions** manquantes.`);
+  if (ctx.noType) mid.push(`Renseigner le \`product_type\` sur **${ctx.noType} produits** (catégorisation + flux Shopping).`);
+  if (ctx.imagesNoAlt) mid.push(`Ajouter les alt text sur **${ctx.imagesNoAlt} images**.`);
+  mid.push("Mettre en place le maillage interne collection ↔ collection (voir matrice).");
+  if (ctx.tagsCoverage != null && ctx.tagsCoverage < 60) low.push(`Améliorer les tags (couverture actuelle ${ctx.tagsCoverage}%).`);
+  low.push("Créer un cluster blog (guides d'achat) relié aux collections.");
+  if (ctx.englishCount) high.push(`Traduire les **${ctx.englishCount} textes anglais** (confiance + cohérence).`);
 
-  const problems: string[] = [];
-  if (ctx.weakDescriptions) problems.push(`**${ctx.weakDescriptions} fiches** à description absente/trop courte → contenu jugé pauvre par Google, conversion réduite.`);
-  if (ctx.noType) problems.push(`**${ctx.noType} produits sans \`product_type\`** → catégorisation et flux Shopping moins fiables.`);
-  if (ctx.weakTitles) problems.push(`**${ctx.weakTitles} titres faibles/génériques** → peu de mots-clés d'usage ou de pièce.`);
-  if (ctx.tagsCoverage != null && ctx.tagsCoverage < 60) problems.push(`Tags exploités sur **${ctx.tagsCoverage}%** seulement → filtres et maillage sous-exploités.`);
-  if (ctx.missingMeta) problems.push(`**${ctx.missingMeta} meta descriptions** manquantes (sur l'échantillon analysé) → CTR réduit.`);
-  if (ctx.imagesNoAlt) problems.push(`**${ctx.imagesNoAlt} images sans alt text** → SEO images et accessibilité.`);
-  if (ctx.englishCount) problems.push(`**${ctx.englishCount} textes anglais** sur une boutique ${ctx.language || "FR"} → confiance et cohérence.`);
-  if (!problems.length) problems.push("Pas de problème bloquant majeur détecté sur l'échantillon — surtout des optimisations de contenu.");
+  const colBlocks = realCols.length
+    ? realCols.slice(0, 3).map((c) => collectionSeoBlock(ctx, c, vocab, realCols)).join("\n\n")
+    : "_Donnée non disponible via scan public : aucune collection détectée. Une connexion API Shopify permettra l'analyse collection par collection._";
+  const prodBlocks = prio.length
+    ? prio.slice(0, 5).map((p) => productSeoBlock(p, vocab)).join("\n\n")
+    : "_Donnée non disponible via scan public : aucun produit prioritaire isolé. Élargissez le scan ou connectez l'API Shopify._";
 
-  const prioBlock = prio.length
-    ? prio
-        .slice(0, 5)
-        .map((p, i) => `${i + 1}. **${p.title}** (contenu ${p.contentScore}/100, ${p.reason.toLowerCase()}) → ${productAction(p.reason, vocab)}.`)
-        .join("\n")
-    : "_Aucun produit prioritaire isolé sur l'échantillon — lancez/élargissez le scan pour en extraire._";
+  return `## 🎯 Stratégie SEO de ${s} — mission complète basée sur le scan
 
-  const corr = collectionCorrection(ctx, cols[0]);
+${scanContextLine(ctx)}**Analyse basée sur le scan.** Niche : **${niche}**. Objectif : mieux ranker collections + produits, capter la longue traîne, renforcer le maillage interne et réduire les problèmes visibles.
 
-  return `## Audit SEO de ${s} — basé sur le scan réel
-
-${scanContextLine(ctx)}**Analyse basée sur le scan.** Niche : **${niche}**.
-
-### 📊 Données utilisées
+## 1. 📊 Résumé du scan SEO
 ${dataUsed(ctx).map((d) => `- ${d}`).join("\n")}
 
-### ✅ Ce qui est déjà bien
-${good.map((g) => `- ${g}`).join("\n")}
+## 2. 🥇 Priorités SEO par impact
+**Priorité haute**
+${high.map((x) => `- ${x}`).join("\n") || "- (rien de bloquant détecté)"}
 
-### 🔧 Problèmes SEO détectés
-${problems.map((p) => `- ${p}`).join("\n")}
+**Priorité moyenne**
+${mid.map((x) => `- ${x}`).join("\n")}
 
-### 🛍️ Produits prioritaires à optimiser
-${prioBlock}
+**Priorité basse**
+${low.map((x) => `- ${x}`).join("\n")}
 
-### 📁 Collection prioritaire — correction concrète
-${corr}
+## 3. 📁 Collections à optimiser
+${colBlocks}
 
-> Appliquez le même schéma aux collections : ${cols.slice(0, 4).join(", ")}.
+## 4. 🛍️ Produits à optimiser
+${prodBlocks}
 
-### ⚡ Quick wins (cette semaine)
-- Traduire les ${ctx.englishCount ?? 0} libellés anglais (éditeur de langue Shopify).
-- Réécrire les meta des collections ${cols.slice(0, 2).join(", ")} (modèle ci-dessus).
-- Renseigner le \`product_type\` sur les ${ctx.noType ?? 0} produits concernés.
+## 5. 🔗 Maillage interne recommandé
+${maillageBlock(realCols, vocab)}
 
-### 🗓️ Plan 7 jours
-- J1–2 : meta + textes anglais + product_type manquants.
-- J3–5 : enrichir les **5 produits prioritaires** ci-dessus (200+ mots, FAQ, alt text) via le **SEO Studio**.
-- J6–7 : texte SEO + FAQ sur la collection « ${cols[0]} ».
+> Règle : chaque fiche produit doit lier vers sa collection ; chaque collection vers 2–3 collections complémentaires ; chaque article de blog vers la collection cible.
 
-### 🗓️ Plan 30 jours
-- S1 : quick wins. S2 : contenu SEO sur ${cols.slice(0, 3).join(", ")}.
-- S3 : enrichir 15–20 fiches (en partant des scores de contenu les plus bas).
-- S4 : maillage interne ${cols.slice(0, 3).join(" ↔ ")} + 2 guides blog (« comment choisir ${ctx.productTypes?.[0] ? "son " + ctx.productTypes[0].toLowerCase() : "le bon produit"} pour ${vocab.pieces[0]} »).
+## 6. 🔑 Stratégie mots-clés
+- **Courte traîne** : ${kw.short.map((k) => `\`${k}\``).join(", ")}
+- **Transactionnels** : ${kw.transactional.map((k) => `\`${k}\``).join(", ")}
+- **Longue traîne** : ${kw.longtail.map((k) => `\`${k}\``).join(", ")}
+- **Blog** : ${kw.blog.map((k) => `« ${k} »`).join(", ")}
+- **FAQ** : ${kw.faq.map((k) => `« ${k} »`).join(" ")}
 
-### 🚀 Actions Orkestra
-- **SEO Studio** : fiches produits prioritaires + meta + FAQ collections (pré-rempli depuis les produits prioritaires).
-- **Merchant Shield** : textes anglais + pages légales.
-- **Section Builder** : bloc réassurance + FAQ de collection.`;
+## 7. 🗓️ Plan d'action 7 jours
+- **J1** : traduire les textes anglais (${ctx.englishCount ?? 0}) + corriger les meta manquantes (${ctx.missingMeta ?? 0}).
+- **J2** : renseigner les \`product_type\` manquants (${ctx.noType ?? 0}).
+- **J3–4** : réécrire title + meta + intro SEO + FAQ de « ${cols[0] || "votre collection principale"} »${cols[1] ? " et « " + cols[1] + " »" : ""}.
+- **J5–6** : enrichir les 5 produits prioritaires (description 200+ mots, FAQ, alt text) via le SEO Studio.
+- **J7** : poser le maillage interne entre ${realCols.slice(0, 3).join(" ↔ ") || "vos collections"}.
+
+## 8. 🗓️ Plan d'action 30 jours
+- **Semaine 1** : quick wins (langue, meta, product_type).
+- **Semaine 2** : texte SEO + FAQ sur toutes les collections principales (${realCols.slice(0, 4).join(", ") || "à détecter"}).
+- **Semaine 3** : enrichir 15–20 fiches produits (en partant des scores de contenu les plus bas).
+- **Semaine 4** : maillage interne complet + 2 guides blog (${kw.blog.slice(0, 2).join(" ; ")}) reliés aux collections.
+
+## 9. ✂️ Corrections prêtes à copier
+${readyToCopyBlock(ctx, cols, vocab)}
+
+## 🚀 Actions Orkestra
+- **SEO Studio** : fiches produits prioritaires + meta + FAQ collections.
+- **Merchant Shield** : textes anglais + pages légales + structure catalogue.
+- **Section Builder** : bloc FAQ de collection + réassurance.
+
+> Données manquantes (texte SEO exact par collection, balises actuelles) : non disponibles via scan public — une connexion API Shopify les rendra exploitables.`;
 }
 
 function seoAnswerGeneric(ctx: CouncilContext): string {

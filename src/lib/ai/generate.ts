@@ -108,16 +108,33 @@ export async function runCouncil(
     "Pour toute correction (collection ou produit), propose du concret prêt à coller : title, meta description, H1, structure H2/H3, FAQ (questions réelles), maillage interne vers les vraies collections.\n" +
     "Adapte le vocabulaire à la niche détectée (ex. luminaires : pièce salon/chambre/cuisine/escalier, hauteur d'installation, type d'ampoule, matériau, ambiance lumineuse).\n" +
     "Distingue toujours : DIAGNOSTIC (ce que montre le scan), CORRECTION (le contenu proposé), ACTION (quoi faire + module Orkestra).";
-  const structure = hasScan
-    ? "\n\nStructure imposée de la réponse :\n## Résumé du scan\n## ✅ Ce qui va bien\n## 🔧 Problèmes détectés (avec chiffres)\n## 🛍️ Produits prioritaires (cite les produits prioritaires fournis + action par produit)\n## 📁 Collections prioritaires (donne 1-2 corrections concrètes : title/meta/H1/FAQ/maillage)\n## ⚡ Quick wins\n## 🗓️ Plan 7 jours\n## 🗓️ Plan 30 jours\n## 🚀 Actions Orkestra"
-    : "";
+  // En mode SEO, on impose la structure d'une vraie mission SEO Shopify.
+  const seoStructure =
+    "\n\nTu agis comme un EXPERT SEO Shopify. Sépare clairement : A) SEO collections, B) SEO produits, C) maillage interne, D) images/alt, E) blog/longue traîne, F) Merchant Center/structure catalogue, G) plan priorisé. Ne mélange pas tout dans une seule liste.\n" +
+    "Structure imposée :\n" +
+    "## 1. Résumé du scan SEO (produits trouvés/enrichis/analysés, collections, descriptions faibles, meta manquantes, images sans alt, product_type manquants, couverture)\n" +
+    "## 2. Priorités SEO par impact (haute / moyenne / basse)\n" +
+    "## 3. Collections à optimiser — pour CHAQUE collection RÉELLE fournie : problème, mot-clé principal, mots-clés secondaires, title proposé (≤60), meta proposée (≤155), texte SEO recommandé (intro 150–300 mots + H2/H3), FAQ (4–6), maillage interne (ancres exactes)\n" +
+    "## 4. Produits à optimiser — pour CHAQUE produit prioritaire fourni : problème, mot-clé cible, correction, alt text proposé, FAQ produit, action SEO Studio\n" +
+    "## 5. Maillage interne recommandé — tableau Source / Cible / Ancre / Impact (uniquement avec les collections réelles)\n" +
+    "## 6. Stratégie mots-clés — courte traîne, transactionnels, longue traîne, blog, FAQ (adaptés à la niche)\n" +
+    "## 7. Plan d'action 7 jours (jour par jour, chiffré)\n" +
+    "## 8. Plan d'action 30 jours (par semaine)\n" +
+    "## 9. Corrections prêtes à copier — 2 meta descriptions, 2 titles, 3 FAQ, 3 alt text, 3 ancres de maillage\n" +
+    "## 🚀 Actions Orkestra (SEO Studio / Merchant Shield / Section Builder)\n" +
+    "INTERDICTION D'INVENTER des collections/produits/pages non fournis. Si une donnée manque, écris « donnée non disponible via scan public » et propose une action prudente (ou indique qu'une connexion API Shopify sera nécessaire). Sois ambitieux et exhaustif : l'objectif est de MAXIMISER le SEO, pas de donner 5 conseils.";
+  const structure = !hasScan
+    ? ""
+    : mode === "seo"
+    ? seoStructure
+    : "\n\nStructure imposée :\n## Résumé du scan\n## ✅ Ce qui va bien\n## 🔧 Problèmes détectés (avec chiffres)\n## 🛍️ Produits prioritaires (+ action par produit)\n## 📁 Collections prioritaires (corrections concrètes : title/meta/H1/FAQ/maillage)\n## ⚡ Quick wins\n## 🗓️ Plan 7 jours\n## 🗓️ Plan 30 jours\n## 🚀 Actions Orkestra";
   const prompt =
     `Mode : ${MODE_LABEL[mode]}\n\n` +
     `=== Données réelles du scan & de la boutique ===\n${contextBlock(ctx) || "(aucune donnée de scan — précise-le et reste prudent)"}\n` +
     structure +
     `\n\n=== Demande de l'utilisateur ===\n${question}`;
 
-  const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.4, maxTokens: 2400 });
+  const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.4, maxTokens: mode === "seo" ? 3600 : 2400 });
   if (!r.ok) {
     return { result: scaffold, meta: { live: false, generatedAt: nowIso(), fallbackReason: r.message } };
   }
