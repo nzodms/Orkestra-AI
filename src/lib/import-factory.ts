@@ -532,6 +532,7 @@ export function buildTransformPrompt(products: ImportProductInput[], rules: Impo
   const handleLabel: Record<HandleMode, string> = { keep: "garder les handles d'origine (newHandle vide)", clean: "nettoyer (minuscules, sans accents, tirets, court)", fr: "générer en français propre", short: "générer courts" };
   directives.push(`Handles : ${handleLabel[rules.handleMode]} ; basé sur le titre, sans marque concurrente ni ancien nom brandé.`);
   directives.push(`Niveau d'intervention : ${rules.level}.`);
+  directives.push(`PUBLIABLE : relis chaque titre, meta title, meta description, tag et nom de collection comme s'ils allaient être publiés IMMÉDIATEMENT sur Shopify, en ${rules.language} naturel et propre. ${/fran[çc]ais/i.test(rules.language) ? "Aucun mot anglais ne doit rester (sauf nom propre, marque ou terme technique nécessaire), accents corrects, zéro faute. " : ""}Respecte EXACTEMENT la casse de la marque « ${brand} » (ex : « ${brand} », jamais en minuscules).`);
 
   const list = products.map((p, i) => (
     `--- Produit ${i + 1} (handle: ${p.handle}) ---\n` +

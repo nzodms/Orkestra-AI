@@ -102,6 +102,11 @@ const FR_FIX: Record<string, string> = {
   interieur: "intérieur", exterieur: "extérieur", lumiere: "lumière", electrique: "électrique",
   reglable: "réglable", tete: "tête", fenetre: "fenêtre", etagere: "étagère", chene: "chêne",
   modele: "modèle", matiere: "matière", piece: "pièce", coute: "coûte", cote: "côté",
+  eclairage: "éclairage", eclaire: "éclaire", decor: "décor", decoration: "décoration",
+  geometrique: "géométrique", etoile: "étoile", materiau: "matériau", materiaux: "matériaux",
+  cable: "câble", demontable: "démontable", resistant: "résistant", resistante: "résistante",
+  diametre: "diamètre", entree: "entrée", qualite: "qualité", securite: "sécurité", bebe: "bébé",
+  argente: "argenté", cuivre: "cuivré", suspendue: "suspendue", reglages: "réglages",
 };
 // Anglais → français (remplacement 1:1 sûr).
 const EN_FIX: Record<string, string> = {
@@ -111,11 +116,20 @@ const EN_FIX: Record<string, string> = {
   pendant: "suspension", chandelier: "lustre", lamp: "lampe", glass: "verre", crystal: "cristal",
   indoor: "intérieur", outdoor: "extérieur", bedroom: "chambre", kitchen: "cuisine",
   "living room": "salon", "dining room": "salle à manger", large: "grand", small: "petit",
+  for: "pour", with: "avec", your: "votre", our: "notre", and: "et", adjustable: "réglable",
 };
 // Mots anglais à SIGNALER (RISK) s'ils restent après correction.
 const EN_FLAG = ["raindrop", "ceiling", "pendant", "chandelier", "lamp", "light", "glass", "crystal", "indoor", "outdoor", "bedroom", "kitchen", "luxury", "premium", "minimalist", "nordic", "vintage", "modern", "contemporary", "round", "square", "gold", "black", "white"];
-// Mauvaises traductions de collections (français → français naturel).
-const COLLECTION_FIX: Record<string, string> = { foyer: "Entrée" };
+// Collections : anglais/incorrect → français naturel (clé = nom normalisé).
+const COLLECTION_FIX: Record<string, string> = {
+  foyer: "Entrée", entrance: "Entrée", hallway: "Couloir",
+  livingroom: "Salon", diningroom: "Salle à manger", kitchen: "Cuisine", bedroom: "Chambre",
+  bathroom: "Salle de bain", office: "Bureau",
+  ceilinglights: "Plafonniers", ceilinglight: "Plafonnier", pendantlights: "Suspensions", pendantlight: "Suspension",
+  pendants: "Suspensions", chandeliers: "Lustres", chandelier: "Lustres",
+  walllights: "Appliques", walllight: "Applique", tablelamps: "Lampes à poser", tablelamp: "Lampe à poser",
+  floorlamps: "Lampadaires", floorlamp: "Lampadaire",
+};
 
 function preserveCase(orig: string, repl: string): string {
   if (orig === orig.toUpperCase()) return repl.toUpperCase();
@@ -193,25 +207,24 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     }
   }
 
-  // ── Qualité française : accents/typos + anglais résiduel ──
+  // ── Qualité française : accents/typos + anglais résiduel (titre, meta, tags) ──
   if (fr) {
-    const t1 = applyWordMap(fixed.title, FR_FIX);
-    const t2 = applyWordMap(t1.out, EN_FIX);
-    fixed.title = t2.out;
-    const m1 = applyWordMap(fixed.metaTitle, FR_FIX);
-    const m2 = applyWordMap(m1.out, EN_FIX);
-    fixed.metaTitle = m2.out;
-    const fixHits = Array.from(new Set([...t1.hits, ...m1.hits]));
-    const enHits = Array.from(new Set([...t2.hits, ...m2.hits]));
-    if (fixHits.length) { issues.push(`Accents / fautes corrigés : ${fixHits.slice(0, 4).join(", ")}`); bump("warning"); }
-    if (enHits.length) { issues.push(`Mots anglais traduits : ${enHits.slice(0, 4).join(", ")}`); bump("warning"); }
-    // Anglais résiduel non corrigé → RISK.
+    const clean = (s: string) => { const a = applyWordMap(s, FR_FIX); const b = applyWordMap(a.out, EN_FIX); return { out: b.out, fr: a.hits, en: b.hits }; };
+    const t = clean(fixed.title); fixed.title = t.out;
+    const m = clean(fixed.metaTitle); fixed.metaTitle = m.out;
+    const d = clean(fixed.metaDescription); fixed.metaDescription = d.out;
+    const g = clean(fixed.tags); fixed.tags = g.out;
+    const fixHits = Array.from(new Set([...t.fr, ...m.fr, ...d.fr, ...g.fr]));
+    const enHits = Array.from(new Set([...t.en, ...m.en, ...d.en, ...g.en]));
+    if (fixHits.length) { issues.push(`Accents / fautes corrigés : ${fixHits.slice(0, 5).join(", ")}`); bump("warning"); }
+    if (enHits.length) { issues.push(`Mots anglais traduits : ${enHits.slice(0, 5).join(", ")}`); bump("warning"); }
+    // Anglais résiduel non corrigé dans titre / meta title → RISK.
     const remain = EN_FLAG.filter((w) => new RegExp(`\\b${escapeRe(w)}\\b`, "i").test(`${fixed.title} ${fixed.metaTitle}`));
     if (remain.length) { issues.push(`Mot anglais résiduel : ${Array.from(new Set(remain)).slice(0, 4).join(", ")}`); bump("risk"); }
   }
 
-  // ── Casse marque / vendor dans titre + meta title ──
-  if (vendor) { fixed.title = fixBrandCase(fixed.title, vendor); fixed.metaTitle = fixBrandCase(fixed.metaTitle, vendor); }
+  // ── Casse marque / vendor dans titre + meta title + meta description ──
+  if (vendor) { fixed.title = fixBrandCase(fixed.title, vendor); fixed.metaTitle = fixBrandCase(fixed.metaTitle, vendor); fixed.metaDescription = fixBrandCase(fixed.metaDescription, vendor); }
   fixed.metaTitle = capFirst(fixed.metaTitle.trim());
 
   // Meta description : ≤ 160 + suffixe exact du profil.
