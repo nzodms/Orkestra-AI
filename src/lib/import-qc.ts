@@ -1,4 +1,4 @@
-import { FORBIDDEN_JARGON, stripHtml, normName, serializeCsv, type TransformedProduct, type ProductGroup, type ApplyResult } from "./import-factory";
+import { FORBIDDEN_JARGON, stripHtml, normName, serializeCsv, stripEmoji, hasEmoji, type TransformedProduct, type ProductGroup, type ApplyResult } from "./import-factory";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Import Factory — contrôle qualité DÉTERMINISTE (côté code, pas seulement IA).
@@ -18,6 +18,9 @@ export interface QCContext {
   /** Langue cible (ex : « Français ») pour les contrôles linguistiques. */
   language?: string;
   tagsType?: boolean;
+  /** Texte source du produit (titre + description + tags + variantes) pour vérifier
+   *  qu'une affirmation technique n'est pas inventée (anti-invention). */
+  sourceText?: string;
   /** Sets mutables partagés sur tout le lot (dédoublonnage / répétition). */
   usedBrand: Set<string>;
   usedHandle: Set<string>;
@@ -104,6 +107,69 @@ function fixTitle(t: string): string {
   s = s.replace(/[\s,;:–—-]+$/, "");
   s = s.replace(/\s+(et|ou|en|de|à|the|and|or|with|pour)$/i, "");
   return s.trim();
+}
+
+/** Normalise un suffixe meta présent dans un texte (conclusion bodyHtml) : ancré sur
+ *  le marqueur (✓), corrige tronqué / sans point / mauvaise casse, ne touche pas la prose. */
+function normalizeSuffixInText(text: string, suffix?: string): { out: string; changed: boolean } {
+  const sfx = (suffix || "").trim();
+  if (!text || !sfx) return { out: text, changed: false };
+  const marker = (sfx.match(/^[✓✔•·]/) || [])[0];
+  if (!marker) return { out: text, changed: false }; // sans marqueur on ne touche pas au corps
+  const firstWord = sfx.replace(/^[\s✓✔•·\-–—]+/, "").trim().split(/\s+/)[0] || "";
+  const probe = firstWord.slice(0, Math.min(5, firstWord.length));
+  let changed = false;
+  const re = new RegExp(`${escapeRe(marker)}[^.!<>]*[.!]?`, "g");
+  const out = text.replace(re, (m) => {
+    if (!probe || !new RegExp(escapeRe(probe), "i").test(m)) return m; // pas une tentative de suffixe
+    if (m.trim() === sfx) return m;
+    changed = true; return sfx;
+  });
+  return { out, changed };
+}
+
+/** « foyer » au sens de pièce = anglicisme → entrée / hall / escalier (langue FR),
+ *  sauf contexte cheminée / foyer de combustion. */
+function replaceFoyer(s: string): { out: string; changed: boolean } {
+  if (!s || !/\bfoyers?\b/i.test(s)) return { out: s, changed: false };
+  let changed = false;
+  let out = s;
+  out = out.replace(/\bfoyers\s+et\s+(escaliers?)\b/gi, (_m, esc: string) => { changed = true; return `entrées et ${esc}`; });
+  out = out.replace(/\b(luminaires?|[ée]clairages?|lustres?|suspensions?|appliques?|plafonniers?|lampes?)\s+foyers?\b/gi, (_m, w: string) => { changed = true; return `${w} entrée`; });
+  out = out.replace(/\bfoyers?\b/gi, (m: string, offset: number, str: string) => {
+    const around = str.slice(Math.max(0, offset - 24), offset + m.length + 24).toLowerCase();
+    if (/chemin|combust|insert|po[êe]le|\bbois\b|ferm[ée]|ouvert|\bfeu\b/.test(around)) return m; // vrai foyer (feu)
+    changed = true;
+    return preserveCase(m, /s$/i.test(m) ? "entrées" : "entrée");
+  });
+  out = out.replace(/\b(entrées?)\s+et\s+\1\b/gi, "$1"); // « entrée et entrée » → « entrée »
+  return { out, changed };
+}
+
+// ── Anti-invention : affirmations souvent hallucinées (vérifiées vs source) ──
+interface ClaimDef { re: RegExp; label: string; src: RegExp; remove: boolean }
+const CLAIM_DEFS: ClaimDef[] = [
+  { re: /garantie\s+(?:de\s+)?\d+\s*(?:an|ans|mois)/i, label: "garantie", src: /garantie|warranty/i, remove: true },
+  { re: /livr\w*\s+(?:en|sous)\s+\d+(?:\s*[-à]\s*\d+)?\s*jours?(?:\s+ouvr[ée]s?)?/i, label: "délai de livraison", src: /livr|shipping|delivery|jours?\s+ouvr/i, remove: true },
+  { re: /(?:manuel|notice)\b[^.<>]{0,40}\b(?:inclus\w*|fourni\w*|livr[ée]\w*|compris\w*)/i, label: "manuel / notice inclus", src: /manuel|notice|manual|instruction/i, remove: true },
+  { re: /ampoules?\b[^.<>]{0,30}\b(?:inclus\w*|fournies?|comprises?|livr[ée]\w*)/i, label: "ampoules incluses", src: /ampoule|bulb/i, remove: true },
+  { re: /dur[ée]e\s+de\s+vie\s+(?:de\s+)?\d+|>?\s?\d{2,}\s*0{3}\s*h(?:eures?)?\b/i, label: "durée de vie", src: /dur[ée]e\s+de\s+vie|lifespan|\bh(?:eures?)?\s+de\s+vie/i, remove: true },
+  { re: /\b(?:non[\s-]?)?dimmable\b|intensit[ée]\s+variable|variateur|gradable/i, label: "dimmable / intensité variable", src: /dimmable|intensit[ée]\s+variable|variateur|gradable/i, remove: false },
+  { re: /\bled[s]?\s+int[ée]gr[ée]e?s?\b/i, label: "LED intégrées", src: /\bled\b/i, remove: false },
+  { re: /\bcertifi[ée]\w*\b|\bcertification\b|\bnorme\s+[A-Za-z]|\bIP\s?\d{2}\b/i, label: "certification / norme", src: /certifi|certification|\bnorme\b|\bIP\s?\d{2}\b|\bCE\b/i, remove: false },
+];
+
+/** Retire d'un HTML les phrases contenant une affirmation, sans casser les balises. */
+function removeSentencesMatching(html: string, re: RegExp): string {
+  let out = html.replace(/>([^<]+)</g, (_full, text: string) => {
+    const kept = text.split(/(?<=[.!?])\s+/).filter((seg) => !re.test(seg));
+    return `>${kept.join(" ")}<`;
+  });
+  // Nettoie les conteneurs vidés + une question FAQ dont la réponse a disparu.
+  out = out.replace(/<li>\s*<\/li>/gi, "").replace(/<p>\s*<\/p>/gi, "");
+  out = out.replace(/<h4>[^<]*<\/h4>\s*(?=<h[1-4]|<\/|$)/gi, "");
+  out = out.replace(/<ul>\s*<\/ul>/gi, "");
+  return out;
 }
 
 // ── Qualité française (corrections sûres + détection) ───────────────────────
@@ -206,6 +272,23 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     fixed.brandName = undefined; // le vendor n'est pas un nom brandé produit
   }
 
+  // Emojis : aucun pictogramme dans un champ Shopify (✓ marqueur de suffixe préservé).
+  {
+    let em = false;
+    const noEmoji = (s: string) => { if (s && hasEmoji(s)) { em = true; return stripEmoji(s); } return s; };
+    fixed.title = noEmoji(fixed.title);
+    fixed.metaTitle = noEmoji(fixed.metaTitle);
+    fixed.metaDescription = noEmoji(fixed.metaDescription);
+    fixed.tags = noEmoji(fixed.tags);
+    fixed.productType = noEmoji(fixed.productType);
+    fixed.bodyHtml = noEmoji(fixed.bodyHtml);
+    if (fixed.brandName) fixed.brandName = noEmoji(fixed.brandName);
+    fixed.collections = fixed.collections.map(noEmoji);
+    fixed.imageAlts = fixed.imageAlts.map(noEmoji);
+    if (em) { issues.push("Emoji retiré d'un champ Shopify"); bump("warning"); }
+    if ([fixed.title, fixed.metaTitle, fixed.metaDescription, fixed.tags, fixed.productType, stripHtml(fixed.bodyHtml), ...fixed.collections].some(hasEmoji)) { issues.push("Emoji encore présent après nettoyage"); bump("risk"); }
+  }
+
   // Titre : pas vide, ne finit pas par un mot/séparateur vide.
   fixed.title = fixTitle(fixed.title);
   if (!fixed.title.trim()) { issues.push("Titre vide"); bump("failed"); }
@@ -255,6 +338,13 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     // Anglais résiduel non corrigé dans titre / meta title → RISK.
     const remain = EN_FLAG.filter((w) => new RegExp(`\\b${escapeRe(w)}\\b`, "i").test(`${fixed.title} ${fixed.metaTitle}`));
     if (remain.length) { issues.push(`Mot anglais résiduel : ${Array.from(new Set(remain)).slice(0, 4).join(", ")}`); bump("risk"); }
+    // « foyer » (anglicisme pièce) → entrée / hall / escalier.
+    let foyerHit = false;
+    for (const k of ["title", "metaTitle", "metaDescription", "tags", "bodyHtml"] as const) {
+      const f = replaceFoyer(fixed[k] || "");
+      if (f.changed) { fixed[k] = f.out; foyerHit = true; }
+    }
+    if (foyerHit) { issues.push("« foyer » remplacé (entrée / hall / escalier)"); bump("warning"); }
   }
 
   // ── Casse marque / vendor dans titre + meta title + meta description ──
@@ -263,10 +353,33 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
   if (fr) { fixed.title = fixFrenchCaps(fixed.title); fixed.metaTitle = fixFrenchCaps(fixed.metaTitle); }
   fixed.metaTitle = capFirst(fixed.metaTitle.trim());
 
-  // Meta description : suffixe exact (gère absent / doublé / mal écrit) + ≤ 160.
+  // ── Anti-invention : retire / signale les affirmations non présentes dans la source ──
+  {
+    const src = (ctx.sourceText || "").toLowerCase();
+    const hay = `${stripHtml(fixed.bodyHtml)} ${fixed.metaDescription}`;
+    for (const c of CLAIM_DEFS) {
+      if (!c.re.test(hay)) continue;
+      if (src && c.src.test(src)) continue; // l'info est dans la source → on garde
+      if (c.remove) {
+        fixed.bodyHtml = removeSentencesMatching(fixed.bodyHtml, c.re);
+        fixed.metaDescription = fixed.metaDescription.split(/(?<=[.!?])\s+/).filter((s) => !c.re.test(s)).join(" ").trim();
+        issues.push(`Affirmation non sourcée retirée : ${c.label}`); bump("warning");
+      } else {
+        issues.push(`Affirmation à vérifier (non sourcée) : ${c.label}`); bump("risk");
+      }
+    }
+  }
+
+  // Meta description : suffixe exact (gère absent / doublé / mal écrit / tronqué) + ≤ 160.
   const me = enforceMeta(fixed.metaDescription, ctx.metaSuffix);
   if (me.changed) { if (me.issue) issues.push(me.issue); bump("warning"); }
   fixed.metaDescription = me.md;
+  // Suffixe éventuellement injecté dans la conclusion du bodyHtml : exact aussi.
+  const bodySfx = normalizeSuffixInText(fixed.bodyHtml, ctx.metaSuffix);
+  if (bodySfx.changed) { issues.push("Suffixe normalisé dans la description"); bump("warning"); fixed.bodyHtml = bodySfx.out; }
+  // §7 — tripwire : suffixe configuré avec point final mais absent en fin de meta.
+  const sfx = (ctx.metaSuffix || "").trim();
+  if (sfx && !fixed.metaDescription.trim().endsWith(sfx)) { issues.push("Suffixe meta non conforme (point / casse)"); bump("risk"); }
 
   // Meta description : générique / répétitive ?
   const mdNorm = normName(fixed.metaDescription).replace(/[0-9]/g, "");
@@ -337,10 +450,15 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     if (enCol) { issues.push(`Collection en anglais : ${enCol}`); bump("warning"); }
   }
 
-  // Description trop courte selon le niveau (Poussé ≥ 120 mots, Ultra ≥ 300 mots).
-  const words = stripHtml(fixed.bodyHtml).split(/\s+/).filter(Boolean).length;
-  const minWords = ctx.level === "ultra complet" ? 300 : ctx.level === "poussé" ? 120 : 0;
-  if (minWords && words < minWords) { issues.push(`Description courte pour le mode ${ctx.level} (${words} mots)`); bump("warning"); }
+  // Description : longueur cible par niveau, en CARACTÈRES de texte (Ultra 3000–4000, Poussé ≥ 1200).
+  const bodyText = stripHtml(fixed.bodyHtml);
+  const bodyChars = bodyText.length;
+  if (ctx.level === "ultra complet" && bodyChars < 3000) { issues.push(`Description courte pour le mode Ultra (${bodyChars} car., viser 3000–4000)`); bump("warning"); }
+  else if (ctx.level === "poussé" && bodyChars < 1200) { issues.push(`Description courte pour le mode Poussé (${bodyChars} car.)`); bump("warning"); }
+  // Section « Dimensions » absente alors que des tailles existent dans la source.
+  if ((ctx.level === "poussé" || ctx.level === "ultra complet") && /\b\d+([.,]\d+)?\s?cm\b|dimension|\btaille\b/i.test(ctx.sourceText || "") && !/dimension/i.test(bodyText)) {
+    issues.push("Section « Dimensions » absente alors que des tailles existent"); bump("warning");
+  }
 
   // Doute IA signalé.
   if (r.status === "review") { if (r.notes?.length) issues.push(...r.notes); bump("warning"); }

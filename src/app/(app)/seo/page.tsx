@@ -167,9 +167,11 @@ export default function ImportFactoryPage() {
     const usedMetaOpenings = new Set<string>();
     const reports: Record<string, QCReport> = {};
     const fixed = list.map((r) => {
+      const g = groups.find((x) => x.handle === r.handle);
+      const sourceText = g ? `${g.title} ${g.body} ${g.tags} ${g.type} ${g.variants.map((v) => v.option1).join(" ")}` : "";
       const rep = qualityControl(r, {
         metaSuffix: eff.metaSuffix || rules.metaSuffix, vendor: eff.vendor || rules.vendor, level: rules.level, oldTerms: eff.oldTerms,
-        brandNames: rules.brandNames, language: rules.language, tagsType: rules.tagsType,
+        brandNames: rules.brandNames, language: rules.language, tagsType: rules.tagsType, sourceText,
         usedBrand, usedHandle, usedMetaOpenings,
       });
       reports[r.handle] = rep;

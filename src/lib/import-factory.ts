@@ -287,6 +287,17 @@ export function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/gi, " ").replace(/\s+/g, " ").trim();
 }
 
+// Emojis / pictogrammes interdits dans un CSV Shopify final. On PRÉSERVE les
+// marqueurs utiles (✓ ✔ • · –, ×, Ø) servant aux suffixes meta et aux dimensions.
+const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{2712}\u{2715}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{2049}\u{203C}]/gu;
+/** Vrai si le texte contient un emoji/pictogramme (hors marqueurs ✓ ✔ • ·). */
+export function hasEmoji(s: string): boolean { if (!s) return false; EMOJI_RE.lastIndex = 0; return EMOJI_RE.test(s); }
+/** Retire les emojis/pictogrammes d'un champ Shopify, sans toucher ✓ ✔ • · ni × Ø. */
+export function stripEmoji(s: string): string {
+  if (!s) return s;
+  return s.replace(EMOJI_RE, "").replace(/[ \t]{2,}/g, " ").replace(/ +([,.;:!?])/g, "$1").replace(/^[ \t]+|[ \t]+$/g, "");
+}
+
 // ── Règles de transformation (questionnaire) ────────────────────────────────
 
 export type TransformMode = "translate" | "clean_translate" | "rename_optimize" | "recreate" | "migration" | "supplier_to_brand";
@@ -477,12 +488,13 @@ export function buildTransformSystem(rules: ImportRules): string {
     "metaTitle (string), metaDescription (string), tags (string, virgules), productType (string), collections (string[], 1 à 3), " +
     "imageAlts (string[], un alt par image dans l'ordre), status ('ok'|'review'), notes (string[], points 'à vérifier').\n" +
     "GARDE-FOUS STRICTS :\n" +
-    "1) N'invente JAMAIS : dimensions, matériaux, compatibilités, certifications, garanties, origine, délais, prix, stock, fonctionnalités (LED, télécommande, 360°…). Absent → ne pas l'écrire, le noter dans notes et mettre status 'review'.\n" +
+    "1) N'INVENTE JAMAIS d'information non présente dans la source : garantie (durée), délai/temps de livraison, dimmable / non dimmable, LED intégrées, ampoules incluses/compatibles, matériau exact, certification (CE, IP…), poids, puissance (W), voltage, durée de vie, âge conseillé, sécurité, manuel/notice inclus, origine, stock. Si l'info est ABSENTE de la source : ne l'écris PAS ; au besoin formule une phrase prudente SANS affirmation technique (ex. « Vérifiez les informations de montage fournies avec le produit. ») et mets status 'review' avec une note. JAMAIS de phrase du type « Livré avec une garantie de 2 ans » ou « Un manuel d'installation est inclus » si ce n'est pas écrit dans la source.\n" +
     "2) RÉÉCRIS ENTIÈREMENT : ne recopie aucune phrase entière de la source ; supprime toute marque concurrente, tout ancien domaine, toute promesse non vérifiée.\n" +
     "3) PRÉSERVE le sens des variantes/tailles ; ne mélange pas options/couleurs/images.\n" +
     "4) INTERDITS dans le texte public (bodyHtml/meta/title) : « SEO », « référencement », « mot-clé », « maillage interne », « intention de recherche », « champ lexical », « optimisé pour Google », « stratégie SEO ». Pas de « premium/professionnel/meilleur » sans preuve, pas de « Achetez maintenant ».\n" +
-    `5) LANGUE = ${rules.language}. ` + (/fran[çc]ais/i.test(rules.language)
-      ? "FRANÇAIS PROPRE OBLIGATOIRE : accents corrects (doré, carrée, élégant, intérieur…), ZÉRO mot anglais résiduel — traduis tout (Round→Rond, Square→Carré, Rectangular→Rectangulaire, Gold→Doré, Black→Noir, White→Blanc, Modern→Moderne, Contemporary→Contemporain, Ceiling Light→Plafonnier, Pendant→Suspension, Chandelier→Lustre, Glass→Verre, Crystal→Cristal, Raindrop→goutte d'eau…), AUCUNE faute (« Rond » pas « Ronf », « Carrée », « doré », « craquelé »), pas de mots collés. Noms de pièces en français naturel (« Entrée »/« Hall d'entrée », jamais « Foyer »). La marque garde sa casse exacte."
+    "5) AUCUN emoji ni pictogramme (🔥, ⭐, ✨, 💡…) nulle part : title, bodyHtml, tags, meta, options/variantes, alt, collections, product_type. Texte propre uniquement (le seul symbole autorisé est « ✓ » s'il fait partie du suffixe meta demandé).\n" +
+    `6) LANGUE = ${rules.language}. ` + (/fran[çc]ais/i.test(rules.language)
+      ? "FRANÇAIS PROPRE OBLIGATOIRE : accents corrects (doré, carrée, élégant, intérieur…), ZÉRO mot anglais résiduel — traduis tout (Round→Rond, Square→Carré, Rectangular→Rectangulaire, Gold→Doré, Black→Noir, White→Blanc, Modern→Moderne, Contemporary→Contemporain, Ceiling Light→Plafonnier, Pendant→Suspension, Chandelier→Lustre, Glass→Verre, Crystal→Cristal, Raindrop→goutte d'eau…), AUCUNE faute (« Rond » pas « Ronf », « Carrée », « doré », « craquelé »), pas de mots collés. JAMAIS le mot « foyer » au sens de pièce (c'est un anglicisme) : utilise « entrée », « hall d'entrée », « escalier » ou « pièce à haut plafond » selon le contexte. La marque garde sa casse exacte."
       : "Écris uniquement dans cette langue, sans résidu d'une autre langue.")
   );
 }
@@ -515,10 +527,15 @@ export function buildTransformPrompt(products: ImportProductInput[], rules: Impo
   }
   // Description.
   const richDesc = rules.description === "html_rich" || rules.level === "poussé" || rules.level === "ultra complet";
-  if (richDesc) directives.push(`Description : HTML riche${rules.level === "ultra complet" || rules.level === "poussé" ? ", VISE 500 à 900 mots si les données le permettent" : ""}, naturelle, premium, orientée client, SANS blabla. Suis CETTE structure exacte :\n${DESC_SKELETON}`);
+  const lengthGoal = rules.level === "ultra complet"
+    ? " LONGUEUR CIBLE : 3000 à 4000 caractères de texte si les données produit le permettent (proche d'une fiche optimisée à la main). Allonge UNIQUEMENT avec du contenu utile et vrai (conseils de choix, usages par pièce, lecture des dimensions disponibles, style déco, entretien si fiable, FAQ utile, aide à la décision) — JAMAIS en inventant une donnée technique."
+    : rules.level === "poussé"
+    ? " LONGUEUR CIBLE : 1500 à 2500 caractères de texte si les données le permettent."
+    : "";
+  if (richDesc) directives.push(`Description : HTML riche, naturelle, premium, orientée client final (jamais le moteur de recherche), SANS blabla.${lengthGoal} Inclus une section « Détails du produit » avec les dimensions DÈS QU'elles sont disponibles dans les variantes/source. FAQ : questions UTILES (quelle taille choisir, dans quelle pièce, comment entretenir, convient-il à un plafond haut) avec réponses PRUDENTES basées sur les variantes — n'invente JAMAIS garantie, délai, manuel inclus, compatibilité, dimmable ou certification dans une réponse. Suis CETTE structure exacte :\n${DESC_SKELETON}`);
   else directives.push("Description : claire et naturelle, exploitable, sans blabla ni invention.");
   // Meta (profil).
-  if (rules.meta) directives.push(`Meta : metaTitle au format « Mot-clé principal | ${brand} » (50–70 car.), première lettre en MAJUSCULE, marque « ${brand} » avec sa casse EXACTE (jamais en minuscule). metaDescription ≤ 160 car., inclut le mot-clé, formulation NATURELLE et VARIÉE d'un produit à l'autre — appuie-toi sur un angle DIFFÉRENT à chaque fois (forme, matière, pièce, effet visuel, usage, style). N'utilise PAS les formules passe-partout (« élégance moderne », « Découvrez notre… », « ambiance chaleureuse », « apportera une touche », « intérieur élégant »). Pas de promesse agressive${suffix ? `, et FINIS par « ${suffix} » une SEULE fois (jamais en double)` : ""}. Ex variés : « Suspension en verre craquelé au style lumineux, idéale pour une cuisine ou une salle à manger.${suffix ? " " + suffix : ""} » / « Lustre rond en aluminium pour éclairer une pièce de vie avec une silhouette sobre.${suffix ? " " + suffix : ""} ».`);
+  if (rules.meta) directives.push(`Meta : metaTitle au format « Mot-clé principal | ${brand} » (50–70 car.), première lettre en MAJUSCULE, marque « ${brand} » avec sa casse EXACTE (jamais en minuscule). metaDescription ≤ 160 car., inclut le mot-clé, formulation NATURELLE et VARIÉE d'un produit à l'autre — appuie-toi sur un angle DIFFÉRENT à chaque fois (forme, matière, pièce, effet visuel, usage, style). N'utilise PAS les formules passe-partout (« élégance moderne », « Découvrez notre… », « ambiance chaleureuse », « apportera une touche », « intérieur élégant »). Pas de promesse agressive${suffix ? `, et TERMINE par EXACTEMENT « ${suffix} » — copie-le caractère pour caractère (même ponctuation finale, même casse, même espace), une SEULE fois, jamais tronqué, jamais en double` : ""}. Ex variés : « Suspension en verre craquelé au style lumineux, idéale pour une cuisine ou une salle à manger.${suffix ? " " + suffix : ""} » / « Lustre rond en aluminium pour éclairer une pièce de vie avec une silhouette sobre.${suffix ? " " + suffix : ""} ».`);
   // Maillage.
   if (rules.internalLinking && cols.length) directives.push(`Maillage : ajoute dans un paragraphe de bodyHtml UN lien naturel vers la collection la plus pertinente, au format EXACT <strong><u><a href="URL">ancre</a></u></strong>. Varie les ancres (déjà utilisées : ${mem.anchors.slice(0, 40).join(", ") || "(aucune)"}). N'écris jamais « maillage interne ».`);
   // Alt.
@@ -663,9 +680,17 @@ export function applyTransform(
     if (rules.altText) g.images.forEach((img, k) => { rows[img.rowIndex][idx.ImageAlt] = t.imageAlts[k] || t.title; });
   }
 
-  // ── Options / variantes en français + pouces → cm (libellés uniquement) ──
+  // ── Sécurité emojis : aucun pictogramme dans un champ texte Shopify final ──
+  let emojiFixed = 0;
+  {
+    const textFields: ShopifyField[] = ["Title", "Body", "Tags", "Type", "SeoTitle", "SeoDescription", "ImageAlt", "Option1Name", "Option1Value", "Option2Name", "Option2Value", "Option3Name", "Option3Value", "Handle", "Vendor"];
+    const textCols = textFields.map((f) => idx[f]).filter((i): i is number => i !== undefined);
+    for (const r of rows) for (const ci of textCols) { const v = r[ci]; if (v && hasEmoji(v)) { r[ci] = stripEmoji(v); emojiFixed++; } }
+  }
+
+  // ── Options / variantes : français + pouces → cm (libellés ; emojis déjà retirés) ──
   const french = /fran[çc]ais/i.test(rules.language);
-  if (french || rules.convertUnits) {
+  {
     const nameCols = (["Option1Name", "Option2Name", "Option3Name"] as ShopifyField[]).map((f) => map[f]).filter((i): i is number => i !== undefined);
     const valCols = (["Option1Value", "Option2Value", "Option3Value"] as ShopifyField[]).map((f) => map[f]).filter((i): i is number => i !== undefined);
     for (const r of rows) {
@@ -713,6 +738,16 @@ export function applyTransform(
     }
   }
   if (optNoName) flag("warning", "Valeur d'option sans nom d'option", `${optNoName}`);
+
+  // Emojis : signalés s'ils ont été retirés, RISK s'il en reste après nettoyage.
+  if (emojiFixed) flag("warning", "Emoji retiré d'un champ Shopify", `${emojiFixed} cellule(s)`);
+  {
+    const textFieldsQc: ShopifyField[] = ["Title", "Body", "Tags", "Type", "SeoTitle", "SeoDescription", "ImageAlt", "Option1Name", "Option1Value", "Option2Name", "Option2Value", "Option3Name", "Option3Value"];
+    const cols = textFieldsQc.map((f) => idx[f]).filter((i): i is number => i !== undefined);
+    let left = 0;
+    for (const r of rows) for (const ci of cols) if (hasEmoji(r[ci] ?? "")) left++;
+    if (left) flag("risk", "Emoji encore présent dans un champ Shopify", `${left} cellule(s)`);
+  }
 
   // Options/variantes : anglais résiduel ou pouces non convertis (langue française).
   if (french) {
@@ -798,12 +833,14 @@ function frenchifyDimAbbrev(s: string): string {
   return s.replace(/\bW\b/g, "L").replace(/\bD\b/g, "P").replace(/\bDia\.?/gi, "Diam.");
 }
 function cleanOptionName(name: string, french: boolean): string {
-  if (!french || !name) return name;
-  return OPTION_NAME_FR[name.toLowerCase().trim()] || name;
+  if (!name) return name;
+  const out = stripEmoji(name);          // jamais d'emoji dans un libellé d'option
+  if (!french) return out;
+  return OPTION_NAME_FR[out.toLowerCase().trim()] || out;
 }
 function cleanOptionValue(value: string, french: boolean, convert: boolean): string {
   if (!value) return value;
-  let out = value;
+  let out = stripEmoji(value);           // « 🔥 L 51 cm » → « L 51 cm »
   if (convert) out = convertInchesToCm(out);
   if (french) {
     out = frenchifyDimAbbrev(out);
