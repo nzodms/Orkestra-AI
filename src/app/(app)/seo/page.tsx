@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
 import { useOrkestra } from "@/lib/store";
 import { assistantLink, councilLink } from "@/lib/shopify";
@@ -32,6 +32,14 @@ function parseCollections(text: string): { name: string; url: string }[] {
 function colsToText(cols: { name: string; url: string }[]): string {
   return cols.map((c) => (c.url ? `${c.name} | ${c.url}` : c.name)).join("\n");
 }
+function slugify(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "produit";
+}
+// En-têtes + mapping d'une fiche produit manuelle (structure Shopify multi-lignes).
+const MANUAL_HEADERS = ["Handle", "Title", "Body (HTML)", "Vendor", "Product Category", "Type", "Tags", "Collection", "Option1 Name", "Option1 Value", "Variant SKU", "Variant Price", "Variant Inventory Qty", "Image Src", "Image Position", "Image Alt Text", "Variant Image", "Status"];
+const MANUAL_MAP: Partial<Record<ShopifyField, number>> = { Handle: 0, Title: 1, Body: 2, Vendor: 3, Category: 4, Type: 5, Tags: 6, Collection: 7, Option1Name: 8, Option1Value: 9, VariantSKU: 10, VariantPrice: 11, VariantInventoryQty: 12, ImageSrc: 13, ImagePosition: 14, ImageAlt: 15, VariantImage: 16, Status: 17 };
+type ManualState = { title: string; description: string; features: string; dimensions: string; materials: string; colors: string; price: string; sku: string; images: string; sourceUrl: string; notes: string; collection: string; productType: string; tags: string };
+type ManualVariant = { value: string; price: string; sku: string; image: string; stock: string };
 
 const MAX_PRODUCTS = 24;
 const BATCH = 3;
@@ -101,6 +109,11 @@ export default function ImportFactoryPage() {
   const [parseError, setParseError] = useState<string | null>(null);
   const [showExample, setShowExample] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  // Mode d'entrée : CSV ou produit manuel.
+  const [source, setSource] = useState<"csv" | "manual">("csv");
+  const [manual, setManual] = useState({ title: "", description: "", features: "", dimensions: "", materials: "", colors: "", price: "", sku: "", images: "", sourceUrl: "", notes: "", collection: "", productType: "", tags: "" });
+  const [optionName, setOptionName] = useState("");
+  const [variants, setVariants] = useState<{ value: string; price: string; sku: string; image: string; stock: string }[]>([]);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const configRef = useRef<HTMLDivElement>(null);
@@ -296,6 +309,46 @@ export default function ImportFactoryPage() {
     setParsed(null); setMapping({}); setMapOpen(false); setFileInfo(null); setResults(null);
     setQcReports({}); setEdits({}); setValidated([]); setRejected([]); setLocked([]); setConfirmExport(false); setError(null); setParseError(null); setPhase("idle");
   }
+  // Construit une fiche produit synthétique (mêmes headers/mapping qu'un CSV Shopify).
+  function buildManualParsed(): { headers: string[]; rows: string[][] } | null {
+    const title = manual.title.trim();
+    if (!title) return null;
+    const handle = slugify(title);
+    const imgs = manual.images.split("\n").map((s) => s.trim()).filter(Boolean);
+    const vsRaw = variants.filter((v) => v.value.trim() || v.price.trim() || v.sku.trim() || v.image.trim());
+    const vRows = vsRaw.length ? vsRaw : [{ value: "", price: manual.price, sku: manual.sku, image: "", stock: "" }];
+    const body = [manual.description.trim(), manual.features.trim() && `Caractéristiques : ${manual.features.trim()}`, manual.dimensions.trim() && `Dimensions : ${manual.dimensions.trim()}`, manual.materials.trim() && `Matériaux : ${manual.materials.trim()}`, manual.colors.trim() && `Couleurs : ${manual.colors.trim()}`, manual.sourceUrl.trim() && `Source : ${manual.sourceUrl.trim()}`, manual.notes.trim() && `Notes internes : ${manual.notes.trim()}`].filter(Boolean).join("\n");
+    const blank = () => new Array(MANUAL_HEADERS.length).fill("");
+    const rows: string[][] = [];
+    vRows.forEach((v, i) => {
+      const r = blank();
+      r[0] = handle;
+      if (optionName.trim() && v.value.trim()) { r[8] = optionName.trim(); r[9] = v.value.trim(); }
+      r[10] = v.sku.trim() || (i === 0 ? manual.sku.trim() : "");
+      r[11] = v.price.trim() || (i === 0 ? manual.price.trim() : "");
+      r[12] = v.stock.trim();
+      if (v.image.trim()) r[16] = v.image.trim();
+      if (i === 0) {
+        r[1] = title; r[2] = body; r[5] = manual.productType.trim(); r[6] = manual.tags.trim(); r[7] = manual.collection.trim(); r[17] = "active";
+        if (imgs[0]) { r[13] = imgs[0]; r[14] = "1"; }
+      }
+      rows.push(r);
+    });
+    imgs.slice(1).forEach((src, i) => { const r = blank(); r[0] = handle; r[13] = src; r[14] = String(i + 2); rows.push(r); });
+    return { headers: MANUAL_HEADERS, rows };
+  }
+  function onContinueManual() {
+    const built = buildManualParsed();
+    if (!built) { setError("Le titre du produit est obligatoire."); return; }
+    setParsed(built);
+    setMapping({ ...MANUAL_MAP });
+    setMapOpen(false);
+    setResults(null); setQcReports({}); setEdits({}); setValidated([]); setRejected([]); setLocked([]); setConfirmExport(false);
+    setFileInfo({ name: `Produit manuel — ${manual.title.trim()}`, sizeKb: 1 });
+    setError(null);
+    setPhase("configure");
+    setTimeout(() => configRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+  }
   const qcCounts = (() => {
     const c = { ok: 0, warning: 0, risk: 0, failed: 0 };
     for (const r of results || []) c[(qcReports[r.handle]?.status ?? "ok")]++;
@@ -327,71 +380,64 @@ export default function ImportFactoryPage() {
         {phase === "idle" && (
           <>
             <div className="flex flex-wrap gap-2">
-              <button className="inline-flex items-center gap-2 rounded-xl border border-brand-500 bg-brand-50 px-3.5 py-2 text-sm font-medium text-brand-700 dark:bg-brand-950 dark:text-brand-300"><FileSpreadsheet className="h-4 w-4" /> Importer un CSV</button>
-              <span className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-[var(--border)] px-3.5 py-2 text-sm font-medium text-[var(--text-muted)] opacity-70"><Plus className="h-4 w-4" /> Ajouter un produit <Badge tone="neutral">bientôt</Badge></span>
+              <button onClick={() => setSource("csv")} className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-medium transition ${source === "csv" ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300" : "border-[var(--border)] text-[var(--text-muted)] hover:border-brand-300"}`}><FileSpreadsheet className="h-4 w-4" /> Importer un CSV</button>
+              <button onClick={() => setSource("manual")} className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-medium transition ${source === "manual" ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300" : "border-[var(--border)] text-[var(--text-muted)] hover:border-brand-300"}`}><Plus className="h-4 w-4" /> Ajouter un produit manuel</button>
               <span className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-[var(--border)] px-3.5 py-2 text-sm font-medium text-[var(--text-muted)] opacity-70"><Link2 className="h-4 w-4" /> Depuis une URL <Badge tone="neutral">bientôt</Badge></span>
               <span className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-[var(--border)] px-3.5 py-2 text-sm font-medium text-[var(--text-muted)] opacity-70"><FileSpreadsheet className="h-4 w-4" /> XLSX <Badge tone="neutral">bientôt</Badge></span>
             </div>
-            <Card className="ork-rise overflow-hidden border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-start gap-4">
-                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-brand-600 text-white"><Boxes className="h-6 w-6" /></span>
-                  <div>
-                    <h2 className="text-base font-bold">Transformez un catalogue entier en quelques minutes</h2>
-                    <p className="mt-1 max-w-xl text-sm text-[var(--text-muted)]">CSV fournisseur, ancienne boutique, concurrent ou export Shopify : Orkestra nettoie, traduit, renomme, optimise et prépare un fichier prêt à réimporter — sans casser vos variantes ni vos images.</p>
+
+            <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = ""; }} />
+
+            {source === "csv" ? (
+              <>
+                <Card className="ork-rise overflow-hidden border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-4">
+                      <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-brand-600 text-white"><Boxes className="h-6 w-6" /></span>
+                      <div>
+                        <h2 className="text-base font-bold">Transformez un catalogue entier en quelques minutes</h2>
+                        <p className="mt-1 max-w-xl text-sm text-[var(--text-muted)]">CSV fournisseur, ancienne boutique, concurrent ou export Shopify : Orkestra nettoie, traduit, renomme, optimise et prépare un fichier prêt à réimporter — sans casser vos variantes ni vos images.</p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-2">
+                      <Button onClick={() => fileRef.current?.click()} icon={<Upload className="h-4 w-4" />}>Importer un CSV</Button>
+                      <Button variant="outline" size="sm" onClick={() => setShowExample((v) => !v)} icon={<Eye className="h-3.5 w-3.5" />}>Voir un exemple</Button>
+                    </div>
                   </div>
-                </div>
-                <div className="flex shrink-0 flex-col gap-2">
-                  <Button onClick={() => fileRef.current?.click()} icon={<Upload className="h-4 w-4" />}>Importer un CSV</Button>
-                  <Button variant="outline" size="sm" onClick={() => setShowExample((v) => !v)} icon={<Eye className="h-3.5 w-3.5" />}>Voir un exemple</Button>
-                </div>
-              </div>
-            </Card>
-
-            {showExample && <ExampleCard />}
-
-            <div className="ork-stagger grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {VALUE.map((v) => { const I = v.icon; return (
-                <Card key={v.t} className="ork-interactive">
-                  <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><I className="h-[18px] w-[18px]" /></div>
-                  <h3 className="mt-3 text-sm font-semibold">{v.t}</h3>
-                  <p className="mt-1 text-xs text-[var(--text-muted)]">{v.d}</p>
                 </Card>
-              ); })}
-            </div>
 
-            <Card>
-              <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><ListChecks className="h-4 w-4 text-brand-600" /> Comment ça marche</div>
-              <div className="ork-stagger grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                {STEPS.map((s, i) => (
-                  <div key={i} className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5">
-                    <span className="grid h-6 w-6 place-items-center rounded-lg bg-brand-50 text-[11px] font-bold text-brand-700 dark:bg-brand-950 dark:text-brand-300">{i + 1}</span>
-                    <p className="mt-2 text-xs leading-snug">{s}</p>
+                {showExample && <ExampleCard />}
+
+                <div className="ork-stagger grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {VALUE.map((v) => { const I = v.icon; return (
+                    <Card key={v.t} className="ork-interactive">
+                      <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><I className="h-[18px] w-[18px]" /></div>
+                      <h3 className="mt-3 text-sm font-semibold">{v.t}</h3>
+                      <p className="mt-1 text-xs text-[var(--text-muted)]">{v.d}</p>
+                    </Card>
+                  ); })}
+                </div>
+
+                <Card>
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) readFile(f); }}
+                    onClick={() => fileRef.current?.click()}
+                    className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-12 text-center transition ${dragOver ? "border-brand-500 bg-brand-50/60 dark:bg-brand-950/30" : "border-[var(--border)] hover:border-brand-300"}`}
+                  >
+                    <span className="grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><Upload className="h-7 w-7" /></span>
+                    <h3 className="mt-4 text-sm font-semibold">Glissez-déposez votre CSV ici</h3>
+                    <p className="mt-1 text-xs text-[var(--text-muted)]">ou cliquez pour choisir un fichier · format CSV · export Shopify ou CSV fournisseur</p>
+                    <Button className="mt-4" size="sm" icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Choisir un fichier</Button>
+                    {parseError && <p className="mt-3 text-xs text-red-500">{parseError}</p>}
                   </div>
-                ))}
-              </div>
-            </Card>
+                </Card>
+              </>
+            ) : (
+              <ManualForm manual={manual} setManual={setManual} optionName={optionName} setOptionName={setOptionName} variants={variants} setVariants={setVariants} onContinue={onContinueManual} error={error} />
+            )}
           </>
-        )}
-
-        {/* ── Zone d'upload ── */}
-        <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = ""; }} />
-        {phase === "idle" && (
-          <Card>
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) readFile(f); }}
-              onClick={() => fileRef.current?.click()}
-              className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-12 text-center transition ${dragOver ? "border-brand-500 bg-brand-50/60 dark:bg-brand-950/30" : "border-[var(--border)] hover:border-brand-300"}`}
-            >
-              <span className="grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><Upload className="h-7 w-7" /></span>
-              <h3 className="mt-4 text-sm font-semibold">Glissez-déposez votre CSV ici</h3>
-              <p className="mt-1 text-xs text-[var(--text-muted)]">ou cliquez pour choisir un fichier · format CSV · export Shopify ou CSV fournisseur</p>
-              <Button className="mt-4" size="sm" icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Choisir un fichier</Button>
-              {parseError && <p className="mt-3 text-xs text-red-500">{parseError}</p>}
-            </div>
-          </Card>
         )}
 
         {/* ── Configuration (fichier détecté + preset + questionnaire) ── */}
@@ -407,7 +453,7 @@ export default function ImportFactoryPage() {
                     <div className="text-xs text-[var(--text-muted)]">{fileInfo?.sizeKb} Ko · {parsed.rows.length} lignes · {isShopify ? "export Shopify détecté" : "CSV générique — mapping manuel recommandé"}</div>
                   </div>
                 </div>
-                <Button variant="ghost" size="sm" onClick={reset} icon={<X className="h-3.5 w-3.5" />}>Changer de fichier</Button>
+                <Button variant="ghost" size="sm" onClick={reset} icon={<X className="h-3.5 w-3.5" />}>{source === "manual" ? "Modifier le produit" : "Changer de fichier"}</Button>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Stat icon={Boxes} label="Produits" value={stats.products} />
@@ -569,7 +615,7 @@ export default function ImportFactoryPage() {
             {phase === "configure" && (
               <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
                 <p className="text-xs text-[var(--text-muted)]">{stats.hasTitle ? `${Math.min(groups.length, MAX_PRODUCTS)} produit(s) seront transformés via OpenAI. Vous validez l'aperçu avant l'export.` : "Mappez d'abord la colonne « Titre produit » pour activer la transformation."}</p>
-                <Button size="lg" onClick={transform} disabled={!stats.hasTitle} icon={<Wand2 className="h-4 w-4" />}>Transformer le catalogue</Button>
+                <Button size="lg" onClick={() => transform()} disabled={!stats.hasTitle} icon={<Wand2 className="h-4 w-4" />}>{source === "manual" ? "Transformer ce produit" : "Transformer le catalogue"}</Button>
               </div>
             )}
 
@@ -705,6 +751,72 @@ export default function ImportFactoryPage() {
 }
 
 // ── Sous-composants ─────────────────────────────────────────────────────────
+function ManualForm({ manual, setManual, optionName, setOptionName, variants, setVariants, onContinue, error }: {
+  manual: ManualState; setManual: Dispatch<SetStateAction<ManualState>>;
+  optionName: string; setOptionName: Dispatch<SetStateAction<string>>;
+  variants: ManualVariant[]; setVariants: Dispatch<SetStateAction<ManualVariant[]>>;
+  onContinue: () => void; error: string | null;
+}) {
+  const set = (k: keyof ManualState, v: string) => setManual((m) => ({ ...m, [k]: v }));
+  const setVar = (i: number, k: keyof ManualVariant, v: string) => setVariants((vs) => vs.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  return (
+    <div className="ork-stagger space-y-5">
+      <Card>
+        <div className="mb-1 flex items-center gap-1.5 text-sm font-bold"><Plus className="h-4 w-4 text-brand-600" /> Ajouter un produit manuel</div>
+        <p className="mb-3 text-xs text-[var(--text-muted)]">Collez les infos brutes d&apos;un produit — Orkestra en fait une fiche Shopify propre (mêmes profil, règles, mémoire, contrôle qualité et export que l&apos;import CSV). Rien n&apos;est inventé : ce qui manque reste prudent ou « à vérifier ».</p>
+        <div className="space-y-3">
+          <Field label="Titre source"><input className="input" value={manual.title} onChange={(e) => set("title", e.target.value)} placeholder="Ex : titre source du produit" /></Field>
+          <Field label="Description source"><textarea className="input min-h-[80px]" value={manual.description} onChange={(e) => set("description", e.target.value)} placeholder="Collez la description fournisseur / source" /></Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Caractéristiques"><input className="input" value={manual.features} onChange={(e) => set("features", e.target.value)} placeholder="Ex : fonctions, options" /></Field>
+            <Field label="Dimensions"><input className="input" value={manual.dimensions} onChange={(e) => set("dimensions", e.target.value)} placeholder="Ex : 40 × 35 cm" /></Field>
+            <Field label="Matériaux"><input className="input" value={manual.materials} onChange={(e) => set("materials", e.target.value)} placeholder="Ex : coton, métal" /></Field>
+            <Field label="Couleurs"><input className="input" value={manual.colors} onChange={(e) => set("colors", e.target.value)} placeholder="Ex : noir, blanc" /></Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="Prix"><input className="input" value={manual.price} onChange={(e) => set("price", e.target.value)} placeholder="Ex : 29.90" /></Field>
+            <Field label="SKU"><input className="input" value={manual.sku} onChange={(e) => set("sku", e.target.value)} placeholder="Ex : REF-001" /></Field>
+            <Field label="product_type souhaité"><input className="input" value={manual.productType} onChange={(e) => set("productType", e.target.value)} placeholder="Ex : catégorie" /></Field>
+          </div>
+          <Field label="URLs images (une par ligne)"><textarea className="input min-h-[60px] font-mono text-xs" value={manual.images} onChange={(e) => set("images", e.target.value)} placeholder={"https://.../image-1.jpg\nhttps://.../image-2.jpg"} /></Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Collection souhaitée"><input className="input" value={manual.collection} onChange={(e) => set("collection", e.target.value)} placeholder="Ex : collection principale" /></Field>
+            <Field label="Tags existants"><input className="input" value={manual.tags} onChange={(e) => set("tags", e.target.value)} placeholder="Ex : tag1, tag2" /></Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="URL source (optionnelle)"><input className="input" value={manual.sourceUrl} onChange={(e) => set("sourceUrl", e.target.value)} placeholder="https://…" /></Field>
+            <Field label="Notes internes (non publiées)"><input className="input" value={manual.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Contexte interne" /></Field>
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="mb-1 flex items-center gap-1.5 text-sm font-bold"><Layers className="h-4 w-4 text-brand-600" /> Variantes <span className="text-[11px] font-normal text-[var(--text-muted)]">(optionnel)</span></div>
+        <p className="mb-3 text-xs text-[var(--text-muted)]">Une option (ex : Taille ou Couleur) + ses valeurs. Laissez vide pour un produit sans variante.</p>
+        <Field label="Nom de l'option"><input className="input h-9 py-0 text-sm" value={optionName} onChange={(e) => setOptionName(e.target.value)} placeholder="Ex : Taille / Couleur / Lot" /></Field>
+        <div className="mt-2 space-y-2">
+          {variants.map((v, i) => (
+            <div key={i} className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_repeat(3,minmax(0,0.8fr))_auto] sm:items-center">
+              <input className="input h-9 py-0 text-xs" value={v.value} onChange={(e) => setVar(i, "value", e.target.value)} placeholder="Valeur (ex : M)" />
+              <input className="input h-9 py-0 text-xs" value={v.price} onChange={(e) => setVar(i, "price", e.target.value)} placeholder="Prix" />
+              <input className="input h-9 py-0 text-xs" value={v.sku} onChange={(e) => setVar(i, "sku", e.target.value)} placeholder="SKU" />
+              <input className="input h-9 py-0 text-xs" value={v.stock} onChange={(e) => setVar(i, "stock", e.target.value)} placeholder="Stock" />
+              <button onClick={() => setVariants((vs) => vs.filter((_, j) => j !== i))} className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--border)] text-[var(--text-muted)] transition hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
+            </div>
+          ))}
+        </div>
+        <Button variant="ghost" size="sm" className="mt-2" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setVariants((vs) => [...vs, { value: "", price: "", sku: "", image: "", stock: "" }])}>Ajouter une variante</Button>
+      </Card>
+
+      {error && <Card className="flex items-start gap-2 border-red-200 text-sm text-red-600 dark:border-red-900/60"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {error}</Card>}
+
+      <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
+        <p className="text-xs text-[var(--text-muted)]">Étape suivante : choisir la boutique cible et les règles, puis transformer via OpenAI.</p>
+        <Button size="lg" onClick={onContinue} disabled={!manual.title.trim()} icon={<ArrowRight className="h-4 w-4" />}>Continuer</Button>
+      </div>
+    </div>
+  );
+}
 function ForbiddenAdder({ onAdd }: { onAdd: (type: "term" | "domain", v: string) => void }) {
   const [type, setType] = useState<"term" | "domain">("term");
   const [v, setV] = useState("");

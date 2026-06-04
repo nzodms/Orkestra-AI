@@ -406,7 +406,7 @@ export function toProductInput(g: ProductGroup): ImportProductInput {
   return {
     handle: g.handle,
     title: g.title || g.handle,
-    bodyExcerpt: stripHtml(g.body).slice(0, 600),
+    bodyExcerpt: stripHtml(g.body).slice(0, 1200),
     type: g.type,
     tags: g.tags,
     vendor: g.vendor,
