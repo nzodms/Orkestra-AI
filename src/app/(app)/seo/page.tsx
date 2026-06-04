@@ -32,6 +32,14 @@ const RATIONALE: Record<WF, { why: string; impact: string }> = {
   blog: { why: "Cocon de contenu longue traîne, maillé vers vos collections.", impact: "Trafic informationnel + autorité thématique." },
 };
 
+const OUTPUT: Record<WF, { items: string; where: string; speed: "Rapide" | "Approfondi" }> = {
+  product: { items: "Title, meta, description HTML, bénéfices, FAQ, alt text, mots-clés, tags, product_type, note Merchant", where: "Fiche produit Shopify", speed: "Approfondi" },
+  collection: { items: "Title, meta, description 200–300 mots, H2/H3, FAQ, maillage produits & collections", where: "Produits → Collections → Description", speed: "Approfondi" },
+  meta: { items: "3 variantes title / meta selon l'intention, longueurs + risque GMC", where: "Aperçu du référencement naturel de la page", speed: "Rapide" },
+  alt: { items: "Alt text descriptifs et sobres (type d'image + mot-clé associé)", where: "Produit → Médias → Texte alternatif", speed: "Rapide" },
+  blog: { items: "Plan H2/H3, intro, mots-clés, FAQ, CTA, maillage vers collection", where: "Boutique en ligne → Articles de blog", speed: "Approfondi" },
+};
+
 export default function SeoStudioPage() {
   const { connections, brand, analysis, addGeneration, seo, setSeo } = useOrkestra();
   const providers = connectedProviders(connections);
@@ -131,6 +139,7 @@ export default function SeoStudioPage() {
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Card>
+          <OutputCard wf={active} />
           {active === "product" && (
             <>
               <h3 className="mb-1 text-sm font-semibold">Fiche produit SEO</h3>
@@ -228,6 +237,19 @@ export default function SeoStudioPage() {
 }
 
 // ── Helpers UI ──────────────────────────────────────────────────────────────
+function OutputCard({ wf }: { wf: WF }) {
+  const o = OUTPUT[wf];
+  return (
+    <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-400"><FileText className="h-3.5 w-3.5 text-brand-500" /> Sortie attendue</span>
+        <Badge tone={o.speed === "Rapide" ? "good" : "brand"}>{o.speed}</Badge>
+      </div>
+      <p className="text-xs text-[var(--text-muted)]">{o.items}</p>
+      <p className="mt-1 text-[11px] text-[var(--text-muted)]"><span className="font-medium text-[var(--text)]">Où le publier :</span> {o.where}</p>
+    </div>
+  );
+}
 function Rationale({ wf }: { wf: WF }) {
   const r = RATIONALE[wf];
   return (

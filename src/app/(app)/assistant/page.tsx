@@ -10,7 +10,7 @@ import { councilLink } from "@/lib/shopify";
 import type { AssistantProc } from "@/lib/types";
 import {
   LifeBuoy, Send, ArrowRight, Languages, Tag, FileText, ImageIcon, FolderOpen, Heading1,
-  ShieldCheck, Sparkles, Wrench, MapPin, Lightbulb, Copy, Check, Trash2, HelpCircle, Package, TrendingUp,
+  ShieldCheck, Sparkles, Wrench, MapPin, Lightbulb, Copy, Check, Trash2, HelpCircle, Package, TrendingUp, Database,
 } from "lucide-react";
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -34,6 +34,7 @@ function detectTopic(q: string): string {
   if (/faq|section|réassur|reassur|hero|bandeau|bloc/.test(t)) return "section";
   if (/liquid|\bcode\b|snippet|thème|theme/.test(t)) return "code";
   if (/avis|review|témoignage|temoignage/.test(t)) return "reviews";
+  if (/\bapp\b|application|plugin|app store|installer une app|quelle app/.test(t)) return "app";
   if (/page produit|fiche produit|modifier (un|une|le|ma) produit/.test(t)) return "product";
   if (/erreur|bug|marche pas|ne fonctionne|problème (d|s)|cassé/.test(t)) return "error";
   return "generic";
@@ -133,9 +134,15 @@ function resolveAnswer(q: string, analysis: Analysis, brand: Brand): AssistantPr
       };
     case "reviews":
       return {
-        title: "Ajouter des avis clients", short: "Via une app d'avis ou le bloc avis du thème.",
-        steps: ["Installez une app d'avis ou utilisez le bloc avis du thème.", "Dans Personnaliser, ajoutez la section « Avis » sur la page produit.", "Affichez les avis au-dessus de la ligne de flottaison."],
-        note: "La preuve sociale améliore la conversion et la confiance.",
+        title: "Ajouter des avis clients", short: "Vérifiez d'abord le bloc avis natif du thème, sinon une app d'avis.",
+        steps: ["Dans Personnaliser, cherchez une section/bloc « Avis » déjà fourni par votre thème.", "Sinon, installez une app de catégorie « avis clients » depuis l'App Store Shopify.", "Ajoutez la section sur la page produit, au-dessus de la ligne de flottaison."],
+        note: "Avant d'ajouter une app, vérifiez si le thème le permet nativement (plus léger). Sinon, choisissez une app de type avis clients — je ne recommande pas d'app au hasard.",
+      };
+    case "app":
+      return {
+        title: "Faut-il ajouter une app Shopify ?", short: "Privilégiez d'abord le natif Shopify ; n'ajoutez une app que si nécessaire.",
+        steps: ["Vérifiez si Shopify ou votre thème le permet nativement (réglages, sections, blocs).", "Si oui : utilisez le natif (plus léger, moins de conflits).", "Si non : cherchez une app de la bonne catégorie sur l'App Store Shopify.", "Comparez avis, vitesse et impact sur la page avant d'installer."],
+        note: "Catégories utiles selon le besoin : avis clients, FAQ, bundles, suivi de commande, traduction, SEO, Google & YouTube, upsell. Précisez votre besoin pour une catégorie adaptée — je n'invente pas d'app et ne promets pas qu'une app règle tout.",
       };
     case "product":
       return {
@@ -153,10 +160,16 @@ function resolveAnswer(q: string, analysis: Analysis, brand: Brand): AssistantPr
       };
     default:
       return {
-        title: "Procédure pas-à-pas", short: "Je raisonne avec les informations disponibles et les chemins Shopify habituels.",
-        steps: ["Identifiez l'élément : produit, collection, page, ou élément visuel du thème.", "Visuel / mise en page → Boutique en ligne → Thèmes → Personnaliser.", "Contenu produit/collection → Produits / Collections.", "Réglages globaux (langues, politiques, paiement) → Paramètres.", "Reformulez (ex. « Où modifier les meta ? ») pour une procédure précise."],
-        note: "Connectez OpenAI pour un raisonnement plus poussé sur les demandes hors-procédure (pas de recherche web branchée).",
-        council: { label: "Poser à AI Council", href: councilLink("free", q) },
+        title: "Où agir dans Shopify ?", short: "Selon votre demande, il y a plusieurs endroits possibles dans Shopify — voici les plus probables.",
+        steps: [
+          "Contenu produit (titre, prix, images, type, tags) → Produits → ouvrez le produit.",
+          "Contenu collection (texte, produits liés) → Produits → Collections.",
+          "Pages & politiques (contact, FAQ, retours, livraison) → Boutique en ligne → Pages / Paramètres → Politiques.",
+          "Mise en page & visuel → Boutique en ligne → Thèmes → Personnaliser (ou Modifier le code).",
+          "Langues & traductions → Paramètres → Langues.",
+        ],
+        note: "Dites-moi la page concernée (accueil, produit, collection, politique…) et je vous donne le chemin exact. Connectez OpenAI pour un raisonnement plus poussé (pas de recherche web branchée).",
+        council: { label: "Analyser avec AI Council", href: councilLink("free", q) },
       };
   }
 }
@@ -236,9 +249,9 @@ export default function AssistantPage() {
     { label: "Comprendre une erreur Shopify", q: "Je ne comprends pas une erreur dans Shopify, peux-tu m'aider ?", icon: Wrench },
   ];
   const bigCards = [
-    { icon: Wrench, title: "Corriger un problème détecté", sub: "Textes anglais, meta, alt text, product_type…", q: detected[0]?.q || "Où corriger les textes anglais ?" },
-    { icon: MapPin, title: "Savoir où cliquer dans Shopify", sub: "Produits, collections, pages, thème, politiques…", q: "Où modifier une page produit dans Shopify ?" },
-    { icon: ShieldCheck, title: "Préparer ma boutique", sub: "SEO, Merchant Center, Google Shopping, confiance…", q: "Comment préparer ma boutique pour Google Merchant Center ?" },
+    { icon: Wrench, title: "Corriger un problème détecté", sub: "Textes anglais, meta, alt text, product_type, H1, politiques", q: detected[0]?.q || "Où corriger les textes anglais ?" },
+    { icon: MapPin, title: "Trouver où cliquer dans Shopify", sub: "Produits, collections, pages, thème, politiques, langues", q: "Où modifier une page produit dans Shopify ?" },
+    { icon: ShieldCheck, title: "Améliorer ma boutique", sub: "SEO, Merchant Center, Google Shopping, conversion", q: "Comment préparer ma boutique pour Google Merchant Center ?" },
   ];
 
   return (
@@ -263,8 +276,8 @@ export default function AssistantPage() {
                 <div className="py-2 ork-rise">
                   <div className="flex flex-col items-center text-center">
                     <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-pop"><LifeBuoy className="h-7 w-7" /></div>
-                    <h3 className="mt-4 text-base font-semibold">Bonjour, je peux vous guider pas à pas dans Shopify</h3>
-                    <p className="mt-1.5 max-w-sm text-sm text-[var(--text-muted)]">Décrivez ce que vous voulez modifier, ou choisissez un problème détecté par Orkestra.</p>
+                    <h3 className="mt-4 text-base font-semibold">Bonjour, je suis votre assistant Shopify</h3>
+                    <p className="mt-1.5 max-w-sm text-sm text-[var(--text-muted)]">Dites-moi ce que vous voulez corriger — je vous guide étape par étape.</p>
                   </div>
                   <div className="ork-stagger mt-5 grid gap-2.5 sm:grid-cols-3">
                     {bigCards.map((c) => {
@@ -314,20 +327,35 @@ export default function AssistantPage() {
           </Card>
         </div>
 
-        <Card className="lg:sticky lg:top-20 lg:self-start">
-          <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold"><Lightbulb className="h-4 w-4 text-brand-600" /> Corrections fréquentes</h3>
-          <p className="mb-3 text-xs text-[var(--text-muted)]">{detected.length >= 3 ? "Basées sur les problèmes détectés dans votre scan." : "Scannez votre boutique pour des suggestions ciblées."}</p>
-          <div className="space-y-2">
-            {detected.slice(0, 7).map((s) => {
-              const Icon = s.icon;
-              return (
-                <button key={s.label} onClick={() => send(s.q)} className="flex w-full items-center gap-2.5 rounded-xl border border-[var(--border)] px-3 py-2.5 text-left text-sm transition hover:-translate-y-0.5 hover:border-brand-300 hover:bg-ink-50 dark:hover:bg-ink-900">
-                  <Icon className="h-4 w-4 shrink-0 text-brand-500" /><span className="min-w-0 flex-1 truncate">{s.label}</span><ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-400" />
-                </button>
-              );
-            })}
-          </div>
-        </Card>
+        <div className="space-y-4 lg:sticky lg:top-20 lg:self-start">
+          <Card>
+            <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold"><Lightbulb className="h-4 w-4 text-brand-600" /> Corrections fréquentes</h3>
+            <p className="mb-3 text-xs text-[var(--text-muted)]">{detected.length >= 3 ? "Basées sur les problèmes détectés dans votre scan." : "Scannez votre boutique pour des suggestions ciblées."}</p>
+            <div className="space-y-2">
+              {detected.slice(0, 7).map((s) => {
+                const Icon = s.icon;
+                return (
+                  <button key={s.label} onClick={() => send(s.q)} className="flex w-full items-center gap-2.5 rounded-xl border border-[var(--border)] px-3 py-2.5 text-left text-sm transition hover:-translate-y-0.5 hover:border-brand-300 hover:bg-ink-50 dark:hover:bg-ink-900">
+                    <Icon className="h-4 w-4 shrink-0 text-brand-500" /><span className="min-w-0 flex-1 truncate">{s.label}</span><ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-400" />
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+
+          {/* Vue publique vs interne — préparation API Shopify (placeholder) */}
+          <Card className="border-dashed">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 text-sm font-semibold"><Database className="h-4 w-4 text-brand-600" /> Analyse interne Shopify</h3>
+              <Badge tone="neutral">Bientôt</Badge>
+            </div>
+            <div className="mt-2 space-y-2 text-xs text-[var(--text-muted)]">
+              <p><span className="font-medium text-[var(--text)]">Vue client (actuelle) :</span> ce que Google et vos visiteurs voient.</p>
+              <p><span className="font-medium text-[var(--text)]">Vue interne (API Shopify) :</span> produits, collections, meta, alt text, pages, prix, variants — pour une localisation exacte des problèmes et des corrections produit par produit.</p>
+            </div>
+            <Button variant="outline" size="sm" disabled className="mt-3 w-full">Connecter l&apos;API Shopify — bientôt</Button>
+          </Card>
+        </div>
       </div>
     </>
   );

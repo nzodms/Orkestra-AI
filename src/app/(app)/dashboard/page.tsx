@@ -12,13 +12,13 @@ import {
   LifeBuoy, X,
 } from "lucide-react";
 
-// Rôles produit (explication intégrée, pas de page « tour » séparée).
-const TOOLS: { icon: React.ElementType; name: string; role: string; cta: string; href: string }[] = [
-  { icon: MessagesSquare, name: "AI Council", role: "Comprendre quoi corriger et dans quel ordre.", cta: "Demander un audit", href: "" },
-  { icon: Sparkles, name: "SEO Studio", role: "Produire les textes SEO prêts à publier.", cta: "Générer mes contenus", href: "/seo" },
-  { icon: ShieldCheck, name: "Merchant Shield", role: "Préparer la boutique avant Google Merchant Center.", cta: "Lancer l'audit Merchant", href: "/merchant" },
-  { icon: LifeBuoy, name: "Assistant Shopify", role: "Savoir où cliquer dans Shopify pour corriger.", cta: "Me guider", href: "/assistant" },
-  { icon: UserCog, name: "Mémoire boutique", role: "Retrouver le contexte, les scores et les actions.", cta: "Voir la mémoire", href: "/memory" },
+// Plan d'action intégré (du diagnostic à l'action), pas de page « tour » séparée.
+const TOOLS: { icon: React.ElementType; action: string; name: string; cta: string; href: string }[] = [
+  { icon: MessagesSquare, action: "Comprendre les priorités", name: "AI Council", cta: "Demander un audit", href: "" },
+  { icon: ShieldCheck, action: "Préparer Google Merchant", name: "Merchant Shield", cta: "Lancer l'audit", href: "/merchant" },
+  { icon: Sparkles, action: "Produire les contenus", name: "SEO Studio", cta: "Générer", href: "/seo" },
+  { icon: LifeBuoy, action: "Savoir où cliquer", name: "Assistant Shopify", cta: "Me guider", href: "/assistant" },
+  { icon: UserCog, action: "Suivre l'évolution", name: "Mémoire boutique", cta: "Voir la mémoire", href: "/memory" },
 ];
 
 // Question préparée → ouvre AI Council contextualisé sur la boutique active.
@@ -83,8 +83,8 @@ export default function DashboardPage() {
         <Card className="ork-rise mb-4">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
-              <h2 className="flex items-center gap-1.5 text-sm font-bold"><Sparkles className="h-4 w-4 text-brand-600" /> Comment utiliser Orkestra</h2>
-              <p className="mt-0.5 text-xs text-[var(--text-muted)]">{storeReady ? "Votre boutique est analysée. Voici comment passer du diagnostic à l'action." : "Voici comment chaque outil vous aide, du diagnostic à l'action."}</p>
+              <h2 className="flex items-center gap-1.5 text-sm font-bold"><Sparkles className="h-4 w-4 text-brand-600" /> Votre plan d&apos;action commence ici</h2>
+              <p className="mt-0.5 text-xs text-[var(--text-muted)]">Passez du diagnostic aux corrections avec les outils Orkestra.</p>
             </div>
             <button onClick={() => setGuideHidden(true)} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-[var(--text-muted)] transition hover:bg-ink-100 dark:hover:bg-ink-900" aria-label="Masquer ce guide">
               <X className="h-3.5 w-3.5" /> Masquer
@@ -97,8 +97,8 @@ export default function DashboardPage() {
               return (
                 <Link key={t.name} href={href} className="ork-interactive group flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5 hover:border-brand-300">
                   <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-600 transition group-hover:scale-105 dark:bg-brand-950 dark:text-brand-300"><Icon className="h-[18px] w-[18px]" /></div>
-                  <div className="mt-2 text-sm font-semibold">{t.name}</div>
-                  <p className="mt-0.5 flex-1 text-xs leading-relaxed text-[var(--text-muted)]">{t.role}</p>
+                  <div className="mt-2 text-sm font-semibold leading-tight">{t.action}</div>
+                  <p className="mt-0.5 flex-1 text-[11px] text-[var(--text-muted)]">{t.name}</p>
                   <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-700 dark:text-brand-300">{t.cta} <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" /></span>
                 </Link>
               );

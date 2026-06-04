@@ -6,13 +6,13 @@ import { useOrkestra } from "@/lib/store";
 import { relativeDate } from "@/lib/utils";
 import { PageHeader, Card, Badge, ScoreRing } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
-import { buildMerchantReport, type MCItem, type MCStatus } from "@/lib/merchant";
+import { buildMerchantReport, type MCItem, type MCStatus, type Blocker } from "@/lib/merchant";
 import { councilLink, assistantLink } from "@/lib/shopify";
 import type { MerchantSeverity } from "@/lib/types";
 import {
   ShieldCheck, ScanSearch, AlertOctagon, AlertTriangle, Info, Check, Languages, Wand2,
-  ArrowRight, Sparkles, Package, ShieldQuestion, ListChecks, Wrench, FileText,
-  Percent, Rocket, RotateCcw, Clock, CircleSlash,
+  ArrowRight, Sparkles, Package, ShieldQuestion, ListChecks, Wrench,
+  Percent, Rocket, RotateCcw, Clock, Timer, Flag, CircleSlash,
 } from "lucide-react";
 
 const SEV: Record<MerchantSeverity, { tone: "bad" | "warn" | "neutral"; label: string }> = {
@@ -40,18 +40,22 @@ const BENEFITS = [
   { icon: ListChecks, t: "Suivre votre préparation GMC" },
 ];
 
-const DURING_CHECKS = [
-  "Cohérence prix site / feed",
-  "Cohérence stock site / disponibilité feed",
-  "Cohérence livraison / retours / policies",
-  "Informations de contact fiables",
-  "Absence de promesses agressives",
-  "Absence de textes anglais résiduels",
-  "Clarté des promotions",
-  "Cohérence devise / pays",
-  "Cohérence titres / descriptions / produits",
+// Promotions : contrôles listés (non confirmables via scan public → à vérifier).
+const PROMO_CONTROLS = ["Prix barrés", "Codes promo", "Bandeau d'urgence", "Compte à rebours", "Réduction permanente", "Conditions de promotion", "Cohérence prix site / feed"];
+
+// Parcours GMC : 4 étapes (vérifier / éviter / Orkestra surveille).
+const JOURNEY: { n: number; icon: React.ElementType; t: string; check: string; avoid: string; watch: string }[] = [
+  { n: 1, icon: Flag, t: "Avant soumission", check: "Pages de confiance, langue, données produit", avoid: "Promesses agressives, textes anglais", watch: "Score de préparation" },
+  { n: 2, icon: ShieldQuestion, t: "Pendant validation", check: "Cohérence prix/feed, stock, policies", avoid: "Changements majeurs (prix, thème, promos)", watch: "Cohérences site ↔ feed" },
+  { n: 3, icon: Check, t: "Après acceptation", check: "Nouveaux produits, prix, promotions", avoid: "Claims non prouvés", watch: "Audit hebdomadaire" },
+  { n: 4, icon: Rocket, t: "Avant PMax / Shopping", check: "Boutique stable, feed prêt", avoid: "Lancer sur un site fragile", watch: "Stabilité globale" },
 ];
 
+const DURING_CHECKS = [
+  "Cohérence prix site / feed", "Cohérence stock site / disponibilité feed", "Cohérence livraison / retours / policies",
+  "Informations de contact fiables", "Absence de promesses agressives", "Absence de textes anglais résiduels",
+  "Clarté des promotions", "Cohérence devise / pays", "Cohérence titres / descriptions / produits",
+];
 const POST_ROUTINES: { t: string; icon: React.ElementType; items: string[] }[] = [
   { t: "Chaque semaine", icon: RotateCcw, items: ["Relancer un audit Merchant", "Vérifier les nouveaux produits ajoutés", "Contrôler les changements de prix", "Vérifier la cohérence des promotions"] },
   { t: "Avant Shopping / Performance Max", icon: Rocket, items: ["Boutique stable et complète", "Pages de confiance OK", "Feed prêt et cohérent"] },
@@ -70,15 +74,14 @@ export default function MerchantPage() {
   const [toast, setToast] = useState<string | null>(null);
   const report = useMemo(() => buildMerchantReport(analysis, brand, merchantResolved), [analysis, brand, merchantResolved]);
   const audited = !!merchantAuditAt;
+  const nextAction = report.actionPlan[0];
 
   function flash(msg: string) { setToast(msg); window.setTimeout(() => setToast(null), 1800); }
-
   function runAudit() {
     const was = audited;
     setLoading(true);
     setTimeout(() => { setMerchantAudited(); setLoading(false); flash(was ? "Audit relancé" : "Analyse terminée"); }, 550);
   }
-
   function handleResolve(key: string) {
     const wasResolved = merchantResolved.includes(key);
     toggleMerchantResolved(key);
@@ -88,242 +91,291 @@ export default function MerchantPage() {
   const quickActions = useMemo(() => {
     const a: { label: string; href: string; icon: React.ElementType }[] = [];
     if (report.englishCount > 0) a.push({ label: "Corriger les textes anglais", href: assistantLink("Où corriger les textes anglais détectés dans Shopify ?"), icon: Languages });
-    if (report.critical.some((i) => ["contact", "mentions", "return", "shipping", "cgv", "privacy"].includes(i.key)))
-      a.push({ label: "Pages légales manquantes", href: assistantLink("Où trouver et créer mes pages légales manquantes dans Shopify ?"), icon: ShieldCheck });
-    if (report.checklist.some((i) => i.key === "product_type" && i.status !== "ok"))
-      a.push({ label: "Corriger les product_type", href: assistantLink("Où corriger les product_type manquants dans Shopify ?"), icon: Package });
+    if (report.critical.some((i) => ["contact", "mentions", "return", "shipping", "cgv", "privacy"].includes(i.key))) a.push({ label: "Pages légales manquantes", href: assistantLink("Où trouver et créer mes pages légales manquantes dans Shopify ?"), icon: ShieldCheck });
+    if (report.checklist.some((i) => i.key === "product_type" && i.status !== "ok")) a.push({ label: "Corriger les product_type", href: assistantLink("Où corriger les product_type manquants dans Shopify ?"), icon: Package });
     a.push({ label: "Promotions plus propres", href: councilLink("merchant", report.promotions.resolveQ!), icon: Percent });
     a.push({ label: "Demander à AI Council", href: councilLink("merchant", "Fais un audit Merchant Center complet de ma boutique à partir des données détectées."), icon: Sparkles });
-    a.push({ label: "Ouvrir Assistant Shopify", href: "/assistant", icon: Wrench });
     return a;
   }, [report]);
 
   return (
     <>
-      <PageHeader
-        title="Merchant Shield"
-        description="Préparez votre boutique avant Google Merchant Center, Google Shopping et Performance Max."
-        actions={
-          analysis ? (
-            <Button onClick={runAudit} loading={loading} icon={!loading ? <ScanSearch className="h-4 w-4" /> : undefined}>
-              {audited ? "Relancer l'audit" : "Lancer l'audit Merchant"}
-            </Button>
-          ) : (
-            <Link href="/onboarding"><Button icon={<ScanSearch className="h-4 w-4" />}>Scanner ma boutique</Button></Link>
-          )
-        }
-      />
+      <PageHeader title="Merchant Shield" description="Préparez votre boutique avant Google Merchant Center, Google Shopping et Performance Max." />
 
       <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <Badge tone="brand"><ScanSearch className="h-3 w-3" /> Analyse basée sur le scan public</Badge>
         {audited && <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]"><Clock className="h-3.5 w-3.5" /> Dernier audit : {relativeDate(merchantAuditAt!)}</span>}
-        {audited && <span className="text-xs text-[var(--text-muted)]">· {report.actionsRemaining} action{report.actionsRemaining > 1 ? "s" : ""} restante{report.actionsRemaining > 1 ? "s" : ""}</span>}
         {analysis && <span className="text-xs text-[var(--text-muted)]">· {brand.country || "—"} · {brand.language || "français"}</span>}
       </div>
 
       {!analysis ? (
         <EmptyState onScan />
       ) : (
-        <>
-          {/* Préparation GMC + métriques */}
-          <div className="ork-stagger grid gap-4 lg:grid-cols-3">
-            <Card className="lg:col-span-1 border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40">
-              <div className="flex items-center gap-3">
-                <ScoreRing value={report.readiness} />
+        <div className="ork-stagger space-y-4">
+          {/* Hero — Merchant Readiness Center */}
+          <Card className="ork-rise overflow-hidden border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40">
+            <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-4">
+                <ScoreRing value={report.readiness} size={92} label="prêt" />
                 <div>
-                  <div className="text-xs font-medium text-[var(--text-muted)]">Préparation GMC</div>
-                  <Badge tone={GMC_TONE[report.gmcStatus.level]} className="mt-1">{report.gmcStatus.label}</Badge>
-                  <div className="mt-1.5 text-xs text-[var(--text-muted)]">{report.actionsRemaining} action{report.actionsRemaining > 1 ? "s" : ""} restante{report.actionsRemaining > 1 ? "s" : ""}</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">Préparation Google Merchant Center</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <Badge tone={GMC_TONE[report.gmcStatus.level]}>{report.gmcStatus.label}</Badge>
+                    <span className="text-sm text-[var(--text-muted)]">{report.actionsRemaining} action{report.actionsRemaining > 1 ? "s" : ""} restante{report.actionsRemaining > 1 ? "s" : ""}</span>
+                  </div>
+                  <p className="mt-1.5 max-w-md text-xs text-[var(--text-muted)]">Identifiez les signaux qui peuvent fragiliser votre boutique avant Google Shopping, Performance Max ou une soumission Merchant Center.</p>
                 </div>
               </div>
-            </Card>
-            <div className="grid grid-cols-2 gap-4 lg:col-span-2 sm:grid-cols-4">
-              <Metric icon={ShieldQuestion} label="Score Merchant" big={String(report.score)} tone={report.score >= 70 ? "good" : report.score >= 50 ? "warn" : "bad"} sub="apparent" />
-              <Metric icon={ShieldCheck} label="Pages confiance" big={`${report.trustFound}/${report.trustTotal}`} tone={report.trustFound >= report.trustTotal ? "good" : report.trustFound >= report.trustTotal - 1 ? "warn" : "bad"} sub="essentielles" />
-              <Metric icon={Languages} label="Textes anglais" big={report.englishCount === 0 ? "OK" : String(report.englishCount)} tone={report.englishCount === 0 ? "good" : "warn"} sub={report.englishCount === 0 ? "cohérent" : "à traduire"} />
-              <Metric icon={Percent} label="Promotions" big="?" tone="warn" sub="à vérifier" />
+              <Button onClick={runAudit} loading={loading} icon={!loading ? <ScanSearch className="h-4 w-4" /> : undefined}>{audited ? "Relancer l'audit" : "Lancer l'audit Merchant"}</Button>
             </div>
-          </div>
+          </Card>
 
-          {/* Avant audit */}
-          {!audited && !loading && (
-            <Card className="ork-rise mt-4">
-              <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:justify-between sm:text-left">
-                <div>
-                  <h3 className="text-sm font-semibold">Prêt à analyser votre boutique</h3>
-                  <p className="mt-0.5 text-sm text-[var(--text-muted)]">Orkestra va comparer votre scan public aux signaux Merchant Center les plus fréquents : checklist, risques classés et plan avant / pendant / après GMC.</p>
+          {/* Prochaine meilleure action */}
+          {nextAction && (
+            <Card className="ork-rise flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-600 text-white"><Rocket className="h-[18px] w-[18px]" /></span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">Prochaine meilleure action <Badge tone={SEV[nextAction.severity].tone}>{SEV[nextAction.severity].label}</Badge></div>
+                  <div className="mt-0.5 text-sm font-semibold">{nextAction.label}</div>
+                  <p className="mt-0.5 text-xs text-[var(--text-muted)]">{nextAction.impact}</p>
+                  <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-[var(--text-muted)]"><Timer className="h-3 w-3" /> {nextAction.eta}</div>
                 </div>
-                <Button onClick={runAudit} icon={<ScanSearch className="h-4 w-4" />}>Lancer l&apos;audit Merchant</Button>
               </div>
-              <div className="mt-3"><Benefits /></div>
-              <details className="group mt-3 rounded-xl border border-[var(--border)] bg-[var(--bg)]">
-                <summary className="flex cursor-pointer list-none items-center justify-between px-3.5 py-2.5 text-sm font-medium">
-                  Voir ce qui sera vérifié
-                  <ArrowRight className="h-4 w-4 text-ink-400 transition-transform group-open:rotate-90" />
-                </summary>
-                <div className="px-3.5 pb-3.5"><WhatWeCheckGrid /></div>
-              </details>
+              <Link href={resolveHref(nextAction)} className="shrink-0"><Button size="sm" icon={nextAction.module === "seo" ? <Sparkles className="h-3.5 w-3.5" /> : <Wand2 className="h-3.5 w-3.5" />}>Résoudre maintenant</Button></Link>
             </Card>
           )}
 
+          {/* Métriques */}
+          <div className="ork-stagger grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <Metric icon={ShieldQuestion} label="Score Merchant" big={String(report.score)} tone={report.score >= 70 ? "good" : report.score >= 50 ? "warn" : "bad"} sub="apparent" />
+            <Metric icon={ShieldCheck} label="Pages confiance" big={`${report.trustFound}/${report.trustTotal}`} tone={report.trustFound >= report.trustTotal ? "good" : report.trustFound >= report.trustTotal - 1 ? "warn" : "bad"} sub="essentielles" />
+            <Metric icon={Languages} label="Textes anglais" big={report.englishCount === 0 ? "OK" : String(report.englishCount)} tone={report.englishCount === 0 ? "good" : "warn"} sub={report.englishCount === 0 ? "cohérent" : "à traduire"} />
+            <Metric icon={Percent} label="Promotions" big="?" tone="warn" sub="à vérifier" />
+          </div>
+
+          {/* Ce qui peut bloquer Google */}
+          <Card>
+            <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><ShieldQuestion className="h-4 w-4 text-brand-600" /> Ce qui peut bloquer Google</div>
+            <div className="ork-stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {report.blockers.map((b) => <BlockerCard key={b.key} b={b} />)}
+            </div>
+          </Card>
+
+          {/* Votre parcours GMC */}
+          <Card>
+            <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><Rocket className="h-4 w-4 text-brand-600" /> Votre parcours Google Merchant Center</div>
+            <div className="ork-stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {JOURNEY.map((j) => {
+                const Icon = j.icon;
+                return (
+                  <div key={j.n} className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5">
+                    <div className="flex items-center gap-2"><span className="grid h-6 w-6 place-items-center rounded-lg bg-brand-50 text-[11px] font-bold text-brand-700 dark:bg-brand-950 dark:text-brand-300">{j.n}</span><Icon className="h-4 w-4 text-brand-500" /><span className="text-sm font-semibold">{j.t}</span></div>
+                    <div className="mt-2 space-y-1 text-[11px] leading-relaxed">
+                      <div><span className="font-medium text-emerald-600">Vérifier :</span> <span className="text-[var(--text-muted)]">{j.check}</span></div>
+                      <div><span className="font-medium text-amber-600">Éviter :</span> <span className="text-[var(--text-muted)]">{j.avoid}</span></div>
+                      <div><span className="font-medium text-brand-600">Orkestra surveille :</span> <span className="text-[var(--text-muted)]">{j.watch}</span></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
           {loading && (
-            <Card className="mt-4 space-y-3">
+            <Card className="space-y-3">
               <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]"><ScanSearch className="h-4 w-4 animate-pulse text-brand-600" /> Analyse de conformité en cours…</div>
               {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-12 rounded-xl ork-skeleton" />)}
             </Card>
           )}
 
+          {!audited && !loading && (
+            <Card className="ork-rise flex flex-col items-center gap-3 text-center sm:flex-row sm:justify-between sm:text-left">
+              <div><h3 className="text-sm font-semibold">Lancez l&apos;audit pour le plan d&apos;action détaillé</h3><p className="mt-0.5 text-sm text-[var(--text-muted)]">Actions priorisées avec temps estimé, checklist complète et routines avant / pendant / après GMC.</p></div>
+              <Button onClick={runAudit} icon={<ScanSearch className="h-4 w-4" />}>Lancer l&apos;audit Merchant</Button>
+            </Card>
+          )}
+
           {audited && !loading && (
-            <div key={phase} className="ork-stagger mt-4 space-y-5">
-              {/* Phases */}
+            <div key={phase === "avant" ? "a" : "b"} className="ork-stagger space-y-4">
+              {/* Plan d'action (action center) */}
+              <ActionCenter actionPlan={report.actionPlan} resolved={report.resolvedItems} onResolve={handleResolve} />
+
+              {/* Promotions dédiée */}
+              <PromotionsCard item={report.promotions} />
+
+              {/* Quick actions */}
               <div className="flex flex-wrap gap-2">
-                {([["avant", "1 · Avant la demande GMC"], ["pendant", "2 · Pendant la validation"], ["apres", "3 · Après acceptation"]] as [Phase, string][]).map(([p, label]) => (
-                  <button key={p} onClick={() => setPhase(p)} className={`rounded-xl border px-3.5 py-2 text-sm font-medium transition ${phase === p ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300" : "border-[var(--border)] text-[var(--text-muted)] hover:border-brand-300"}`}>{label}</button>
-                ))}
+                {quickActions.map((a) => { const Icon = a.icon; return <Link key={a.label} href={a.href}><Button variant="outline" size="sm" icon={<Icon className="h-3.5 w-3.5" />}>{a.label}</Button></Link>; })}
               </div>
 
-              {phase === "avant" && <PhaseAvant report={report} quickActions={quickActions} onResolve={handleResolve} />}
-              {phase === "pendant" && <PhasePendant />}
-              {phase === "apres" && <PhaseApres />}
+              {/* Lecture du score */}
+              <Card className="border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40">
+                <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><Sparkles className="h-4 w-4 text-brand-600" /> Lecture du score</h3>
+                <ul className="space-y-1.5">{report.interpretation.map((l, i) => <li key={i} className="flex gap-2 text-sm text-[var(--text-muted)]"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600" /> {l}</li>)}</ul>
+              </Card>
+
+              {/* Routines détaillées avant / pendant / après */}
+              <Card>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {([["avant", "1 · Avant la demande"], ["pendant", "2 · Pendant la validation"], ["apres", "3 · Après acceptation"]] as [Phase, string][]).map(([p, label]) => (
+                    <button key={p} onClick={() => setPhase(p)} className={`rounded-xl border px-3.5 py-2 text-sm font-medium transition ${phase === p ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300" : "border-[var(--border)] text-[var(--text-muted)] hover:border-brand-300"}`}>{label}</button>
+                  ))}
+                </div>
+                <div key={phase} className="ork-rise">
+                  {phase === "avant" && <PhaseAvant report={report} />}
+                  {phase === "pendant" && <PhasePendant />}
+                  {phase === "apres" && <PhaseApres />}
+                </div>
+              </Card>
 
               <Disclaimer />
             </div>
           )}
-        </>
+        </div>
       )}
 
       {toast && (
         <div className="ork-rise pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
-          <div className="inline-flex items-center gap-2 rounded-full bg-ink-900 px-4 py-2 text-xs font-medium text-white shadow-pop dark:bg-ink-100 dark:text-ink-900">
-            <Check className="h-3.5 w-3.5 text-emerald-400 dark:text-emerald-600" /> {toast}
-          </div>
+          <div className="inline-flex items-center gap-2 rounded-full bg-ink-900 px-4 py-2 text-xs font-medium text-white shadow-pop dark:bg-ink-100 dark:text-ink-900"><Check className="h-3.5 w-3.5 text-emerald-400 dark:text-emerald-600" /> {toast}</div>
         </div>
       )}
     </>
   );
 }
 
-// ── Phase 1 : Avant la demande ──────────────────────────────────────────────
-function PhaseAvant({ report, quickActions, onResolve }: { report: ReturnType<typeof buildMerchantReport>; quickActions: { label: string; href: string; icon: React.ElementType }[]; onResolve: (k: string) => void }) {
-  const next = report.critical[0] || report.important[0] || report.optimizations[0];
-  return (
-    <>
-      {next && (
-        <Card className="ork-rise flex flex-col items-start gap-3 border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300"><Rocket className="h-3.5 w-3.5" /> Votre prochaine action</div>
-            <div className="mt-1 text-sm font-semibold">{next.label}</div>
-            <p className="mt-0.5 text-xs text-[var(--text-muted)]">{next.fix}</p>
-          </div>
-          <Link href={resolveHref(next)} className="shrink-0"><Button size="sm" icon={next.module === "seo" ? <Sparkles className="h-3.5 w-3.5" /> : <Wand2 className="h-3.5 w-3.5" />}>Résoudre la prochaine action</Button></Link>
-        </Card>
-      )}
-      <div className="flex flex-wrap gap-2">
-        {quickActions.map((a) => {
-          const Icon = a.icon;
-          return <Link key={a.label} href={a.href}><Button variant="outline" size="sm" icon={<Icon className="h-3.5 w-3.5" />}>{a.label}</Button></Link>;
-        })}
-      </div>
-
-      <Card className="border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40">
-        <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><Sparkles className="h-4 w-4 text-brand-600" /> Lecture du score</h3>
-        <ul className="space-y-1.5">{report.interpretation.map((l, i) => <li key={i} className="flex gap-2 text-sm text-[var(--text-muted)]"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600" /> {l}</li>)}</ul>
+// ── Plan d'action (action center) ───────────────────────────────────────────
+function ActionCenter({ actionPlan, resolved, onResolve }: { actionPlan: MCItem[]; resolved: MCItem[]; onResolve: (k: string) => void }) {
+  if (!actionPlan.length) {
+    return (
+      <Card className="flex items-center gap-3 border-emerald-200 dark:border-emerald-900/60">
+        <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50"><Check className="h-5 w-5" /></span>
+        <div><div className="text-sm font-semibold">Aucune action restante</div><p className="text-xs text-[var(--text-muted)]">Votre boutique présente un bon socle de préparation. Relancez un audit après chaque changement.</p></div>
       </Card>
+    );
+  }
+  const beforeCount = actionPlan.filter((i) => i.severity !== "mineur").length;
+  return (
+    <Card>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-sm font-bold"><ListChecks className="h-4 w-4 text-brand-600" /> Plan d&apos;action Merchant</h3>
+        <Badge tone={beforeCount ? "warn" : "good"}>{beforeCount} action{beforeCount > 1 ? "s" : ""} prioritaire{beforeCount > 1 ? "s" : ""} avant soumission GMC</Badge>
+      </div>
+      <div className="space-y-2.5">
+        {actionPlan.slice(0, 6).map((it, i) => <ActionRow key={it.key} n={i + 1} it={it} onResolve={onResolve} />)}
+      </div>
+      {resolved.length > 0 && (
+        <div className="mt-3 border-t border-[var(--border)] pt-3">
+          <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300"><Check className="h-3.5 w-3.5" /> Corrigées ({resolved.length})</div>
+          <div className="flex flex-wrap gap-2">
+            {resolved.map((it) => <button key={it.key} onClick={() => onResolve(it.key)} className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700 line-through transition hover:no-underline dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">{it.label} <RotateCcw className="h-3 w-3" /></button>)}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
 
-      <Card>
-        <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><ListChecks className="h-4 w-4 text-brand-600" /> Checklist Merchant Center</h3>
+function ActionRow({ n, it, onResolve }: { n: number; it: MCItem; onResolve: (k: string) => void }) {
+  return (
+    <div className="ork-rise rounded-xl border border-[var(--border)] p-3.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-brand-600 text-[10px] font-bold text-white">{n}</span>
+        <span className="text-sm font-semibold">Action #{n} — {it.label}</span>
+        <Badge tone={SEV[it.severity].tone}>{SEV[it.severity].label}</Badge>
+        <span className="inline-flex items-center gap-1 text-[11px] text-[var(--text-muted)]"><Timer className="h-3 w-3" /> {it.eta}</span>
+      </div>
+      {it.examples && it.examples.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">{it.examples.map((e, i) => <span key={i} className="rounded-md bg-[var(--bg)] px-2 py-0.5 font-mono text-[11px] text-[var(--text-muted)]">{e}</span>)}</div>
+      )}
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <div className="rounded-lg bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"><span className="font-semibold">Impact :</span> {it.impact}</div>
+        <div className="rounded-lg bg-brand-50 px-2.5 py-2 text-xs text-brand-900 dark:bg-brand-950/40 dark:text-brand-200"><span className="font-semibold">Corriger :</span> {it.fix}</div>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]"><Wrench className="h-3.5 w-3.5 text-brand-500" /><span className="rounded-md bg-[var(--bg)] px-1.5 py-0.5 font-mono text-[11px]">{it.where}</span></div>
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        <Link href={resolveHref(it)}><Button variant="secondary" size="sm" icon={it.module === "seo" ? <Sparkles className="h-3.5 w-3.5" /> : <Wand2 className="h-3.5 w-3.5" />}>Résoudre</Button></Link>
+        <Link href={assistantLink(`${it.label} — où corriger dans Shopify ?`)}><Button variant="ghost" size="sm" icon={<ArrowRight className="h-3.5 w-3.5" />}>Où corriger ?</Button></Link>
+        <Button variant="ghost" size="sm" icon={<Check className="h-3.5 w-3.5" />} onClick={() => onResolve(it.key)}>Marquer corrigé</Button>
+      </div>
+    </div>
+  );
+}
+
+function PromotionsCard({ item }: { item: MCItem }) {
+  return (
+    <Card className="border-amber-200 dark:border-amber-900/60">
+      <div className="mb-2 flex items-center gap-2.5">
+        <span className="grid h-8 w-8 place-items-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-950/50"><Percent className="h-[18px] w-[18px]" /></span>
+        <div><h3 className="text-sm font-bold">Promotions & prix barrés</h3><Badge tone="warn">À vérifier</Badge></div>
+      </div>
+      <p className="text-sm text-[var(--text-muted)]">Les promotions ne sont pas interdites, mais les réductions agressives, permanentes, mal synchronisées avec le feed ou sans conditions claires peuvent créer un risque de cohérence prix/offre.</p>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {PROMO_CONTROLS.map((c) => <span key={c} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-[11px] text-[var(--text-muted)]"><Info className="h-3 w-3 text-amber-500" /> {c}</span>)}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Link href={councilLink("merchant", item.resolveQ!)}><Button variant="secondary" size="sm" icon={<Wand2 className="h-3.5 w-3.5" />}>Rendre mes promotions plus propres</Button></Link>
+      </div>
+    </Card>
+  );
+}
+
+// ── Phase 1 : Avant (détail) ────────────────────────────────────────────────
+function PhaseAvant({ report }: { report: ReturnType<typeof buildMerchantReport> }) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><ListChecks className="h-4 w-4 text-brand-600" /> Checklist Merchant Center</h4>
         <div className="divide-y divide-[var(--border)]">
           {report.checklist.map((it) => {
             const stt = STATUS[it.status];
             return (
               <div key={it.key} className="flex items-center justify-between gap-3 py-2.5">
                 <div className="flex min-w-0 items-center gap-2.5">
-                  <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${it.status === "ok" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50" : it.status === "fix" ? "bg-red-50 text-red-600 dark:bg-red-950/50" : "bg-amber-50 text-amber-600 dark:bg-amber-950/50"}`}>
-                    {it.status === "ok" ? <Check className="h-3.5 w-3.5" /> : it.status === "fix" ? <AlertOctagon className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
-                  </span>
+                  <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${it.status === "ok" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50" : it.status === "fix" ? "bg-red-50 text-red-600 dark:bg-red-950/50" : "bg-amber-50 text-amber-600 dark:bg-amber-950/50"}`}>{it.status === "ok" ? <Check className="h-3.5 w-3.5" /> : it.status === "fix" ? <AlertOctagon className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}</span>
                   <span className="truncate text-sm">{it.label}</span>
                 </div>
-                <Badge tone={stt.tone}>{stt.label}</Badge>
+                <div className="flex shrink-0 items-center gap-1.5">{it.status !== "ok" && <Badge tone={SEV[it.severity].tone}>{SEV[it.severity].label}</Badge>}<Badge tone={stt.tone}>{stt.label}</Badge></div>
               </div>
             );
           })}
         </div>
-      </Card>
-
-      <RiskGroup title="Risques critiques" subtitle="À régler avant toute soumission Merchant Center" tone="bad" icon={AlertOctagon} items={report.critical} onResolve={onResolve} />
-      <RiskGroup title="Risques importants" subtitle="À traiter en priorité pour un flux fiable" tone="warn" icon={AlertTriangle} items={report.important} onResolve={onResolve} />
-      <RiskGroup title="Optimisations recommandées" subtitle="Mineur pour Merchant, utile pour SEO / confiance" tone="neutral" icon={Info} items={report.optimizations} onResolve={onResolve} />
-
-      {report.resolvedItems.length > 0 && (
-        <Card className="border-emerald-200 dark:border-emerald-900/60">
-          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-emerald-700 dark:text-emerald-300"><Check className="h-4 w-4" /> Corrigés ({report.resolvedItems.length})</h3>
-          <div className="flex flex-wrap gap-2">
-            {report.resolvedItems.map((it) => (
-              <button key={it.key} onClick={() => onResolve(it.key)} className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700 line-through transition hover:no-underline dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-                {it.label} <RotateCcw className="h-3 w-3" />
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 text-[11px] text-[var(--text-muted)]">Cliquez pour rétablir. Relancez l&apos;audit pour confirmer après corrections dans Shopify.</p>
-        </Card>
-      )}
-
-      {/* Checklist avant Shopping / PMax */}
-      <Card>
-        <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><Rocket className="h-4 w-4 text-brand-600" /> Checklist avant Google Shopping / Performance Max</h3>
+      </div>
+      <div>
+        <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><Rocket className="h-4 w-4 text-brand-600" /> Checklist avant Google Shopping / Performance Max</h4>
         <div className="grid gap-2 sm:grid-cols-2">
           {report.beforeShopping.map((b) => {
             const stt = STATUS[b.status];
             return (
               <div key={b.key} className="flex items-start gap-2.5 rounded-xl border border-[var(--border)] p-3">
-                <span className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded ${b.status === "ok" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50" : b.status === "fix" ? "bg-red-50 text-red-600 dark:bg-red-950/50" : "bg-amber-50 text-amber-600 dark:bg-amber-950/50"}`}>
-                  {b.status === "ok" ? <Check className="h-3 w-3" /> : b.status === "fix" ? <CircleSlash className="h-3 w-3" /> : <Info className="h-3 w-3" />}
-                </span>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5"><span className="text-sm font-medium">{b.label}</span><Badge tone={stt.tone}>{stt.label}</Badge></div>
-                  <p className="mt-0.5 text-xs text-[var(--text-muted)]">{b.action}</p>
-                </div>
+                <span className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded ${b.status === "ok" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50" : b.status === "fix" ? "bg-red-50 text-red-600 dark:bg-red-950/50" : "bg-amber-50 text-amber-600 dark:bg-amber-950/50"}`}>{b.status === "ok" ? <Check className="h-3 w-3" /> : b.status === "fix" ? <CircleSlash className="h-3 w-3" /> : <Info className="h-3 w-3" />}</span>
+                <div className="min-w-0"><div className="flex items-center gap-1.5"><span className="text-sm font-medium">{b.label}</span><Badge tone={stt.tone}>{stt.label}</Badge></div><p className="mt-0.5 text-xs text-[var(--text-muted)]">{b.action}</p></div>
               </div>
             );
           })}
         </div>
-      </Card>
-    </>
+      </div>
+    </div>
   );
 }
 
-// ── Phase 2 : Pendant la validation ─────────────────────────────────────────
 function PhasePendant() {
   return (
-    <>
-      <Card className="border-amber-200 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/20">
-        <div className="flex items-start gap-2.5">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          <p className="text-sm text-amber-800 dark:text-amber-200">
-            Pendant la validation, évitez les changements majeurs de prix, de thème, de promotions ou de politiques sans relancer un contrôle.
-          </p>
-        </div>
-      </Card>
-      <Card>
-        <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><ShieldQuestion className="h-4 w-4 text-brand-600" /> À surveiller pendant la validation</h3>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {DURING_CHECKS.map((c) => (
-            <div key={c} className="flex items-center gap-2.5 rounded-xl border border-[var(--border)] p-3 text-sm">
-              <Info className="h-4 w-4 shrink-0 text-amber-500" /> <span className="min-w-0">{c}</span>
-              <Badge tone="warn" className="ml-auto">à vérifier</Badge>
-            </div>
-          ))}
-        </div>
-      </Card>
-    </>
+    <div className="space-y-3">
+      <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900 dark:bg-amber-950/20">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+        <p className="text-sm text-amber-800 dark:text-amber-200">Pendant la validation, évitez les changements majeurs de prix, de thème, de promotions ou de politiques sans relancer un contrôle.</p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {DURING_CHECKS.map((c) => <div key={c} className="flex items-center gap-2.5 rounded-xl border border-[var(--border)] p-3 text-sm"><Info className="h-4 w-4 shrink-0 text-amber-500" /> <span className="min-w-0">{c}</span><Badge tone="warn" className="ml-auto">à vérifier</Badge></div>)}
+      </div>
+    </div>
   );
 }
 
-// ── Phase 3 : Après acceptation ─────────────────────────────────────────────
 function PhaseApres() {
   return (
-    <Card>
-      <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold"><Rocket className="h-4 w-4 text-brand-600" /> Plan post-acceptation Google Merchant Center</h3>
+    <div>
       <p className="mb-3 text-xs text-[var(--text-muted)]">Maintenez un compte propre et stable après l&apos;acceptation.</p>
       <div className="grid gap-3 sm:grid-cols-2">
         {POST_ROUTINES.map((r) => {
@@ -336,21 +388,28 @@ function PhaseApres() {
           );
         })}
       </div>
-    </Card>
+    </div>
   );
 }
 
-// ── Composants ──────────────────────────────────────────────────────────────
+// ── Composants partagés ─────────────────────────────────────────────────────
+function BlockerCard({ b }: { b: Blocker }) {
+  const stt = STATUS[b.status];
+  return (
+    <div className="ork-interactive rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5 hover:border-brand-300">
+      <div className="flex items-center justify-between gap-2"><span className="text-sm font-semibold">{b.label}</span><Badge tone={stt.tone}>{stt.label}</Badge></div>
+      <p className="mt-1.5 text-xs text-[var(--text-muted)]"><span className="font-medium text-[var(--text)]">Ex. :</span> {b.example}</p>
+      <p className="mt-1 text-xs text-[var(--text-muted)]"><span className="font-medium text-[var(--text)]">Risque Google :</span> {b.why}</p>
+    </div>
+  );
+}
+
 function Metric({ icon: Icon, label, big, sub, tone }: { icon: React.ElementType; label: string; big: string; sub: string; tone: "good" | "warn" | "bad" }) {
   const color = tone === "good" ? "text-emerald-600" : tone === "warn" ? "text-amber-600" : "text-red-500";
   return (
     <Card className="flex items-center gap-2.5">
       <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--bg)] ${color}`}><Icon className="h-5 w-5" /></div>
-      <div className="min-w-0">
-        <div className={`text-lg font-bold ${color}`}>{big}</div>
-        <div className="truncate text-[11px] font-medium text-[var(--text)]">{label}</div>
-        <div className="truncate text-[10px] text-[var(--text-muted)]">{sub}</div>
-      </div>
+      <div className="min-w-0"><div className={`text-lg font-bold ${color}`}>{big}</div><div className="truncate text-[11px] font-medium text-[var(--text)]">{label}</div><div className="truncate text-[10px] text-[var(--text-muted)]">{sub}</div></div>
     </Card>
   );
 }
@@ -358,10 +417,7 @@ function Metric({ icon: Icon, label, big, sub, tone }: { icon: React.ElementType
 function Benefits() {
   return (
     <div className="flex flex-wrap items-center justify-center gap-2">
-      {BENEFITS.map((b) => {
-        const I = b.icon;
-        return <span key={b.t} className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700 dark:bg-brand-950 dark:text-brand-300"><I className="h-3.5 w-3.5" />{b.t}</span>;
-      })}
+      {BENEFITS.map((b) => { const I = b.icon; return <span key={b.t} className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700 dark:bg-brand-950 dark:text-brand-300"><I className="h-3.5 w-3.5" />{b.t}</span>; })}
     </div>
   );
 }
@@ -404,49 +460,11 @@ function resolveHref(it: MCItem): string {
   return assistantLink(`${it.label} — où corriger dans Shopify ?`);
 }
 
-function RiskGroup({ title, subtitle, tone, icon: Icon, items, onResolve }: { title: string; subtitle: string; tone: "bad" | "warn" | "neutral"; icon: React.ElementType; items: MCItem[]; onResolve: (k: string) => void }) {
-  if (!items.length) return null;
-  const ring = tone === "bad" ? "border-red-200 dark:border-red-900/60" : tone === "warn" ? "border-amber-200 dark:border-amber-900/60" : "border-[var(--border)]";
-  const chip = tone === "bad" ? "bg-red-50 text-red-600 dark:bg-red-950/50" : tone === "warn" ? "bg-amber-50 text-amber-600 dark:bg-amber-950/50" : "bg-ink-100 text-ink-500 dark:bg-ink-900";
-  return (
-    <Card className={ring}>
-      <div className="mb-3 flex items-center gap-2.5">
-        <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl ${chip}`}><Icon className="h-[18px] w-[18px]" /></span>
-        <div><h3 className="text-sm font-bold">{title} <span className="ml-1 text-xs font-normal text-[var(--text-muted)]">({items.length})</span></h3><p className="text-xs text-[var(--text-muted)]">{subtitle}</p></div>
-      </div>
-      <div className="space-y-3">
-        {items.map((it) => (
-          <div key={it.key} className="rounded-xl border border-[var(--border)] p-3.5">
-            <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold">{it.label}</span><Badge tone={SEV[it.severity].tone}>{SEV[it.severity].label}</Badge></div>
-            {it.examples && it.examples.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap gap-1.5">{it.examples.map((e, i) => <span key={i} className="rounded-md bg-[var(--bg)] px-2 py-0.5 font-mono text-[11px] text-[var(--text-muted)]">{e}</span>)}</div>
-            )}
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              <div className="rounded-lg bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"><span className="font-semibold">Impact Merchant :</span> {it.impact}</div>
-              <div className="rounded-lg bg-brand-50 px-2.5 py-2 text-xs text-brand-900 dark:bg-brand-950/40 dark:text-brand-200"><span className="font-semibold">Comment corriger :</span> {it.fix}</div>
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
-              <Wrench className="h-3.5 w-3.5 text-brand-500" /><span className="rounded-md bg-[var(--bg)] px-1.5 py-0.5 font-mono text-[11px]">{it.where}</span>
-            </div>
-            <div className="mt-2.5 flex flex-wrap gap-2">
-              <Link href={resolveHref(it)}><Button variant="secondary" size="sm" icon={it.module === "seo" ? <Sparkles className="h-3.5 w-3.5" /> : <Wand2 className="h-3.5 w-3.5" />}>Résoudre</Button></Link>
-              <Link href={assistantLink(`${it.label} — où corriger dans Shopify ?`)}><Button variant="ghost" size="sm" icon={<ArrowRight className="h-3.5 w-3.5" />}>Où corriger ?</Button></Link>
-              <Button variant="ghost" size="sm" icon={<Check className="h-3.5 w-3.5" />} onClick={() => onResolve(it.key)}>Marquer comme corrigé</Button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
-
 function Disclaimer() {
   return (
     <div className="flex items-start gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5">
       <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--text-muted)]" />
-      <p className="text-xs text-[var(--text-muted)]">
-        Orkestra détecte les risques visibles publiquement et aide à préparer votre boutique. Google reste seul décisionnaire de l&apos;approbation Merchant Center.
-      </p>
+      <p className="text-xs text-[var(--text-muted)]">Orkestra détecte les risques visibles publiquement et aide à préparer votre boutique. Google reste seul décisionnaire de l&apos;approbation Merchant Center.</p>
     </div>
   );
 }

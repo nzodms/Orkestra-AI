@@ -22,6 +22,8 @@ export interface MCItem {
   module: ModuleId;
   count?: number;
   examples?: string[];
+  /** Temps estimé de correction. */
+  eta?: string;
   /** Question contextuelle pour le bouton « Résoudre ». */
   resolveQ?: string;
 }
@@ -34,6 +36,15 @@ export interface BeforeShoppingItem {
   action: string;
 }
 
+/** Catégorie « Ce qui peut bloquer Google » (vue synthétique). */
+export interface Blocker {
+  key: string;
+  label: string;
+  status: MCStatus;
+  example: string;
+  why: string;
+}
+
 export interface MerchantReport {
   scanned: boolean;
   score: number;
@@ -42,18 +53,35 @@ export interface MerchantReport {
   trustTotal: number;
   englishCount: number;
   weakDataCount: number;
+  claimsCount: number;
   checklist: MCItem[];
   critical: MCItem[];
   important: MCItem[];
   optimizations: MCItem[];
+  actionPlan: MCItem[];
   resolvedItems: MCItem[];
   totalActions: number;
   actionsRemaining: number;
   readiness: number;
   gmcStatus: { level: "ready" | "fix" | "risk"; label: string };
   promotions: MCItem;
+  blockers: Blocker[];
   beforeShopping: BeforeShoppingItem[];
   interpretation: string[];
+}
+
+/** Temps estimé de correction par type d'item. */
+function etaFor(key: string): string {
+  if (["contact", "mentions", "return", "shipping", "cgv", "privacy", "faq", "warranty"].includes(key)) return "≈ 15–30 min / page";
+  if (key === "english") return "≈ 5–15 min";
+  if (key === "product_type") return "≈ 1–2 min / produit";
+  if (key === "desc") return "≈ 10 min / fiche";
+  if (key === "meta") return "≈ 3 min / page";
+  if (key === "alt") return "≈ 1 min / image";
+  if (key === "tags") return "≈ 2 min / produit";
+  if (key === "claims") return "≈ 10 min";
+  if (key === "promotions") return "≈ 10 min";
+  return "≈ 10 min";
 }
 
 const ESSENTIAL = ["contact", "mentions", "return", "shipping", "cgv", "privacy"];
@@ -161,6 +189,22 @@ export function buildMerchantReport(analysis: StoreAnalysis | null, brand: Brand
   const trust = analysis?.scores.trust ?? 0;
   const weakDataCount = (noType > 0 ? 1 : 0) + (weakDesc > 0 ? 1 : 0) + (missingMeta > 0 ? 1 : 0) + (imagesNoAlt > 0 ? 1 : 0);
 
+  // Temps estimé + plan d'action (priorité décroissante).
+  checklist.forEach((i) => { i.eta = etaFor(i.key); });
+  const actionPlan = [...critical, ...important, ...optimizations];
+
+  // « Ce qui peut bloquer Google » — 6 catégories synthétiques.
+  const contactFound = !!byKey.get("contact")?.found;
+  const allEssentialFound = trustFound >= trustTotal;
+  const blockers: Blocker[] = [
+    { key: "trust", label: "Confiance boutique", status: contactFound && trust >= 60 ? "ok" : contactFound ? "check" : "fix", example: contactFound ? "Identité entreprise / réassurance à renforcer." : "Page contact ou identité entreprise absente.", why: "Google veut identifier un vendeur fiable et joignable." },
+    { key: "policies", label: "Politiques", status: allEssentialFound ? "ok" : "fix", example: allEssentialFound ? "Politiques essentielles présentes." : "Retours / livraison / confidentialité incomplètes.", why: "Des politiques claires sont une exigence fréquente de Merchant Center." },
+    { key: "lang", label: "Langue & cohérence", status: englishCount === 0 ? (scanned ? "ok" : "check") : "fix", example: englishCount ? `${englishCount} libellé(s) anglais (« Add to cart »…).` : "Boutique cohérente linguistiquement.", why: "Une incohérence linguistique est un signal négatif de confiance." },
+    { key: "product", label: "Données produit", status: weakDataCount === 0 ? (scanned ? "ok" : "check") : "check", example: weakDataCount ? "product_type / descriptions / meta incomplets." : "Catalogue propre.", why: "Un catalogue faible fragilise le flux Google Shopping." },
+    { key: "promotions", label: "Promotions / prix barrés", status: "check", example: "Bandeaux d'urgence, prix barrés permanents, codes promo.", why: "Une offre incohérente avec le feed = risque de misrepresentation." },
+    { key: "claims", label: "Promesses commerciales", status: claims.length ? "check" : scanned ? "ok" : "check", example: claims.length ? `« ${claims[0]} »…` : "Pas de claim non prouvé détecté.", why: "Les claims non prouvés (« meilleur », « garanti ») sont vus comme un risque." },
+  ];
+
   // ── Checklist « Avant Shopping / PMax » ──
   const st = (b: boolean): MCStatus => (b ? "ok" : "fix");
   const beforeShopping: BeforeShoppingItem[] = [
@@ -187,8 +231,8 @@ export function buildMerchantReport(analysis: StoreAnalysis | null, brand: Brand
   interpretation.push("Avant Google Shopping / Performance Max : prioriser les pages de confiance, la cohérence de langue et des données produit solides.");
 
   return {
-    scanned, score, trust, trustFound, trustTotal, englishCount, weakDataCount,
-    checklist, critical, important, optimizations, resolvedItems,
-    totalActions, actionsRemaining, readiness, gmcStatus, promotions, beforeShopping, interpretation,
+    scanned, score, trust, trustFound, trustTotal, englishCount, weakDataCount, claimsCount: claims.length,
+    checklist, critical, important, optimizations, actionPlan, resolvedItems,
+    totalActions, actionsRemaining, readiness, gmcStatus, promotions, blockers, beforeShopping, interpretation,
   };
 }
