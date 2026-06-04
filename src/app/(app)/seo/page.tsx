@@ -6,12 +6,12 @@ import { useOrkestra } from "@/lib/store";
 import { assistantLink, councilLink } from "@/lib/shopify";
 import {
   parseCsv, detectColumns, autoMapColumns, groupProducts, mappingStats, MAP_TARGETS, toProductInput,
-  presetRules, applyTransform, serializeCsv, buildReportCsv, chunk, downloadCsv, normName, PRESETS,
+  presetRules, applyTransform, serializeCsv, chunk, downloadCsv, normName, PRESETS,
   type ImportRules, type ShopifyField, type TransformedProduct,
   type TransformMode, type TitleStyle, type DescriptionLevel, type HandleMode, type Level,
 } from "@/lib/import-factory";
 import { PROFILES, CUSTOM_PROFILE, profileById, profileRuleOverrides, profileContext } from "@/lib/import-profiles";
-import { qualityControl, buildIssueReportCsv, type QCReport, type QCStatus } from "@/lib/import-qc";
+import { qualityControl, buildIssueReportCsv, buildExportReport, type QCReport, type QCStatus } from "@/lib/import-qc";
 import { PageHeader, Card, Badge } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import {
@@ -85,6 +85,7 @@ export default function ImportFactoryPage() {
   const [validated, setValidated] = useState<string[]>([]);
   const [rejected, setRejected] = useState<string[]>([]);
   const [locked, setLocked] = useState<string[]>([]);
+  const [confirmExport, setConfirmExport] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [showExample, setShowExample] = useState(false);
@@ -97,6 +98,12 @@ export default function ImportFactoryPage() {
   const isShopify = useMemo(() => (parsed ? detectColumns(parsed.headers).isShopify : false), [parsed]);
   const groups = useMemo(() => (parsed ? groupProducts(parsed.rows, mapping) : []), [parsed, mapping]);
   const stats = useMemo(() => (parsed ? mappingStats(parsed.headers, parsed.rows, mapping, groups) : null), [parsed, mapping, groups]);
+  // CSV Shopify final (colonnes complètes + contrôle qualité export).
+  const applied = useMemo(() => {
+    if (!parsed || !results) return null;
+    const fr = results.map((r) => ({ ...r, ...(edits[r.handle] || {}) }));
+    return applyTransform(parsed.headers, parsed.rows, mapping, groups, fr, rules);
+  }, [parsed, results, edits, mapping, groups, rules]);
 
   function updateRule(patch: Partial<ImportRules>) { setRules((r) => ({ ...r, ...patch })); }
   function applyPreset(id: string) {
@@ -224,13 +231,13 @@ export default function ImportFactoryPage() {
     return (results || []).map((r) => ({ ...r, ...(edits[r.handle] || {}) }));
   }
   function exportCsv() {
-    if (!parsed || !results) return;
-    const { headers, rows } = applyTransform(parsed.headers, parsed.rows, mapping, groups, finalResults(), rules);
-    downloadCsv(`orkestra-import-${Date.now()}.csv`, serializeCsv(headers, rows));
+    if (!applied) return;
+    if (applied.status === "failed" && !confirmExport) { setConfirmExport(true); return; }
+    downloadCsv(`orkestra-import-${Date.now()}.csv`, serializeCsv(applied.headers, applied.rows));
   }
   function exportReport() {
-    if (!results) return;
-    downloadCsv(`orkestra-rapport-${Date.now()}.csv`, buildReportCsv(groups, finalResults()));
+    if (!applied || !results) return;
+    downloadCsv(`orkestra-rapport-${Date.now()}.csv`, buildExportReport(groups, finalResults(), applied, qcReports));
   }
   // Règle de lot : applique une collection ou un product_type aux produits dont
   // le titre / la collection source contient un mot-clé.
@@ -268,7 +275,7 @@ export default function ImportFactoryPage() {
   function approveAll() { setValidated((results || []).map((r) => r.handle)); setRejected([]); }
   function reset() {
     setParsed(null); setMapping({}); setMapOpen(false); setFileInfo(null); setResults(null);
-    setQcReports({}); setEdits({}); setValidated([]); setRejected([]); setLocked([]); setError(null); setParseError(null); setPhase("idle");
+    setQcReports({}); setEdits({}); setValidated([]); setRejected([]); setLocked([]); setConfirmExport(false); setError(null); setParseError(null); setPhase("idle");
   }
   const qcCounts = (() => {
     const c = { ok: 0, warning: 0, risk: 0, failed: 0 };
@@ -561,6 +568,41 @@ export default function ImportFactoryPage() {
                 <Button variant="ghost" onClick={exportIssues} icon={<AlertTriangle className="h-4 w-4" />}>À vérifier</Button>
               </div>
             </Card>
+
+            {/* Contrôle qualité export Shopify */}
+            {applied && (
+              <Card>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 text-sm font-bold"><ShieldCheck className="h-4 w-4 text-brand-600" /> Contrôle qualité export Shopify</span>
+                  <Badge tone={QC_TONE[applied.status]}>{QC_LABEL[applied.status]}</Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <Stat icon={Boxes} label="Produits" value={applied.stats.products} />
+                  <Stat icon={Layers} label="Variantes" value={applied.stats.variants} />
+                  <Stat icon={ImageIcon} label="Images" value={applied.stats.images} />
+                  <Stat icon={Columns3} label="Colonnes" value={applied.headers.length} />
+                </div>
+                <div className="mt-3 space-y-1.5">
+                  {applied.checks.map((c, i) => (
+                    <div key={i} className="flex items-start gap-1.5 text-[11px]">
+                      {c.status === "ok" ? <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500" /> : <AlertTriangle className={`mt-0.5 h-3 w-3 shrink-0 ${c.status === "warning" ? "text-amber-500" : "text-red-500"}`} />}
+                      <span className={c.status === "ok" ? "text-[var(--text-muted)]" : ""}><span className="font-medium">{c.label}</span>{c.detail ? ` — ${c.detail}` : ""}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[var(--border)] pt-3 text-[11px]">
+                  {applied.stats.added.length > 0 && <Badge tone="brand">+{applied.stats.added.length} colonne(s) ajoutée(s)</Badge>}
+                  {applied.stats.cleared.length > 0 && <Badge tone="warn">{applied.stats.cleared.length} vidée(s) (sécurité)</Badge>}
+                  <span className="text-[var(--text-muted)]">Variantes, prix, SKU, images et positions préservés ; lignes images non transformées en produits.</span>
+                </div>
+                {applied.status === "failed" && (
+                  <div className="mt-3 flex flex-col gap-2 rounded-lg bg-red-50 p-3 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5 shrink-0" /> Erreur(s) critique(s) export — corrigez ou confirmez explicitement.</span>
+                    <Button size="sm" variant="danger" onClick={() => { setConfirmExport(true); downloadCsv(`orkestra-import-${Date.now()}.csv`, serializeCsv(applied.headers, applied.rows)); }}>Exporter quand même</Button>
+                  </div>
+                )}
+              </Card>
+            )}
 
             <div className="flex flex-wrap items-center gap-2">
               <Link href={councilLink("seo", "Contexte : Import Factory a transformé un catalogue produit (titres, descriptions, meta, alt, tags). Réponds uniquement : vérifie ce qui est risqué ou faible (titres trop agressifs, claims, descriptions pauvres, meta) et propose des corrections, sans refaire d'audit complet.")}><Button variant="secondary" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Faire vérifier par AI Council</Button></Link>

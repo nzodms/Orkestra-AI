@@ -63,7 +63,8 @@ export function serializeCsv(headers: string[], rows: string[][]): string {
 export type ShopifyField =
   | "Handle" | "Title" | "Body" | "Vendor" | "Category" | "Type" | "Tags" | "Published" | "Collection"
   | "Option1Name" | "Option1Value" | "Option2Name" | "Option2Value" | "Option3Name" | "Option3Value"
-  | "VariantSKU" | "VariantPrice" | "ImageSrc" | "ImageAlt" | "SeoTitle" | "SeoDescription" | "Status";
+  | "VariantSKU" | "VariantPrice" | "VariantCompareAtPrice" | "VariantInventoryQty"
+  | "ImageSrc" | "ImagePosition" | "ImageAlt" | "VariantImage" | "SeoTitle" | "SeoDescription" | "Status";
 
 const HEADER_MAP: Record<string, ShopifyField> = {
   "handle": "Handle", "title": "Title", "body (html)": "Body", "body html": "Body", "body": "Body",
@@ -73,9 +74,48 @@ const HEADER_MAP: Record<string, ShopifyField> = {
   "option2 name": "Option2Name", "option2 value": "Option2Value",
   "option3 name": "Option3Name", "option3 value": "Option3Value",
   "variant sku": "VariantSKU", "variant price": "VariantPrice",
-  "image src": "ImageSrc", "image alt text": "ImageAlt",
+  "variant compare at price": "VariantCompareAtPrice", "variant inventory qty": "VariantInventoryQty",
+  "image src": "ImageSrc", "image position": "ImagePosition", "image alt text": "ImageAlt",
+  "variant image": "VariantImage",
   "seo title": "SeoTitle", "seo description": "SeoDescription", "status": "Status",
 };
+
+// Ordre canonique des colonnes d'un CSV produit Shopify (export propre).
+const SHOPIFY_ORDER: { field: ShopifyField; header: string }[] = [
+  { field: "Handle", header: "Handle" },
+  { field: "Title", header: "Title" },
+  { field: "Body", header: "Body (HTML)" },
+  { field: "Vendor", header: "Vendor" },
+  { field: "Category", header: "Product Category" },
+  { field: "Type", header: "Type" },
+  { field: "Tags", header: "Tags" },
+  { field: "Published", header: "Published" },
+  { field: "Option1Name", header: "Option1 Name" },
+  { field: "Option1Value", header: "Option1 Value" },
+  { field: "Option2Name", header: "Option2 Name" },
+  { field: "Option2Value", header: "Option2 Value" },
+  { field: "Option3Name", header: "Option3 Name" },
+  { field: "Option3Value", header: "Option3 Value" },
+  { field: "VariantSKU", header: "Variant SKU" },
+  { field: "VariantInventoryQty", header: "Variant Inventory Qty" },
+  { field: "VariantPrice", header: "Variant Price" },
+  { field: "VariantCompareAtPrice", header: "Variant Compare At Price" },
+  { field: "ImageSrc", header: "Image Src" },
+  { field: "ImagePosition", header: "Image Position" },
+  { field: "ImageAlt", header: "Image Alt Text" },
+  { field: "VariantImage", header: "Variant Image" },
+  { field: "SeoTitle", header: "SEO Title" },
+  { field: "SeoDescription", header: "SEO Description" },
+  { field: "Status", header: "Status" },
+];
+const HEADER_OF = Object.fromEntries(SHOPIFY_ORDER.map((o) => [o.field, o.header])) as Record<ShopifyField, string>;
+const ALL_FIELDS: ShopifyField[] = SHOPIFY_ORDER.map((o) => o.field);
+
+/** Une catégorie Shopify n'est fiable que si elle ressemble à la taxonomie officielle. */
+function isValidShopifyCategory(s: string): boolean {
+  const v = (s || "").trim();
+  return v.includes(">") || /^gid:\/\//.test(v) || /^[a-z]{2}-\d/i.test(v);
+}
 
 export interface DetectedColumns {
   isShopify: boolean;
@@ -540,10 +580,15 @@ function ensureColumn(headers: string[], rows: string[][], map: Partial<Record<S
   return idx;
 }
 
-export interface ApplyResult { headers: string[]; rows: string[][] }
+export type ExportStatus = "ok" | "warning" | "risk" | "failed";
+export interface ExportCheck { label: string; status: ExportStatus; detail?: string }
+export interface ExportStats { products: number; variants: number; images: number; added: string[]; preserved: string[]; cleared: string[] }
+export interface ApplyResult { headers: string[]; rows: string[][]; status: ExportStatus; checks: ExportCheck[]; stats: ExportStats }
 
-/** Applique les transformations sur le CSV d'origine (variantes/images/prix préservés).
- *  Handle/Title sont garantis en sortie (requis par l'import Shopify). */
+const SEV_ORDER: Record<ExportStatus, number> = { ok: 0, warning: 1, risk: 2, failed: 3 };
+
+/** Construit le CSV Shopify final : colonnes complètes, données sensibles
+ *  préservées, lignes variantes/images intactes, + contrôle qualité export. */
 export function applyTransform(
   origHeaders: string[],
   origRows: string[][],
@@ -557,65 +602,127 @@ export function applyTransform(
   const map = { ...srcMap };
   const handleExisted = map.Handle !== undefined;
 
-  // Si une seule colonne de valeur d'option est mappée (ex : couleur seule),
-  // la traiter comme Option 1 (Shopify n'accepte pas Option 2 sans Option 1).
+  // Option 2 seule → la traiter comme Option 1 (Shopify exige Option 1 d'abord).
   if (map.Option1Value === undefined && map.Option2Value !== undefined) {
     map.Option1Value = map.Option2Value; delete map.Option2Value;
     if (map.Option1Name === undefined && map.Option2Name !== undefined) { map.Option1Name = map.Option2Name; delete map.Option2Name; }
   }
-  // Nom d'option par défaut déduit de l'en-tête d'origine (avant normalisation).
   const optName = map.Option1Value !== undefined ? guessOptionName(origHeaders[map.Option1Value]) : "Titre";
 
-  const iHandle = ensureColumn(headers, rows, map, "Handle", "Handle");
-  const iTitle = ensureColumn(headers, rows, map, "Title", "Title");
-  const iBody = ensureColumn(headers, rows, map, "Body", "Body (HTML)");
-  const iType = ensureColumn(headers, rows, map, "Type", "Type");
-  const iTags = ensureColumn(headers, rows, map, "Tags", "Tags");
-  const iSeoT = ensureColumn(headers, rows, map, "SeoTitle", "SEO Title");
-  const iSeoD = ensureColumn(headers, rows, map, "SeoDescription", "SEO Description");
-  const iAlt = ensureColumn(headers, rows, map, "ImageAlt", "Image Alt Text");
-  const wantsVendor = !!(rules.vendor || results.some((r) => r.vendor));
-  const iVendor = wantsVendor ? ensureColumn(headers, rows, map, "Vendor", "Vendor") : undefined;
-  // Si des options de variante existent, garantir une colonne « Option1 Name ».
-  const iOptName = map.Option1Value !== undefined ? ensureColumn(headers, rows, map, "Option1Name", "Option1 Name") : undefined;
+  // Colonnes canoniques déjà présentes (préservées) vs à ajouter.
+  const preExisting = new Set<ShopifyField>(ALL_FIELDS.filter((f) => map[f] !== undefined));
+  const idx = {} as Record<ShopifyField, number>;
+  for (const o of SHOPIFY_ORDER) idx[o.field] = ensureColumn(headers, rows, map, o.field, o.header);
 
+  const added = ALL_FIELDS.filter((f) => !preExisting.has(f)).map((f) => HEADER_OF[f]);
+  const preserved = ALL_FIELDS.filter((f) => preExisting.has(f)).map((f) => HEADER_OF[f]);
+  const cleared: string[] = [];
+
+  let falseProdFixed = 0;
   const byHandle = new Map(results.map((r) => [r.handle, r]));
   for (const g of groups) {
     const t = byHandle.get(g.handle);
     if (!t) continue;
+    // Sécurité : Title/Body uniquement sur la ligne produit → pas de faux produit.
+    if (g.rowIndices.length > 1) {
+      for (const ri of g.rowIndices) {
+        if (ri === g.defRow) continue;
+        if (cell(rows[ri], idx.Title)) { rows[ri][idx.Title] = ""; falseProdFixed++; }
+        if (cell(rows[ri], idx.Body)) rows[ri][idx.Body] = "";
+      }
+    }
     const def = rows[g.defRow];
     if (def) {
-      def[iTitle] = t.title;
-      if (t.bodyHtml) def[iBody] = t.bodyHtml;
-      if (rules.tagsType) { def[iType] = t.productType; def[iTags] = t.tags; }
-      if (rules.meta) { def[iSeoT] = t.metaTitle; def[iSeoD] = t.metaDescription; }
-      if (iVendor !== undefined) def[iVendor] = t.vendor || rules.vendor;
+      def[idx.Title] = t.title;
+      if (t.bodyHtml) def[idx.Body] = t.bodyHtml;             // jamais blanchir une valeur source
+      if (rules.tagsType) { def[idx.Type] = t.productType; def[idx.Tags] = t.tags; }
+      if (rules.meta) { def[idx.SeoTitle] = t.metaTitle; def[idx.SeoDescription] = t.metaDescription; }
+      def[idx.Vendor] = t.vendor || rules.vendor || def[idx.Vendor] || "";
+      if (!preExisting.has("Published") && !cell(def, idx.Published)) def[idx.Published] = "TRUE";
+      if (!preExisting.has("Status") && !cell(def, idx.Status)) def[idx.Status] = "active";
     }
-    // Handle garanti : nouveau slug si demandé, sinon original, sinon dérivé du titre.
+    // Handle garanti et cohérent sur TOUTES les lignes du produit.
     const finalHandle = rules.handleMode !== "keep" && t.newHandle ? t.newHandle : handleExisted && g.handle ? g.handle : slugify(t.title) || g.handle;
-    for (const ri of g.rowIndices) rows[ri][iHandle] = finalHandle;
-    if (iOptName !== undefined && map.Option1Value !== undefined) {
-      for (const v of g.variants) if (cell(rows[v.rowIndex], map.Option1Value)) rows[v.rowIndex][iOptName] = optName;
+    for (const ri of g.rowIndices) rows[ri][idx.Handle] = finalHandle;
+    // Option1 Name sur les lignes variantes ayant une valeur (sans écraser un nom source).
+    for (const v of g.variants) {
+      if (cell(rows[v.rowIndex], map.Option1Value) && !cell(rows[v.rowIndex], idx.Option1Name)) rows[v.rowIndex][idx.Option1Name] = optName;
     }
-    if (rules.altText) {
-      g.images.forEach((img, k) => { rows[img.rowIndex][iAlt] = t.imageAlts[k] || t.title; });
-    }
+    // Image Position séquentielle si la colonne a été ajoutée.
+    if (!preExisting.has("ImagePosition")) g.images.forEach((img, k) => { rows[img.rowIndex][idx.ImagePosition] = String(k + 1); });
+    // Alt text uniquement sur les lignes AVEC image.
+    if (rules.altText) g.images.forEach((img, k) => { rows[img.rowIndex][idx.ImageAlt] = t.imageAlts[k] || t.title; });
   }
 
-  // Renommer les colonnes mappées vers les en-têtes Shopify standard (import-ready).
-  for (const [field, name] of Object.entries(CANONICAL_HEADER)) {
-    const idx = map[field as ShopifyField];
-    if (idx !== undefined) headers[idx] = name;
+  // ── Nettoyages de sécurité déterministes ──
+  let altCleared = 0, catCleared = 0;
+  for (const r of rows) {
+    if (!cell(r, idx.ImageSrc) && cell(r, idx.ImageAlt)) { r[idx.ImageAlt] = ""; altCleared++; }
+    const cat = cell(r, idx.Category);
+    if (cat && !isValidShopifyCategory(cat)) { r[idx.Category] = ""; catCleared++; }
   }
-  return { headers, rows };
+  if (altCleared) cleared.push("Image Alt Text (sans Image Src)");
+  if (catCleared) cleared.push("Product Category (non fiable)");
+
+  // ── Contrôle qualité export ──
+  let status: ExportStatus = "ok";
+  const checks: ExportCheck[] = [];
+  const flag = (s: ExportStatus, label: string, detail?: string) => { checks.push({ label, status: s, detail }); if (SEV_ORDER[s] > SEV_ORDER[status]) status = s; };
+
+  const noHandle = rows.filter((r) => !cell(r, idx.Handle)).length;
+  if (noHandle) flag("failed", "Handle manquant sur des lignes", `${noHandle} ligne(s)`);
+
+  if (falseProdFixed) flag("warning", "Titres de lignes variantes/images nettoyés (faux produits évités)", `${falseProdFixed} ligne(s)`);
+
+  // handle partagé entre produits différents
+  const handleByGroup = groups.map((g) => cell(rows[g.defRow], idx.Handle) || cell(rows[g.rowIndices[0]], idx.Handle));
+  const dupHandle = Array.from(new Set(handleByGroup.filter((h, i) => h && handleByGroup.indexOf(h) !== i)));
+  if (dupHandle.length) flag("risk", "Handle partagé entre produits différents", dupHandle.slice(0, 5).join(", "));
+
+  if (altCleared) flag("warning", "Alt text vidé sur lignes sans image", `${altCleared}`);
+  if (catCleared) flag("warning", "Product Category vidée (non fiable)", `${catCleared}`);
+
+  let noPrice = 0;
+  for (const g of groups) for (const v of g.variants) if (!cell(rows[v.rowIndex], idx.VariantPrice)) noPrice++;
+  if (noPrice) flag("warning", "Prix manquant sur des variantes", `${noPrice}`);
+
+  let optNoName = 0;
+  for (const g of groups) {
+    for (const [valF, nameF] of [["Option1Value", "Option1Name"], ["Option2Value", "Option2Name"], ["Option3Value", "Option3Name"]] as [ShopifyField, ShopifyField][]) {
+      for (const ri of g.rowIndices) if (cell(rows[ri], idx[valF]) && !cell(rows[g.defRow], idx[nameF]) && !cell(rows[ri], idx[nameF])) optNoName++;
+    }
+  }
+  if (optNoName) flag("warning", "Valeur d'option sans nom d'option", `${optNoName}`);
+
+  const skus = rows.map((r) => cell(r, idx.VariantSKU)).filter(Boolean);
+  const dupSku = Array.from(new Set(skus.filter((s, i) => skus.indexOf(s) !== i)));
+  if (dupSku.length) flag("warning", "SKU dupliqué", dupSku.slice(0, 5).join(", "));
+
+  let viNoSrc = 0;
+  for (const g of groups) {
+    const srcs = new Set(g.rowIndices.map((ri) => cell(rows[ri], idx.ImageSrc)).filter(Boolean));
+    for (const ri of g.rowIndices) { const vi = cell(rows[ri], idx.VariantImage); if (vi && !srcs.has(vi)) viNoSrc++; }
+  }
+  if (viNoSrc) flag("warning", "Variant Image sans Image Src correspondante", `${viNoSrc}`);
+
+  if (checks.length === 0) checks.push({ label: "Structure Shopify conforme", status: "ok" });
+
+  // ── Réordonner vers l'ordre canonique Shopify (extras conservés ensuite) ──
+  const used = new Set<number>();
+  const sources: number[] = [];
+  const newHeaders: string[] = [];
+  for (const o of SHOPIFY_ORDER) { newHeaders.push(o.header); sources.push(idx[o.field]); used.add(idx[o.field]); }
+  for (let i = 0; i < headers.length; i++) if (!used.has(i)) { newHeaders.push(headers[i]); sources.push(i); }
+  const newRows = rows.map((r) => sources.map((s) => r[s] ?? ""));
+
+  const stats: ExportStats = {
+    products: groups.length,
+    variants: groups.reduce((a, g) => a + g.variants.length, 0),
+    images: groups.reduce((a, g) => a + g.images.length, 0),
+    added, preserved, cleared,
+  };
+  return { headers: newHeaders, rows: newRows, status, checks, stats };
 }
-
-const CANONICAL_HEADER: Partial<Record<ShopifyField, string>> = {
-  Handle: "Handle", Title: "Title", Body: "Body (HTML)", Type: "Type", Tags: "Tags", Vendor: "Vendor",
-  VariantPrice: "Variant Price", VariantSKU: "Variant SKU", ImageSrc: "Image Src", ImageAlt: "Image Alt Text",
-  SeoTitle: "SEO Title", SeoDescription: "SEO Description",
-  Option1Name: "Option1 Name", Option1Value: "Option1 Value", Option2Name: "Option2 Name", Option2Value: "Option2 Value",
-};
 
 function guessOptionName(header: string): string {
   const k = (header || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");

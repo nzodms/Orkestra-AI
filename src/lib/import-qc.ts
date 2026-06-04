@@ -1,4 +1,4 @@
-import { FORBIDDEN_JARGON, stripHtml, normName, serializeCsv, type TransformedProduct, type ProductGroup } from "./import-factory";
+import { FORBIDDEN_JARGON, stripHtml, normName, serializeCsv, type TransformedProduct, type ProductGroup, type ApplyResult } from "./import-factory";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Import Factory — contrôle qualité DÉTERMINISTE (côté code, pas seulement IA).
@@ -156,4 +156,30 @@ export function buildIssueReportCsv(groups: ProductGroup[], reports: Record<stri
     rows.push([g.handle, g.title, rep.fixed.title, rep.status.toUpperCase(), rep.issues.join(" · ")]);
   }
   return serializeCsv(headers, rows);
+}
+
+/** Rapport de modifications complet (résumé export + détail par produit). */
+export function buildExportReport(groups: ProductGroup[], finalResults: TransformedProduct[], applied: ApplyResult, reports: Record<string, QCReport>): string {
+  const qcCount = { ok: 0, warning: 0, risk: 0, failed: 0 };
+  for (const g of groups) qcCount[reports[g.handle]?.status ?? "ok"]++;
+  const reasons = applied.checks.filter((c) => c.status !== "ok").map((c) => `${c.label}${c.detail ? ` (${c.detail})` : ""}`);
+  const summary: string[][] = [
+    ["Produits exportés", String(applied.stats.products)],
+    ["Variantes", String(applied.stats.variants)],
+    ["Images", String(applied.stats.images)],
+    ["Statut export global", applied.status.toUpperCase()],
+    ["Produits OK / Warning / Risk / Failed", `${qcCount.ok} / ${qcCount.warning} / ${qcCount.risk} / ${qcCount.failed}`],
+    ["Colonnes ajoutées", applied.stats.added.join(" | ") || "aucune"],
+    ["Colonnes conservées", applied.stats.preserved.join(" | ") || "aucune"],
+    ["Colonnes vidées (sécurité)", applied.stats.cleared.join(" | ") || "aucune"],
+    ["Raisons export", reasons.join(" ; ") || "aucune"],
+    ["", ""],
+    ["Handle", "Ancien titre", "Nouveau titre", "Meta title", "product_type", "Statut QC", "Problèmes"],
+  ];
+  const detail = groups.map((g) => {
+    const r = finalResults.find((x) => x.handle === g.handle);
+    const rep = reports[g.handle];
+    return [g.handle, g.title, r?.title ?? "", r?.metaTitle ?? "", r?.productType ?? "", (rep?.status ?? "ok").toUpperCase(), (rep?.issues ?? []).join(" · ")];
+  });
+  return serializeCsv(["Rapport Import Factory — résumé export", ""], [...summary, ...detail]);
 }
