@@ -157,7 +157,7 @@ ${f.map((x) => `    <li>${x}</li>`).join("\n")}
 </div>`;
 }
 
-// ── SEO Studio : générateurs additionnels (purs, niche/scan-aware) ──────────
+// ── Content Factory : générateurs additionnels (purs, niche/scan-aware) ──────────
 // Utilisables côté client (aucune dépendance serveur). Pas de superlatif forcé.
 
 export interface CollectionSeoResult {
@@ -1211,7 +1211,7 @@ export function generateMerchantAudit(ctx: MerchantContext = {}): MerchantAudit 
       title: `Descriptions trop faibles sur ${cols.slice(0, 2).join(", ")}`,
       explanation:
         `Des descriptions trop courtes ou dupliquées sur ${cols.slice(0, 3).join(", ")} dégradent le SEO et la confiance.`,
-      fix: "Générez des fiches produits SEO complètes via le SEO Studio (200+ mots, bénéfices, FAQ).",
+      fix: "Générez des fiches produits SEO complètes via Content Factory (200+ mots, bénéfices, FAQ).",
       priority: 4,
       resolved: false,
     },
@@ -1411,7 +1411,7 @@ export function generateCouncil(
   };
 
   const nextActions = sr
-    ? ["Corriger les collections (SEO Studio)", "Lancer Merchant Shield", "Réordonner la page d'accueil (Section Builder)"]
+    ? ["Corriger les collections (Content Factory)", "Lancer Merchant Shield", "Réordonner la page d'accueil (Section Builder)"]
     : nextActionsFor(mode);
 
   return {
@@ -1461,7 +1461,7 @@ function estimateTimeSaved(mode: CouncilMode): string {
 
 function nextActionsFor(mode: CouncilMode): string[] {
   const map: Record<CouncilMode, string[]> = {
-    seo: ["Générer 3 fiches produits dans le SEO Studio", "Optimiser les meta des collections", "Lancer Merchant Shield"],
+    seo: ["Générer 3 fiches produits dans Content Factory", "Optimiser les meta des collections", "Lancer Merchant Shield"],
     code: ["Générer la section dans le Section Builder", "Tester le rendu mobile", "Ajouter les settings au customizer"],
     merchant: ["Lancer un audit complet Merchant Shield", "Corriger les pages légales", "Traduire les libellés EN"],
     email: ["Dupliquer comme modèle d'email", "Adapter le ton de marque", "Ajouter un CTA mesurable"],
@@ -1653,7 +1653,7 @@ function targetedAnswer(mode: CouncilMode, question: string, ctx: CouncilContext
         why: "- Google peut considérer un claim non prouvé comme trompeur.\n- Un texte factuel rassure autant et réduit le risque.",
         how: "Remplacez les superlatifs par des faits : matériaux, dimensions, usages. Ex. « Reformer pliable en érable, stable à domicile » plutôt que « le meilleur reformer professionnel ».",
         where: "Produits / Pages concernés → contenu et Aperçu du référencement naturel",
-        next: "Générer des textes factuels dans le **SEO Studio**.",
+        next: "Générer des textes factuels dans le **Content Factory**.",
       });
     case "product_type": {
       const prods = ctx.priorityProducts ?? [];
@@ -1684,7 +1684,7 @@ function targetedAnswer(mode: CouncilMode, question: string, ctx: CouncilContext
         why: "- Une meta claire améliore le taux de clic dans Google.\n- Évitez « Achetez maintenant », « Qualité premium ».",
         how: "Title = mot-clé + attribut concret + marque. Description = bénéfice + critères + livraison soignée.",
         where: shopifyPath("meta"),
-        next: "Générer 3 variantes dans le **SEO Studio** (workflow Meta).",
+        next: "Générer 3 variantes dans le **Content Factory** (workflow Meta).",
       });
     case "alt_text":
       return six({
@@ -1693,7 +1693,7 @@ function targetedAnswer(mode: CouncilMode, question: string, ctx: CouncilContext
         why: "- Mineur pour Merchant, utile pour le SEO images et l'accessibilité.",
         how: "Décrivez ce que montre l'image avant de viser le mot-clé.",
         where: shopifyPath("alt"),
-        next: "Générer les alt text dans le **SEO Studio** (workflow Alt text).",
+        next: "Générer les alt text dans le **Content Factory** (workflow Alt text).",
       });
     case "h1":
       return six({
@@ -1729,8 +1729,8 @@ function targetedAnswer(mode: CouncilMode, question: string, ctx: CouncilContext
       });
     case "generation_texte":
       return six({
-        direct: "Pour un texte prêt à copier (meta, description, FAQ, alt, article), le **SEO Studio** produit la sortie structurée et copiable, alignée sur votre niche et conforme Merchant.",
-        next: "Ouvrir le **SEO Studio** et choisir le workflow correspondant.",
+        direct: "Pour un texte prêt à copier (meta, description, FAQ, alt, article), le **Content Factory** produit la sortie structurée et copiable, alignée sur votre niche et conforme Merchant.",
+        next: "Ouvrir le **Content Factory** et choisir le workflow correspondant.",
       });
     default:
       return answerFollowup(mode, question, ctx);
@@ -1783,7 +1783,7 @@ ${list.slice(0, 10).map((e, i) => `${i + 1}. \`${e.text}\`
   }
 
   if (topic === "h1") {
-    return `### Balises H1\nVérifiez qu'il y a **un seul H1** par page (home/collection/produit).\n- Impact : un H1 unique = meilleure structure sémantique SEO.\n- Où corriger : ${shopifyPath("h1")}\n- Module : SEO Studio / Code Shopify.`;
+    return `### Balises H1\nVérifiez qu'il y a **un seul H1** par page (home/collection/produit).\n- Impact : un H1 unique = meilleure structure sémantique SEO.\n- Où corriger : ${shopifyPath("h1")}\n- Module : Content Factory / Code Shopify.`;
   }
 
   if (topic === "products") {
@@ -1792,24 +1792,24 @@ ${list.slice(0, 10).map((e, i) => `${i + 1}. \`${e.text}\`
     return `## Produits concernés (${p.length})
 ${p.slice(0, 6).map((x, i) => `${i + 1}. **${x.title}** — ${x.reason.toLowerCase()} (contenu ${x.contentScore}/100).`).join("\n")}
 
-**Action** : ouvrez le **SEO Studio** (pré-rempli depuis ces produits) pour enrichir description + FAQ + alt text.`;
+**Action** : ouvrez le **Content Factory** (pré-rempli depuis ces produits) pour enrichir description + FAQ + alt text.`;
   }
 
   if (topic === "collections") {
     const cols = ctx.collections ?? [];
     return cols.length
-      ? `## Collections concernées\n${cols.slice(0, 8).map((c) => `- ${c}`).join("\n")}\n\n**Action** : texte SEO + FAQ par collection (SEO Studio).`
+      ? `## Collections concernées\n${cols.slice(0, 8).map((c) => `- ${c}`).join("\n")}\n\n**Action** : texte SEO + FAQ par collection (Content Factory).`
       : `_Aucune collection détectée via le scan public._`;
   }
 
   if (topic === "meta") {
     if (ctx.missingMeta === 0) return `### Meta descriptions\nMeta : OK selon le scan public (échantillon) — non prioritaire.`;
-    return `### Meta à corriger\n${ctx.missingMeta != null ? `**${ctx.missingMeta}** meta manquantes détectées (échantillon).` : "_Nombre exact non disponible via scan public._"}\n- Exemple prêt à coller : \`Découvrez nos ${(ctx.collections?.[0] || "produits").toLowerCase()} : conseils pour bien choisir et livraison soignée.\` (≤ 155 car., naturel, sans superlatif)\n- Où corriger : ${shopifyPath("meta")}\n- Module : SEO Studio · Priorité : Haute.`;
+    return `### Meta à corriger\n${ctx.missingMeta != null ? `**${ctx.missingMeta}** meta manquantes détectées (échantillon).` : "_Nombre exact non disponible via scan public._"}\n- Exemple prêt à coller : \`Découvrez nos ${(ctx.collections?.[0] || "produits").toLowerCase()} : conseils pour bien choisir et livraison soignée.\` (≤ 155 car., naturel, sans superlatif)\n- Où corriger : ${shopifyPath("meta")}\n- Module : Content Factory · Priorité : Haute.`;
   }
 
   if (topic === "alt") {
     if (ctx.imagesNoAlt === 0) return `### Alt text des images\nAlt text : OK selon le scan public — non prioritaire.`;
-    return `### Images sans alt text\n${ctx.imagesNoAlt != null ? `**${ctx.imagesNoAlt}** image(s) sans alt détectée(s).` : "_Nombre non disponible._"}\n- Exemple d'alt : « ${(ctx.collections?.[0] || "produit").toLowerCase()} — ${nicheOf(ctx)} ».\n- Où corriger : ${shopifyPath("alt")}\n- Module : SEO Studio · Priorité : Basse/Moyenne.`;
+    return `### Images sans alt text\n${ctx.imagesNoAlt != null ? `**${ctx.imagesNoAlt}** image(s) sans alt détectée(s).` : "_Nombre non disponible._"}\n- Exemple d'alt : « ${(ctx.collections?.[0] || "produit").toLowerCase()} — ${nicheOf(ctx)} ».\n- Où corriger : ${shopifyPath("alt")}\n- Module : Content Factory · Priorité : Basse/Moyenne.`;
   }
 
   if (topic === "legal") {
@@ -1856,7 +1856,7 @@ ${p.slice(0, 6).map((x, i) => `${i + 1}. **${x.title}** — ${x.reason.toLowerCa
 - **J1** : corriger ${ctx.englishCount ?? 0} textes anglais + ${ctx.missingMeta ?? 0} meta manquantes.
 - **J2** : product_type manquants (${ctx.noType ?? 0}).
 - **J3–4** : texte SEO + FAQ sur « ${cols[0] || "collection principale"} »${cols[1] ? " et « " + cols[1] + " »" : ""}.
-- **J5–7** : enrichir les produits prioritaires (SEO Studio).`;
+- **J5–7** : enrichir les produits prioritaires (Content Factory).`;
   }
 
   // generic / shorten / premium : réponse courte contextualisée
@@ -2166,7 +2166,7 @@ function productSeoBlock(p: { title: string; reason: string; contentScore: numbe
 - **FAQ produit** : « ${vocab.faqs(p.title)[0]} » ; « Délais de livraison et garantie ? »
 - **Maillage** : lien vers ${parent ? `la collection parente « ${parent} »` : "sa collection parente"} (ancre « ${kwd} ${piece} »).
 - **Google Merchant** : titre \`${p.title}\`, type \`${ptype}\`, description factuelle (matériau, dimensions, usage) pour un flux Shopping cohérent.
-- **Action** : **AI Council → SEO Studio** (pré-rempli) → description 200+ mots + FAQ + meta + alt text.`;
+- **Action** : **AI Council → Content Factory** (pré-rempli) → description 200+ mots + FAQ + meta + alt text.`;
 }
 
 /** Matrice de maillage interne à partir des collections réelles. */
@@ -2403,7 +2403,7 @@ ${cal.map((b, i) => `| S${i + 1} | ${b.title} | \`${b.keyword}\` | ${b.intent} |
 - **Semaine 4 — Consolidation** : FAQ, maillage complet, **relance d'un scan Orkestra**, suivi Search Console (positions/CTR), ajustements.
 
 ## 🚀 Actions Orkestra recommandées
-- **SEO Studio** : générer les meta descriptions et les contenus collectionnels/fiches.
+- **Content Factory** : générer les meta descriptions et les contenus collectionnels/fiches.
 - **Merchant Shield** : vérifier les textes anglais et les signaux de confiance (avant Google Shopping).
 - **AI Council** : produire la stratégie blog et le plan de maillage interne.
 - **Code Shopify (AI Council)** : créer une FAQ de collection ou une section guide.
@@ -2467,7 +2467,7 @@ Plan structuré en 4 semaines, du plus fort impact au plus structurel.
 - KPIs : positions moyennes, clics Search Console, taux de conversion par page.
 - Revue hebdomadaire le vendredi : ce qui bouge, ce qu'on ajuste.
 
-> Je peux générer directement les fiches produits (SEO Studio) ou les meta — dites-moi par quoi commencer.`;
+> Je peux générer directement les fiches produits (Content Factory) ou les meta — dites-moi par quoi commencer.`;
 }
 
 function sectionTypeFromQuestion(q: string): string {
@@ -2610,7 +2610,7 @@ ${minor.length ? minor.map((r) => `- ${r}`).join("\n") : "- Promotions trop agre
 
 ### 🚀 Modules Orkestra
 - **Merchant Shield** : audit détaillé + correctifs générables.
-- **SEO Studio** : descriptions produits solides + meta.
+- **Content Factory** : descriptions produits solides + meta.
 - **Section Builder** : bloc réassurance + pages de confiance.`;
 }
 
@@ -2749,7 +2749,7 @@ ${dataUsed(ctx).slice(0, 6).map((d) => `- ${d}`).join("\n") || "- Lancez un scan
 - Contenu dupliqué/fournisseur sur les fiches → pénalisant SEO.
 
 ### 🚀 Modules Orkestra
-- **SEO Studio** (contenu), **Merchant Shield** (conformité avant Ads), **Section Builder** (conversion).
+- **Content Factory** (contenu), **Merchant Shield** (conformité avant Ads), **Section Builder** (conversion).
 
 > Demandez **« plan d'action sur 30 jours »** pour le détail hebdomadaire.`;
 }
@@ -2850,7 +2850,7 @@ function freeAnswer(q: string, ctx: CouncilContext): string {
 Concernant « ${q.trim().slice(0, 120)} » :
 1. **Diagnostic** : ce que ça implique pour votre boutique (${nicheOf(ctx)}).
 2. **Étapes concrètes** : 3 à 5 actions ordonnées.
-3. **Module Orkestra** recommandé selon le sujet (SEO Studio / Merchant Shield / Section Builder / Assistant Shopify).
+3. **Module Orkestra** recommandé selon le sujet (Content Factory / Merchant Shield / Section Builder / Assistant Shopify).
 4. **Mesure** : comment vérifier le résultat.
 
 > Précisez un mode (SEO, Merchant Center, Code Shopify…) pour une réponse d'expert dédiée.`;

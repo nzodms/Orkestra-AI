@@ -90,33 +90,40 @@ export default function SeoStudioPage() {
     }
   }
 
-  const queue = [
-    { id: "product" as WF, icon: Sparkles, label: "Produits à optimiser", count: analysis?.priorityProducts?.length ?? 0, sub: "à optimiser", tip: "Title, meta, description HTML, FAQ, tags → fiche produit" },
-    { id: "collection" as WF, icon: FolderOpen, label: "Collections à enrichir", count: brand.collections.length, sub: "texte + FAQ", tip: "Description 200–300 mots, FAQ, maillage → page collection" },
-    { id: "meta" as WF, icon: Tag, label: "Meta à générer", count: analysis?.metrics?.missingMetaDescriptions ?? 0, sub: "title + description", tip: "3 variantes → Aperçu du référencement naturel" },
-    { id: "alt" as WF, icon: ImageIcon, label: "Images sans alt", count: analysis?.catalogStats?.imagesNoAlt ?? analysis?.metrics?.imagesWithoutAlt ?? 0, sub: "images", tip: "Alt descriptifs → Médias du produit" },
-    { id: "blog" as WF, icon: Newspaper, label: "Articles recommandés", count: Math.max(2, Math.min(4, brand.collections.length || 3)), sub: "longue traîne", tip: "Plan, intro, FAQ, CTA → article de blog" },
+  const queue: { id: WF; icon: React.ElementType; label: string; count: number; what: string; where: string }[] = [
+    { id: "meta", icon: Tag, label: "Meta à générer", count: analysis?.metrics?.missingMetaDescriptions ?? 0, what: "3 variantes title / meta selon l'intention", where: "Aperçu du référencement naturel" },
+    { id: "collection", icon: FolderOpen, label: "Collections à enrichir", count: brand.collections.length, what: "Description, FAQ, H2/H3 et maillage", where: "Produits → Collections → Description" },
+    { id: "product", icon: Sparkles, label: "Fiches produits à renforcer", count: analysis?.priorityProducts?.length ?? 0, what: "Description, FAQ, alt, tags, product_type", where: "Produits → fiche produit" },
+    { id: "alt", icon: ImageIcon, label: "Images sans alt text", count: analysis?.catalogStats?.imagesNoAlt ?? analysis?.metrics?.imagesWithoutAlt ?? 0, what: "Alt text descriptifs et sobres", where: "Produit → Médias" },
+    { id: "blog", icon: Newspaper, label: "Articles recommandés", count: Math.max(2, Math.min(4, brand.collections.length || 3)), what: "Plan d'article longue traîne + maillage", where: "Blog Shopify" },
   ];
 
   return (
     <>
       <PageHeader
-        title="SEO Studio"
-        description="Produisez des contenus SEO prêts à publier : fiches produits, collections, meta, FAQ, alt text et articles — naturels et conformes Google Merchant."
+        title="Content Factory"
+        description="Transformez les problèmes détectés par Orkestra en contenus prêts à copier dans Shopify : meta, collections, fiches produits, alt text et articles."
       />
 
-      {/* File d'attente SEO */}
+      <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <Badge tone="brand"><Sparkles className="h-3 w-3" /> Basé sur votre scan public et la mémoire boutique</Badge>
+        <span className="text-xs text-[var(--text-muted)]">Production rapide — à relire avant publication si nécessaire.</span>
+      </div>
+
+      {/* File de production */}
       <Card className="ork-rise mb-5">
-        <div className="mb-1 flex items-center gap-1.5 text-sm font-semibold"><ListChecks className="h-4 w-4 text-brand-600" /> File d&apos;attente SEO</div>
-        <p className="mb-3 text-xs text-[var(--text-muted)]">SEO Studio transforme les problèmes détectés en contenus prêts à copier. <span className="text-brand-700 dark:text-brand-300">Basé sur votre scan public et la mémoire boutique.</span></p>
+        <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><ListChecks className="h-4 w-4 text-brand-600" /> File de production</div>
         <div className="ork-stagger grid grid-cols-2 gap-3 lg:grid-cols-5">
           {queue.map((q) => {
             const Icon = q.icon;
+            const on = active === q.id;
             return (
-              <button key={q.id} onClick={() => setActive(q.id)} className={`ork-interactive flex flex-col gap-1 rounded-xl border p-3 text-left hover:border-brand-300 ${active === q.id ? "border-brand-500 bg-brand-50 dark:bg-brand-950" : "border-[var(--border)]"}`}>
+              <button key={q.id} onClick={() => setActive(q.id)} className={`ork-interactive flex flex-col rounded-xl border p-3 text-left hover:border-brand-300 ${on ? "border-brand-500 bg-brand-50 dark:bg-brand-950" : "border-[var(--border)]"}`}>
                 <div className="flex items-center justify-between"><Icon className="h-4 w-4 text-brand-500" /><span className="text-lg font-bold">{q.count}</span></div>
-                <div className="text-xs font-medium leading-tight">{q.label}</div>
-                <div className="text-[10px] leading-tight text-[var(--text-muted)]">{q.tip}</div>
+                <div className="mt-1 text-xs font-semibold leading-tight">{q.label}</div>
+                <div className="mt-0.5 flex-1 text-[10px] leading-tight text-[var(--text-muted)]">{q.what}</div>
+                <div className="mt-1 truncate text-[10px] text-[var(--text-muted)]"><span className="font-medium text-[var(--text)]">Où :</span> {q.where}</div>
+                <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 dark:text-brand-300">Produire <ArrowRight className="h-3 w-3" /></span>
               </button>
             );
           })}
@@ -299,7 +306,7 @@ function ProductResult({ result }: { result: ProductSeoResult }) {
       <div className="grid gap-4 sm:grid-cols-2"><ListBlock title="Mots-clés principaux" items={result.primaryKeywords} /><ListBlock title="Longue traîne" items={result.longTailKeywords} />{!!result.tags?.length && <ListBlock title="Tags recommandés" items={result.tags} />}<ListBlock title="Alt text images" items={result.imageAltTexts} /></div>
       <FaqBlock faq={result.faq} />
       {result.merchantNote && <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"><span className="font-semibold">Google Merchant : </span>{result.merchantNote}</div>}
-      <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4"><Link href={assistantLink("Où ajouter une fiche produit (description, meta, tags, type) dans Shopify ?")}><Button variant="secondary" size="sm" icon={<MapPin className="h-3.5 w-3.5" />}>Où l&apos;ajouter dans Shopify ?</Button></Link><Link href={councilLink("seo", "Contexte : SEO Studio vient de générer une fiche produit. Réponds uniquement : comment l'améliorer (angle éditorial, maillage interne, données Google Merchant), sans refaire d'audit complet.")}><Button variant="outline" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Améliorer avec AI Council</Button></Link></div>
+      <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4"><Link href={assistantLink("Où ajouter une fiche produit (description, meta, tags, type) dans Shopify ?")}><Button variant="secondary" size="sm" icon={<MapPin className="h-3.5 w-3.5" />}>Où l&apos;ajouter dans Shopify ?</Button></Link><Link href={councilLink("seo", "Contexte : Content Factory vient de générer une fiche produit. Réponds uniquement : comment l'améliorer (angle éditorial, maillage interne, données Google Merchant), sans refaire d'audit complet.")}><Button variant="outline" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Améliorer avec AI Council</Button></Link></div>
     </Card>
   );
 }
@@ -324,7 +331,7 @@ function CollectionResult({ r }: { r: CollectionSeoResult }) {
       </div>
       <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
         <Link href={assistantLink("Où ajouter du texte et une FAQ à une collection dans Shopify ?")}><Button variant="secondary" size="sm" icon={<MapPin className="h-3.5 w-3.5" />}>Où l&apos;ajouter ?</Button></Link>
-        <Link href={councilLink("seo", `Contexte : SEO Studio a généré le SEO de la collection « ${r.h1} ». Réponds uniquement : comment renforcer cette page (maillage vers produits, FAQ, mots-clés longue traîne), sans audit complet.`)}><Button variant="outline" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Approfondir dans AI Council</Button></Link>
+        <Link href={councilLink("seo", `Contexte : Content Factory a généré le SEO de la collection « ${r.h1} ». Réponds uniquement : comment renforcer cette page (maillage vers produits, FAQ, mots-clés longue traîne), sans audit complet.`)}><Button variant="outline" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Approfondir dans AI Council</Button></Link>
       </div>
     </Card>
   );
@@ -379,7 +386,7 @@ function BlogResult({ r }: { r: BlogOutlineResult }) {
       <FaqBlock faq={r.faq} />
       <div className="grid gap-4 sm:grid-cols-2"><Block title="Meta title" value={r.metaTitle} /><Block title="Meta description" value={r.metaDescription} /></div>
       <div className="rounded-xl bg-brand-50 p-3 text-xs dark:bg-brand-950/40"><div className="text-brand-800 dark:text-brand-200"><span className="font-semibold">Maillage : </span>{r.internalLink}</div><div className="mt-1 text-brand-800 dark:text-brand-200"><span className="font-semibold">CTA : </span>{r.cta}</div></div>
-      <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4"><Link href={councilLink("seo", `Contexte : SEO Studio a généré le plan de l'article « ${r.title} ». Réponds uniquement : rédige l'article complet en suivant ce plan (intro, H2/H3, FAQ, CTA), prêt à publier.`)}><Button variant="secondary" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Rédiger avec AI Council</Button></Link><Link href={assistantLink("Où publier un article de blog dans Shopify ?")}><Button variant="outline" size="sm" icon={<MapPin className="h-3.5 w-3.5" />}>Où le publier ?</Button></Link></div>
+      <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4"><Link href={councilLink("seo", `Contexte : Content Factory a généré le plan de l'article « ${r.title} ». Réponds uniquement : rédige l'article complet en suivant ce plan (intro, H2/H3, FAQ, CTA), prêt à publier.`)}><Button variant="secondary" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>Rédiger avec AI Council</Button></Link><Link href={assistantLink("Où publier un article de blog dans Shopify ?")}><Button variant="outline" size="sm" icon={<MapPin className="h-3.5 w-3.5" />}>Où le publier ?</Button></Link></div>
     </Card>
   );
 }

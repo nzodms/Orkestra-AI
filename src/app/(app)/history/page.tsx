@@ -51,7 +51,7 @@ export default function HistoryPage() {
         <EmptyState
           icon={<History className="h-7 w-7" />}
           title="Aucune génération pour ce filtre"
-          description="Générez du contenu depuis le SEO Studio, le Section Builder ou l'AI Council pour le retrouver ici."
+          description="Générez du contenu depuis Content Factory, le Section Builder ou l'AI Council pour le retrouver ici."
         />
       ) : (
         <Card className="p-0">

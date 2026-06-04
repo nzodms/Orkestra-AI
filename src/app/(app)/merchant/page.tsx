@@ -6,13 +6,13 @@ import { useOrkestra } from "@/lib/store";
 import { relativeDate } from "@/lib/utils";
 import { PageHeader, Card, Badge, ScoreRing } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
-import { buildMerchantReport, type MCItem, type MCStatus, type Blocker } from "@/lib/merchant";
+import { buildMerchantReport, type MCItem, type MCStatus, type Blocker, type MerchantReport } from "@/lib/merchant";
 import { councilLink, assistantLink } from "@/lib/shopify";
 import type { MerchantSeverity } from "@/lib/types";
 import {
   ShieldCheck, ScanSearch, AlertOctagon, AlertTriangle, Info, Check, Languages, Wand2,
   ArrowRight, Sparkles, Package, ShieldQuestion, ListChecks, Wrench,
-  Percent, Rocket, RotateCcw, Clock, Timer, Flag, CircleSlash,
+  Percent, Rocket, RotateCcw, Clock, Timer, Flag, CircleSlash, ChevronDown,
 } from "lucide-react";
 
 const SEV: Record<MerchantSeverity, { tone: "bad" | "warn" | "neutral"; label: string }> = {
@@ -198,6 +198,9 @@ export default function MerchantPage() {
 
           {audited && !loading && (
             <div key={phase === "avant" ? "a" : "b"} className="ork-stagger space-y-4">
+              {/* Conclusion de soumission GMC — verdict + 3 points prioritaires */}
+              <SubmissionConclusion submission={report.submission} nextAction={nextAction?.label} />
+
               {/* Plan d'action (action center) */}
               <ActionCenter actionPlan={report.actionPlan} resolved={report.resolvedItems} onResolve={handleResolve} />
 
@@ -244,6 +247,50 @@ export default function MerchantPage() {
   );
 }
 
+// ── Conclusion de soumission Google Merchant Center ─────────────────────────
+const SUBMISSION_CFG = {
+  go: { Icon: ShieldCheck, tone: "good" as const, verdict: "Recommandée", ring: "border-emerald-200 bg-gradient-to-br from-emerald-50 to-transparent dark:border-emerald-900/60 dark:from-emerald-950/30", chip: "bg-emerald-600" },
+  soon: { Icon: AlertTriangle, tone: "warn" as const, verdict: "Possible après correction", ring: "border-amber-200 bg-gradient-to-br from-amber-50 to-transparent dark:border-amber-900/60 dark:from-amber-950/30", chip: "bg-amber-500" },
+  wait: { Icon: AlertOctagon, tone: "bad" as const, verdict: "Déconseillée pour l'instant", ring: "border-red-200 bg-gradient-to-br from-red-50 to-transparent dark:border-red-900/60 dark:from-red-950/30", chip: "bg-red-500" },
+};
+function SubmissionConclusion({ submission, nextAction }: { submission: MerchantReport["submission"]; nextAction?: string }) {
+  const c = SUBMISSION_CFG[submission.level];
+  const Icon = c.Icon;
+  return (
+    <Card className={`ork-rise ${c.ring}`}>
+      <div className="flex items-start gap-3.5">
+        <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${c.chip} text-white`}><Icon className="h-6 w-6" /></span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Soumission Google Merchant Center</div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-2">
+            <h3 className="text-base font-bold">{submission.label}</h3>
+            <Badge tone={c.tone}>{c.verdict}</Badge>
+          </div>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">{submission.reason}</p>
+          {submission.before.length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1.5 text-xs font-semibold">À corriger avant de soumettre</div>
+              <ul className="space-y-1">
+                {submission.before.map((b, i) => (
+                  <li key={i} className="flex items-center gap-2 text-sm">
+                    <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-[10px] font-bold text-[var(--text-muted)] ring-1 ring-[var(--border)]">{i + 1}</span>
+                    {b}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {nextAction && (
+            <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--surface)] px-3 py-1.5 text-xs ring-1 ring-[var(--border)]">
+              <Rocket className="h-3.5 w-3.5 text-brand-600" /> <span className="font-medium">Prochaine action :</span> <span className="text-[var(--text-muted)]">{nextAction}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 // ── Plan d'action (action center) ───────────────────────────────────────────
 function ActionCenter({ actionPlan, resolved, onResolve }: { actionPlan: MCItem[]; resolved: MCItem[]; onResolve: (k: string) => void }) {
   if (!actionPlan.length) {
@@ -257,10 +304,11 @@ function ActionCenter({ actionPlan, resolved, onResolve }: { actionPlan: MCItem[
   const beforeCount = actionPlan.filter((i) => i.severity !== "mineur").length;
   return (
     <Card>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-1.5 text-sm font-bold"><ListChecks className="h-4 w-4 text-brand-600" /> Plan d&apos;action Merchant</h3>
         <Badge tone={beforeCount ? "warn" : "good"}>{beforeCount} action{beforeCount > 1 ? "s" : ""} prioritaire{beforeCount > 1 ? "s" : ""} avant soumission GMC</Badge>
       </div>
+      <p className="mb-3 text-xs text-[var(--text-muted)]">{beforeCount > 0 ? `Corrigez ces ${beforeCount} point${beforeCount > 1 ? "s" : ""} avant de soumettre Google Merchant Center.` : "Quelques optimisations facultatives — votre socle est déjà bon."}</p>
       <div className="space-y-2.5">
         {actionPlan.slice(0, 6).map((it, i) => <ActionRow key={it.key} n={i + 1} it={it} onResolve={onResolve} />)}
       </div>
@@ -320,12 +368,26 @@ function PromotionsCard({ item }: { item: MCItem }) {
   );
 }
 
+// ── Accordéon léger (réduit la longueur de page) ────────────────────────────
+function Accordion({ title, icon: Icon, count, defaultOpen = false, children }: { title: string; icon: React.ElementType; count?: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  return (
+    <details open={defaultOpen} className="group rounded-xl border border-[var(--border)] bg-[var(--bg)] [&_summary]:list-none [&_summary::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-3.5 py-3 text-sm font-semibold">
+        <span className="flex items-center gap-1.5"><Icon className="h-4 w-4 text-brand-600" /> {title}{count && <span className="ml-1 text-xs font-normal text-[var(--text-muted)]">· {count}</span>}</span>
+        <span className="flex items-center gap-1.5 text-xs font-normal text-[var(--text-muted)]"><span className="hidden sm:inline group-open:hidden">Voir détails</span><ChevronDown className="h-4 w-4 transition group-open:rotate-180" /></span>
+      </summary>
+      <div className="border-t border-[var(--border)] px-3.5 py-3">{children}</div>
+    </details>
+  );
+}
+
 // ── Phase 1 : Avant (détail) ────────────────────────────────────────────────
 function PhaseAvant({ report }: { report: ReturnType<typeof buildMerchantReport> }) {
+  const checklistFix = report.checklist.filter((i) => i.status !== "ok").length;
+  const bsTodo = report.beforeShopping.filter((b) => b.status !== "ok").length;
   return (
-    <div className="space-y-4">
-      <div>
-        <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><ListChecks className="h-4 w-4 text-brand-600" /> Checklist Merchant Center</h4>
+    <div className="space-y-3">
+      <Accordion title="Checklist Merchant Center" icon={ListChecks} count={checklistFix > 0 ? `${checklistFix} à traiter` : "tout est OK"} defaultOpen>
         <div className="divide-y divide-[var(--border)]">
           {report.checklist.map((it) => {
             const stt = STATUS[it.status];
@@ -340,9 +402,8 @@ function PhaseAvant({ report }: { report: ReturnType<typeof buildMerchantReport>
             );
           })}
         </div>
-      </div>
-      <div>
-        <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><Rocket className="h-4 w-4 text-brand-600" /> Checklist avant Google Shopping / Performance Max</h4>
+      </Accordion>
+      <Accordion title="Checklist avant Google Shopping / Performance Max" icon={Rocket} count={bsTodo > 0 ? `${bsTodo} à vérifier` : "prêt"}>
         <div className="grid gap-2 sm:grid-cols-2">
           {report.beforeShopping.map((b) => {
             const stt = STATUS[b.status];
@@ -354,7 +415,7 @@ function PhaseAvant({ report }: { report: ReturnType<typeof buildMerchantReport>
             );
           })}
         </div>
-      </div>
+      </Accordion>
     </div>
   );
 }

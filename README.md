@@ -73,7 +73,7 @@ src/
 - `/onboarding` — Étapes : Boutique → Ton de marque → Connexion IA → Scan Shopify
 - `/dashboard` — Scores, métriques, actions prioritaires, projets récents
 - `/memory` — Mémoire boutique (identité, ton, catalogue, SEO, concurrents)
-- `/seo` — SEO Studio (fiche produit + 7 workflows)
+- `/seo` — Content Factory (fiche produit + workflows de contenu)
 - `/sections` — Section Builder (12 types, Liquid/CSS/JS/schema)
 - `/council` — AI Council (8 modes, réponse fusionnée + onglets par IA)
 - `/merchant` — Merchant Shield (audit + correctifs)
@@ -97,7 +97,7 @@ Voir [`prisma/schema.prisma`](./prisma/schema.prisma) :
 ## 🔄 5. Workflows utilisateurs
 
 1. **Onboarding** → infos boutique → ton de marque → connexion BYOK → scan.
-2. **Générer du SEO** → SEO Studio → formulaire produit → sortie structurée + scores.
+2. **Produire du contenu** → Content Factory → formulaire produit → sortie structurée + scores.
 3. **Coder une section** → Section Builder → config → Liquid/CSS/JS/schema + install.
 4. **Auditer** → Merchant Shield → score + problèmes priorisés + correctifs.
 5. **Demander à l'orchestre** → AI Council → mode + question → réponse fusionnée.

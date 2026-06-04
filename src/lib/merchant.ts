@@ -64,6 +64,7 @@ export interface MerchantReport {
   actionsRemaining: number;
   readiness: number;
   gmcStatus: { level: "ready" | "fix" | "risk"; label: string };
+  submission: { level: "go" | "soon" | "wait"; label: string; reason: string; before: string[] };
   promotions: MCItem;
   blockers: Blocker[];
   beforeShopping: BeforeShoppingItem[];
@@ -142,9 +143,9 @@ export function buildMerchantReport(analysis: StoreAnalysis | null, brand: Brand
 
   // 3. Données produit
   if (noType > 0) checklist.push({ key: "product_type", label: `Product types manquants (${noType})`, status: "fix", severity: "important", impact: "Sans product_type, la catégorisation et le flux Google Shopping sont moins fiables.", fix: "Renseigner le type de produit sur les fiches concernées.", where: SHOPIFY_PATHS.product_type, module: "assistant", count: noType, resolveQ: `Contexte : Merchant Shield a détecté ${noType} product_type manquant(s). Réponds uniquement à ce problème : liste les produits concernés si disponibles, propose les product_type à ajouter et donne le chemin Shopify exact.` });
-  if (weakDesc > 0) checklist.push({ key: "desc", label: `Descriptions produit faibles (${weakDesc})`, status: "fix", severity: "important", impact: "Descriptions trop courtes = qualité catalogue faible (SEO + confiance Merchant).", fix: "Générer des descriptions complètes (200+ mots) dans le SEO Studio.", where: "SEO Studio → Fiche produit SEO", module: "seo", count: weakDesc });
-  if (missingMeta > 0) checklist.push({ key: "meta", label: `Meta descriptions manquantes (${missingMeta})`, status: "fix", severity: "important", impact: "Meta absentes = taux de clic plus faible dans Google.", fix: "Générer les meta dans le SEO Studio (≤ 60 / ≤ 155 car.).", where: SHOPIFY_PATHS.meta, module: "seo", count: missingMeta });
-  if (imagesNoAlt > 0) checklist.push({ key: "alt", label: `Images sans alt text (${imagesNoAlt})`, status: "fix", severity: "mineur", impact: "Mineur pour Merchant, utile pour le SEO et l'accessibilité.", fix: "Ajouter des alt text descriptifs (SEO Studio → Alt text).", where: SHOPIFY_PATHS.alt, module: "seo", count: imagesNoAlt });
+  if (weakDesc > 0) checklist.push({ key: "desc", label: `Descriptions produit faibles (${weakDesc})`, status: "fix", severity: "important", impact: "Descriptions trop courtes = qualité catalogue faible (SEO + confiance Merchant).", fix: "Générer des descriptions complètes (200+ mots) dans Content Factory.", where: "Content Factory → Fiche produit SEO", module: "seo", count: weakDesc });
+  if (missingMeta > 0) checklist.push({ key: "meta", label: `Meta descriptions manquantes (${missingMeta})`, status: "fix", severity: "important", impact: "Meta absentes = taux de clic plus faible dans Google.", fix: "Générer les meta dans Content Factory (≤ 60 / ≤ 155 car.).", where: SHOPIFY_PATHS.meta, module: "seo", count: missingMeta });
+  if (imagesNoAlt > 0) checklist.push({ key: "alt", label: `Images sans alt text (${imagesNoAlt})`, status: "fix", severity: "mineur", impact: "Mineur pour Merchant, utile pour le SEO et l'accessibilité.", fix: "Ajouter des alt text descriptifs (Content Factory → Alt text).", where: SHOPIFY_PATHS.alt, module: "seo", count: imagesNoAlt });
   if (tagsCoverage != null && tagsCoverage < 60) checklist.push({ key: "tags", label: `Tags faibles (couverture ${tagsCoverage}%)`, status: "check", severity: "mineur", impact: "Des tags cohérents améliorent navigation et flux catalogue.", fix: "Compléter les tags (style, usage, matériau).", where: SHOPIFY_PATHS.tags, module: "assistant" });
   else if (tagsCoverage != null && tagsCoverage >= 80) checklist.push({ key: "tags", label: `Tags (couverture ${tagsCoverage}%)`, status: "ok", severity: "mineur", impact: "Bonne couverture de tags.", fix: "Déjà bon — ne pas y toucher.", where: SHOPIFY_PATHS.tags, module: "assistant" });
 
@@ -211,8 +212,8 @@ export function buildMerchantReport(analysis: StoreAnalysis | null, brand: Brand
     { key: "legal", label: "Pages légales essentielles", status: st(trustFound >= trustTotal), impact: "Bloquant fréquent GMC.", action: "Compléter contact, retours, livraison, mentions, confidentialité." },
     { key: "english", label: "Textes anglais corrigés", status: st(englishCount === 0), impact: "Confiance & cohérence.", action: "Traduire les libellés du thème." },
     { key: "product_type", label: "product_type complétés", status: st(noType === 0), impact: "Catégorisation + flux Shopping.", action: "Renseigner le type de produit." },
-    { key: "desc", label: "Descriptions produits solides", status: st(weakDesc === 0), impact: "Qualité catalogue.", action: "Étoffer via SEO Studio." },
-    { key: "meta", label: "Meta présentes", status: st(missingMeta === 0), impact: "Taux de clic Google.", action: "Générer les meta (SEO Studio)." },
+    { key: "desc", label: "Descriptions produits solides", status: st(weakDesc === 0), impact: "Qualité catalogue.", action: "Étoffer via Content Factory." },
+    { key: "meta", label: "Meta présentes", status: st(missingMeta === 0), impact: "Taux de clic Google.", action: "Générer les meta (Content Factory)." },
     { key: "alt", label: "Alt text images", status: imagesNoAlt === 0 ? "ok" : "check", impact: "SEO / accessibilité (mineur GMC).", action: "Ajouter des alt descriptifs." },
     { key: "prices", label: "Prix cohérents site / feed", status: "check", impact: "Incohérence prix = risque.", action: "Vérifier que le prix affiché = prix du feed." },
     { key: "stock", label: "Stock / disponibilité cohérents", status: "check", impact: "Disponibilité incohérente = risque.", action: "Vérifier la dispo affichée vs feed." },
@@ -230,9 +231,18 @@ export function buildMerchantReport(analysis: StoreAnalysis | null, brand: Brand
   interpretation.push("Promotions : à vérifier — évitez l'urgence permanente et l'incohérence prix avant la demande GMC.");
   interpretation.push("Avant Google Shopping / Performance Max : prioriser les pages de confiance, la cohérence de langue et des données produit solides.");
 
+  // Conclusion de soumission GMC.
+  const topBefore = [...critical, ...important].slice(0, 3).map((i) => i.label.replace(/\s*\(.*\)/, ""));
+  const submission: MerchantReport["submission"] =
+    critical.length > 0
+      ? { level: "wait", label: "Soumission déconseillée pour l'instant", reason: "Des risques critiques peuvent entraîner un refus Merchant Center.", before: topBefore }
+      : important.length > 0
+      ? { level: "soon", label: "Soumission possible après correction", reason: "Le socle de confiance est bon, mais quelques points peuvent fragiliser la validation.", before: topBefore }
+      : { level: "go", label: "Soumission recommandée", reason: scanned ? "Aucun risque bloquant ni important détecté sur la vue publique." : "Lancez l'audit pour une conclusion fiable.", before: [] };
+
   return {
     scanned, score, trust, trustFound, trustTotal, englishCount, weakDataCount, claimsCount: claims.length,
     checklist, critical, important, optimizations, actionPlan, resolvedItems,
-    totalActions, actionsRemaining, readiness, gmcStatus, promotions, blockers, beforeShopping, interpretation,
+    totalActions, actionsRemaining, readiness, gmcStatus, submission, promotions, blockers, beforeShopping, interpretation,
   };
 }

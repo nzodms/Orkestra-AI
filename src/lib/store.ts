@@ -17,7 +17,7 @@ import type { CollectionSeoResult, MetaVariant, BlogOutlineResult, AltTextItem }
 import { PROVIDER_ORDER } from "./providers";
 import { DEFAULT_BRAND_MEMORY } from "./mock-data";
 
-// État persisté du SEO Studio : dernières générations par workflow.
+// État persisté de Content Factory : dernières générations par workflow.
 export interface SeoStudioState {
   product: ProductSeoResult | null;
   productMeta: GenMeta | null;
@@ -74,7 +74,7 @@ interface OrkestraState {
   merchantResolved: string[];
   // ── Assistant Shopify (persisté) ──
   assistantMessages: AssistantTurn[];
-  // ── SEO Studio (persisté) ──
+  // ── Content Factory (persisté) ──
   seo: SeoStudioState;
 
   setOnboardingComplete: (v: boolean) => void;

@@ -143,7 +143,7 @@ function modeStructure(mode: CouncilMode): string {
     "## Routine SEO hebdomadaire (enrichir 1 collection, optimiser 2 fiches produits, publier 1 article, ajouter 5–10 liens internes, corriger les alt text prioritaires, relancer un scan Orkestra, suivre Search Console, ajuster selon impressions/CTR. NE dis PAS « ajouter X produits par jour » : dis « ajouter de nouveaux produits seulement s'ils répondent à une vraie intention de recherche ou à une demande catalogue »)\n" +
     "## Plan 7 jours (chaque jour : action + CHEMIN SHOPIFY exact)\n" +
     "## Roadmap 30 jours (S1 technique visible, S2 pages business, S3 cocon de contenu, S4 consolidation + relance scan + Search Console)\n" +
-    "## Actions Orkestra recommandées (modules RÉELS uniquement : SEO Studio, Merchant Shield, AI Council, Code Shopify, Mémoire boutique)\n" +
+    "## Actions Orkestra recommandées (modules RÉELS uniquement : Content Factory, Merchant Shield, AI Council, Code Shopify, Mémoire boutique)\n" +
     "CHEMINS SHOPIFY EXACTS à utiliser : Meta = Produit/Collection/Page → Aperçu du référencement naturel → Modifier ; Description collection = Produits → Collections → Collection → Description ; Alt text = Produit → Médias → Modifier le texte alternatif ; Product type = Produit → Organisation du produit → Type de produit ; Tags = Produit → Organisation du produit → Tags ; H1 multiples = Boutique en ligne → Thèmes → Personnaliser → Page concernée ; Textes anglais = Paramètres → Langues → Modifier le contenu du thème.\n" +
     "INTERDIT dans les titles/meta/contenus (sauf si une donnée le justifie) : « premium », « professionnel », « haut de gamme », « meilleur », « qualité premium », « Achetez maintenant », « Livraison rapide », « Commandez dès aujourd'hui ». Les titles doivent être NATURELS et descriptifs (ex. « Reformer Pilates pliable en bois | Reformio », « Équipement Pilates pour la maison | Reformio », « Barrel Pilates Ladder | Reformio »). Le contenu de collection va dans la description de collection Shopify ou une section SEO du thème. Si tu recommandes un blog, fournis le calendrier éditorial complet (titre + mot-clé + intention + page à mailler + objectif SEO + CTA).";
   const map: Record<CouncilMode, string> = {
@@ -209,7 +209,7 @@ export async function runCouncil(
       `### Pourquoi c'est important\n(impact SEO / Merchant / conversion selon le sujet, 1 à 3 puces)\n` +
       `### Comment corriger\n(étapes concrètes et courtes)\n` +
       `### Où corriger dans Shopify\n(chemin Shopify exact)\n` +
-      `### Action suivante\n(UNE seule action claire ou un module Orkestra : SEO Studio, Merchant Shield, Assistant Shopify)\n` +
+      `### Action suivante\n(UNE seule action claire ou un module Orkestra : Content Factory, Merchant Shield, Assistant Shopify)\n` +
       `N'ajoute AUCUNE autre section. Reste dans le périmètre du mode « ${MODE_LABEL[mode]} ».`
     : "\n\n" + modeStructure(mode);
   // En mode Concurrence, on suggère des concurrents DIRECTS spécialisés (niche)
@@ -258,7 +258,7 @@ export async function runCouncil(
   return { result, meta: { live: true, provider: "openai", model: r.model, tokens: r.tokens, generatedAt: nowIso(), ...codeMeta } };
 }
 
-// ── SEO Studio live ─────────────────────────────────────────────────────────
+// ── Content Factory live ─────────────────────────────────────────────────────────
 
 export async function runProductSeo(
   input: ProductSeoInput,
@@ -275,14 +275,22 @@ export async function runProductSeo(
     "Tu es Orkestra, expert SEO e-commerce Shopify. Tu génères une fiche produit SEO complète en français. " +
     "Réponds UNIQUEMENT par un objet JSON valide avec EXACTEMENT ces clés : optimizedTitle (string), h1 (string), shortDescription (string), longDescriptionHtml (string, HTML Shopify propre), benefits (string[]), features (string[]), faq (array de {q,a}), metaTitle (string ≤60), metaDescription (string ≤155), imageAltTexts (string[]), handle (string, slug), primaryKeywords (string[]), longTailKeywords (string[]), internalLinks (string[]), tags (string[], tags Shopify), productType (string, type de produit), parentCollection (string, collection parente pour le maillage), merchantNote (string, recommandation Google Merchant : titre/type/description du flux), seoScore (number 0-100), conversionScore (number 0-100), recommendations (string[]). " +
     "Titres et meta NATURELS et descriptifs (mot-clé + attribut concret + marque), adaptés SEO + Google Merchant Center. N'emploie PAS automatiquement « premium », « professionnel », « meilleur », « haut de gamme », « qualité premium », ni « Achetez maintenant / Livraison rapide ».";
+  const levelGuide =
+    input.level === "ultra"
+      ? "Niveau ULTRA : longDescriptionHtml de 400 à 700 mots, structure H2/H3, paragraphes propres, listes à puces, conseils d'usage, réassurance et FAQ — ton naturel, aucun blabla générique."
+      : input.level === "poussé"
+      ? "Niveau POUSSÉ : description complète et structurée (200–350 mots) avec bénéfices, caractéristiques, conseils d'usage et FAQ."
+      : "Niveau STANDARD : description courte et exploitable (120–180 mots), claire et naturelle (sortie rapide à relire avant publication).";
   const prompt =
     `=== Boutique ===\n${contextBlock(ctx)}\n\n=== Produit ===\n` +
     `Nom : ${input.productName}\nCollection : ${input.collection || ""}\nCaractéristiques : ${input.features || ""}\n` +
     `Bénéfices : ${input.benefits || ""}\nMatériaux/dimensions : ${input.materials || ""}\nPrix : ${input.price || ""}\n` +
-    `Public cible : ${input.audience || ""}\nMots-clés souhaités : ${input.keywords || ""}\nNiveau SEO : ${input.level}\n\n` +
-    `Génère la fiche SEO ultra optimisée pour cette boutique.`;
+    `Public cible : ${input.audience || ""}\nMots-clés souhaités : ${input.keywords || ""}\nNiveau : ${input.level}\n` +
+    `${levelGuide}\n` +
+    `Reste FACTUEL : matériaux, dimensions, usage, entretien, compatibilité, contexte d'utilisation. Pas de claim non prouvé (« meilleur », « professionnel », « qualité supérieure »), pas de « Achetez maintenant ».\n\n` +
+    `Génère la fiche produit complète, prête à coller dans Shopify.`;
 
-  const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.6, maxTokens: 2200, json: true });
+  const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.6, maxTokens: input.level === "ultra" ? 3200 : 2200, json: true });
   if (!r.ok) return { result: mock, meta: { live: false, generatedAt: nowIso(), fallbackReason: r.message } };
 
   try {
