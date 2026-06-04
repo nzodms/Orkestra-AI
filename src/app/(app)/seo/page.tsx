@@ -6,17 +6,22 @@ import { useOrkestra } from "@/lib/store";
 import { assistantLink, councilLink } from "@/lib/shopify";
 import {
   parseCsv, detectColumns, autoMapColumns, groupProducts, mappingStats, MAP_TARGETS, toProductInput,
-  presetRules, applyTransform, serializeCsv, buildReportCsv, chunk, downloadCsv, PRESETS,
+  presetRules, applyTransform, serializeCsv, buildReportCsv, chunk, downloadCsv, normName, PRESETS,
   type ImportRules, type ShopifyField, type TransformedProduct,
   type TransformMode, type TitleStyle, type DescriptionLevel, type HandleMode, type Level,
 } from "@/lib/import-factory";
+import { PROFILES, CUSTOM_PROFILE, profileById, profileRuleOverrides, profileContext } from "@/lib/import-profiles";
+import { qualityControl, buildIssueReportCsv, type QCReport, type QCStatus } from "@/lib/import-qc";
 import { PageHeader, Card, Badge } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import {
   Upload, FileSpreadsheet, Sparkles, Wand2, Languages, Tag, ImageIcon, Link2, Download, Check,
   CheckCircle2, AlertTriangle, RefreshCw, ChevronDown, Globe, FileText, ArrowRight, Plug, Eye,
-  ListChecks, ShieldCheck, Layers, Boxes, Type as TypeIcon, X, Columns3, ListFilter,
+  ListChecks, ShieldCheck, Layers, Boxes, Type as TypeIcon, X, Columns3, ListFilter, Store, Lock, Plus, CheckCheck,
 } from "lucide-react";
+
+const QC_TONE: Record<QCStatus, "good" | "warn" | "bad" | "neutral"> = { ok: "good", warning: "warn", risk: "bad", failed: "bad" };
+const QC_LABEL: Record<QCStatus, string> = { ok: "OK", warning: "Warning", risk: "Risk", failed: "Failed" };
 
 const MAX_PRODUCTS = 24;
 const BATCH = 3;
@@ -55,21 +60,31 @@ const STEPS = ["Importez votre CSV", "Choisissez vos règles", "Orkestra transfo
 const WORK_STEPS = ["Analyse du CSV", "Détection des produits", "Lecture des variantes", "Application des règles", "Génération titres & descriptions", "Génération meta & alt text", "Vérification des doublons", "Préparation de l'export"];
 
 export default function ImportFactoryPage() {
-  const { connections, brand, importMemory, rememberImport } = useOrkestra();
+  const { connections, brand, importMemory, rememberImport, selectedProfileId, setImportProfile } = useOrkestra();
   const openaiConnected = !!connections.openai?.connected;
+  const profile = profileById(selectedProfileId);
 
   const [parsed, setParsed] = useState<{ headers: string[]; rows: string[][] } | null>(null);
   const [mapping, setMapping] = useState<Partial<Record<ShopifyField, number>>>({});
   const [mapOpen, setMapOpen] = useState(false);
   const [fileInfo, setFileInfo] = useState<{ name: string; sizeKb: number } | null>(null);
   const [presetId, setPresetId] = useState("migration");
-  const [rules, setRules] = useState<ImportRules>(() => ({ ...presetRules("migration"), collections: brand.collections }));
-  const [collectionsText, setCollectionsText] = useState(brand.collections.join("\n"));
+  const [rules, setRules] = useState<ImportRules>(() => {
+    const base = { ...presetRules("migration"), collections: brand.collections };
+    return selectedProfileId !== "custom" ? { ...base, ...profileRuleOverrides(profileById(selectedProfileId)) } : base;
+  });
+  const [collectionsText, setCollectionsText] = useState(() => {
+    const p = profileById(selectedProfileId);
+    return (selectedProfileId !== "custom" && p.collections.length ? p.collections.map((c) => c.name) : brand.collections).join("\n");
+  });
   const [phase, setPhase] = useState<"idle" | "configure" | "working" | "preview">("idle");
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [results, setResults] = useState<TransformedProduct[] | null>(null);
+  const [qcReports, setQcReports] = useState<Record<string, QCReport>>({});
   const [edits, setEdits] = useState<Record<string, Partial<TransformedProduct>>>({});
   const [validated, setValidated] = useState<string[]>([]);
+  const [rejected, setRejected] = useState<string[]>([]);
+  const [locked, setLocked] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [showExample, setShowExample] = useState(false);
@@ -84,8 +99,32 @@ export default function ImportFactoryPage() {
   const stats = useMemo(() => (parsed ? mappingStats(parsed.headers, parsed.rows, mapping, groups) : null), [parsed, mapping, groups]);
 
   function updateRule(patch: Partial<ImportRules>) { setRules((r) => ({ ...r, ...patch })); }
-  function applyPreset(id: string) { setPresetId(id); setRules((r) => ({ ...presetRules(id), collections: r.collections })); }
+  function applyPreset(id: string) {
+    setPresetId(id);
+    setRules((r) => {
+      const next = { ...presetRules(id), collections: r.collections };
+      return selectedProfileId !== "custom" ? { ...next, ...profileRuleOverrides(profileById(selectedProfileId)) } : next;
+    });
+  }
+  function selectProfile(id: string) {
+    setImportProfile(id);
+    const p = profileById(id);
+    setRules((r) => (id === "custom" ? { ...r, profileId: "custom" } : { ...r, ...profileRuleOverrides(p) }));
+    if (id !== "custom" && p.collections.length) setCollectionsText(p.collections.map((c) => c.name).join("\n"));
+  }
   function syncCollections(text: string) { setCollectionsText(text); updateRule({ collections: text.split("\n").map((s) => s.trim()).filter(Boolean) }); }
+  // Contrôle qualité déterministe sur tout le lot (dédoublonnage partagé).
+  function runQc(list: TransformedProduct[]): { fixed: TransformedProduct[]; reports: Record<string, QCReport> } {
+    const usedBrand = new Set(importMemory.brandNames.map(normName));
+    const usedHandle = new Set(importMemory.handles.map((h) => h.toLowerCase()));
+    const reports: Record<string, QCReport> = {};
+    const fixed = list.map((r) => {
+      const rep = qualityControl(r, { metaSuffix: profile.metaSuffix || rules.metaSuffix, vendor: profile.vendor || rules.vendor, level: rules.level, oldTerms: profile.oldTerms, usedBrand, usedHandle });
+      reports[r.handle] = rep;
+      return rep.fixed;
+    });
+    return { fixed, reports };
+  }
   function setMap(field: ShopifyField, idx: number | null) {
     setMapping((m) => { const n = { ...m }; if (idx === null) delete n[field]; else n[field] = idx; return n; });
   }
@@ -104,8 +143,9 @@ export default function ImportFactoryPage() {
     setMapOpen(!det.isShopify);
     setFileInfo({ name: file.name, sizeKb: Math.max(1, Math.round(file.size / 1024)) });
     setResults(null);
+    setQcReports({});
     setEdits({});
-    setValidated([]);
+    setValidated([]); setRejected([]); setLocked([]);
     setError(null);
     setPhase("configure");
     setTimeout(() => configRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
@@ -129,7 +169,7 @@ export default function ImportFactoryPage() {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             products: inputs, rules, memory: { brandNames: brandAcc, anchors: anchorAcc },
-            context: { brandName: brand.storeName || undefined, niche: brand.niche || undefined, positioning: brand.positioning },
+            context: { ...profileContext(profile), brandName: profile.brand || brand.storeName || undefined, niche: profile.niche || brand.niche || undefined, positioning: brand.positioning },
             keyRefs: { openai: connections.openai?.keyId },
           }),
         });
@@ -142,13 +182,17 @@ export default function ImportFactoryPage() {
       for (const r of data.results) if (r.brandName) brandAcc.push(r.brandName);
       setProgress({ done: Math.min(all.length, (b + 1) * BATCH), total: all.length });
     }
-    setResults(acc);
+    // Contrôle qualité déterministe + corrections.
+    const { fixed, reports } = runQc(acc);
+    setResults(fixed);
+    setQcReports(reports);
+    setValidated([]); setRejected([]); setLocked([]);
     rememberImport({
-      brandNames: acc.map((r) => r.brandName).filter(Boolean) as string[],
-      handles: acc.map((r) => r.newHandle).filter(Boolean) as string[],
+      brandNames: fixed.map((r) => r.brandName).filter(Boolean) as string[],
+      handles: fixed.map((r) => r.newHandle).filter(Boolean) as string[],
       collections: rules.collections,
       rules,
-      count: acc.length,
+      count: fixed.length,
     });
     setPhase("preview");
     setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
@@ -162,13 +206,15 @@ export default function ImportFactoryPage() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           products: [toProductInput(g)], rules, memory: { brandNames: importMemory.brandNames, anchors: importMemory.anchors },
-          context: { brandName: brand.storeName || undefined, niche: brand.niche || undefined, positioning: brand.positioning },
+          context: { ...profileContext(profile), brandName: profile.brand || brand.storeName || undefined, niche: profile.niche || brand.niche || undefined, positioning: brand.positioning },
           keyRefs: { openai: connections.openai?.keyId },
         }),
       });
       const data = await res.json();
       if (data.ok && data.results?.[0]) {
-        setResults((rs) => (rs ? rs.map((r) => (r.handle === handle ? data.results[0] : r)) : rs));
+        const { fixed, reports } = runQc([data.results[0] as TransformedProduct]);
+        setResults((rs) => (rs ? rs.map((r) => (r.handle === handle ? fixed[0] : r)) : rs));
+        setQcReports((q) => ({ ...q, [handle]: reports[handle] }));
         setEdits((e) => { const n = { ...e }; delete n[handle]; return n; });
       }
     } catch { /* silencieux */ }
@@ -214,10 +260,21 @@ export default function ImportFactoryPage() {
       return `${edits[r.handle]?.title ?? r.title} ${g?.title ?? ""} ${g?.collection ?? ""}`.toLowerCase().includes(kw);
     }).length;
   }
+  function exportIssues() {
+    if (!results) return;
+    downloadCsv(`orkestra-a-verifier-${Date.now()}.csv`, buildIssueReportCsv(groups, qcReports));
+  }
+  function toggle(set: string[], setter: (v: string[]) => void, h: string) { setter(set.includes(h) ? set.filter((x) => x !== h) : [...set, h]); }
+  function approveAll() { setValidated((results || []).map((r) => r.handle)); setRejected([]); }
   function reset() {
     setParsed(null); setMapping({}); setMapOpen(false); setFileInfo(null); setResults(null);
-    setEdits({}); setValidated([]); setError(null); setParseError(null); setPhase("idle");
+    setQcReports({}); setEdits({}); setValidated([]); setRejected([]); setLocked([]); setError(null); setParseError(null); setPhase("idle");
   }
+  const qcCounts = (() => {
+    const c = { ok: 0, warning: 0, risk: 0, failed: 0 };
+    for (const r of results || []) c[(qcReports[r.handle]?.status ?? "ok")]++;
+    return c;
+  })();
 
   // ── OpenAI requis ──
   if (!openaiConnected) {
@@ -230,7 +287,6 @@ export default function ImportFactoryPage() {
   }
 
   const tooMany = groups.length > MAX_PRODUCTS;
-  const reviewCount = (results || []).filter((r) => r.status === "review").length;
 
   return (
     <>
@@ -244,6 +300,12 @@ export default function ImportFactoryPage() {
         {/* ── Hero ── */}
         {phase === "idle" && (
           <>
+            <div className="flex flex-wrap gap-2">
+              <button className="inline-flex items-center gap-2 rounded-xl border border-brand-500 bg-brand-50 px-3.5 py-2 text-sm font-medium text-brand-700 dark:bg-brand-950 dark:text-brand-300"><FileSpreadsheet className="h-4 w-4" /> Importer un CSV</button>
+              <span className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-[var(--border)] px-3.5 py-2 text-sm font-medium text-[var(--text-muted)] opacity-70"><Plus className="h-4 w-4" /> Ajouter un produit <Badge tone="neutral">bientôt</Badge></span>
+              <span className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-[var(--border)] px-3.5 py-2 text-sm font-medium text-[var(--text-muted)] opacity-70"><Link2 className="h-4 w-4" /> Depuis une URL <Badge tone="neutral">bientôt</Badge></span>
+              <span className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-[var(--border)] px-3.5 py-2 text-sm font-medium text-[var(--text-muted)] opacity-70"><FileSpreadsheet className="h-4 w-4" /> XLSX <Badge tone="neutral">bientôt</Badge></span>
+            </div>
             <Card className="ork-rise overflow-hidden border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-start gap-4">
@@ -372,6 +434,31 @@ export default function ImportFactoryPage() {
               </Card>
             )}
 
+            {/* Boutique cible */}
+            <Card>
+              <div className="mb-1 flex items-center gap-1.5 text-sm font-bold"><Store className="h-4 w-4 text-brand-600" /> Boutique cible</div>
+              <p className="mb-3 text-xs text-[var(--text-muted)]">Le profil pilote la marque, le vendor, le suffixe meta, les collections (+ URLs) et les règles de titre.</p>
+              <div className="ork-stagger grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[...PROFILES, CUSTOM_PROFILE].map((p) => {
+                  const on = selectedProfileId === p.id;
+                  return (
+                    <button key={p.id} onClick={() => selectProfile(p.id)} className={`ork-interactive flex flex-col rounded-xl border p-3 text-left hover:border-brand-300 ${on ? "border-brand-500 bg-brand-50 dark:bg-brand-950" : "border-[var(--border)]"}`}>
+                      <div className="flex items-center justify-between"><span className="text-xs font-semibold">{p.label}</span>{on && <Check className="h-3.5 w-3.5 text-brand-600" />}</div>
+                      <p className="mt-1 text-[10px] leading-tight text-[var(--text-muted)]">{p.id === "custom" ? "Vos propres règles (collections ci-dessous)." : `${p.niche.split(",")[0]} · ${p.brandNames ? "noms brandés" : "sans nom brandé"}`}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedProfileId !== "custom" && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <Badge tone="neutral">Vendor : {profile.vendor}</Badge>
+                  {profile.metaSuffix && <Badge tone="neutral">Meta finit par « {profile.metaSuffix} »</Badge>}
+                  <Badge tone="neutral">{profile.collections.length} collection(s)</Badge>
+                  <Badge tone={profile.brandNames ? "brand" : "neutral"}>{profile.brandNames ? "Noms brandés uniques" : "Sans nom brandé"}</Badge>
+                </div>
+              )}
+            </Card>
+
             {/* Presets */}
             <Card>
               <div className="mb-1 flex items-center gap-1.5 text-sm font-bold"><Wand2 className="h-4 w-4 text-brand-600" /> Choisissez un preset de transformation</div>
@@ -459,11 +546,19 @@ export default function ImportFactoryPage() {
             <Card className="flex flex-col gap-3 border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="flex items-center gap-1.5 text-base font-bold"><CheckCircle2 className="h-5 w-5 text-emerald-600" /> Catalogue transformé</h2>
-                <p className="mt-0.5 text-sm text-[var(--text-muted)]">{results.length} produit(s) prêts · {reviewCount > 0 ? `${reviewCount} à vérifier` : "aucun point bloquant"} · variantes, prix et SKU préservés.</p>
+                <p className="mt-0.5 text-sm text-[var(--text-muted)]">{results.length} produit(s) · variantes, prix, SKU et images préservés. Contrôle qualité appliqué.</p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  <Badge tone="good">{qcCounts.ok} OK</Badge>
+                  {qcCounts.warning > 0 && <Badge tone="warn">{qcCounts.warning} warning</Badge>}
+                  {qcCounts.risk > 0 && <Badge tone="bad">{qcCounts.risk} risk</Badge>}
+                  {qcCounts.failed > 0 && <Badge tone="bad">{qcCounts.failed} failed</Badge>}
+                  {validated.length > 0 && <Badge tone="brand">{validated.length} approuvé(s)</Badge>}
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button onClick={exportCsv} icon={<Download className="h-4 w-4" />}>Télécharger le CSV Shopify</Button>
                 <Button variant="outline" onClick={exportReport} icon={<FileText className="h-4 w-4" />}>Rapport</Button>
+                <Button variant="ghost" onClick={exportIssues} icon={<AlertTriangle className="h-4 w-4" />}>À vérifier</Button>
               </div>
             </Card>
 
@@ -474,29 +569,43 @@ export default function ImportFactoryPage() {
               <Button variant="ghost" size="sm" onClick={reset} icon={<Upload className="h-3.5 w-3.5" />}>Nouvel import</Button>
             </div>
 
-            <BatchRules onApply={applyBatchRule} matchCount={batchMatchCount} />
+            <div className="flex flex-wrap items-center gap-2">
+              <BatchRules onApply={applyBatchRule} matchCount={batchMatchCount} />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-sm font-bold"><ListChecks className="h-4 w-4 text-brand-600" /> Diff avant / après ({results.length})</span>
+              <Button variant="outline" size="sm" icon={<CheckCheck className="h-3.5 w-3.5" />} onClick={approveAll}>Tout approuver</Button>
+            </div>
 
             <div className="ork-stagger space-y-3">
               {results.map((r) => {
                 const g = groups.find((x) => x.handle === r.handle);
+                const rep = qcReports[r.handle];
+                const st: QCStatus = rep?.status ?? "ok";
                 const isVal = validated.includes(r.handle);
+                const isRej = rejected.includes(r.handle);
+                const isLock = locked.includes(r.handle);
                 const ed = edits[r.handle] || {};
                 const collections = ed.collections ?? r.collections;
                 const productType = ed.productType ?? r.productType;
+                const newHandle = r.newHandle || g?.handle || "";
                 return (
-                  <Card key={r.handle} className={`ork-rise ${isVal ? "border-emerald-200 dark:border-emerald-900/60" : ""}`}>
+                  <Card key={r.handle} className={`ork-rise ${isVal ? "border-emerald-200 dark:border-emerald-900/60" : isRej ? "border-red-200 opacity-70 dark:border-red-900/60" : ""}`}>
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <div className="text-[11px] text-[var(--text-muted)] line-through">{g?.title || r.handle}</div>
-                        <input value={ed.title ?? r.title} onChange={(e) => setEdits((prev) => ({ ...prev, [r.handle]: { ...prev[r.handle], title: e.target.value } }))} className="mt-0.5 w-full rounded-lg border border-transparent bg-transparent text-sm font-semibold outline-none transition focus:border-brand-300 focus:bg-[var(--bg)] focus:px-2 focus:py-1" />
+                        <input disabled={isLock} value={ed.title ?? r.title} onChange={(e) => setEdits((prev) => ({ ...prev, [r.handle]: { ...prev[r.handle], title: e.target.value } }))} className="mt-0.5 w-full rounded-lg border border-transparent bg-transparent text-sm font-semibold outline-none transition focus:border-brand-300 focus:bg-[var(--bg)] focus:px-2 focus:py-1 disabled:opacity-60" />
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
-                        <Badge tone={r.status === "review" ? "warn" : "good"}>{r.status === "review" ? "À vérifier" : "Validé IA"}</Badge>
+                        {isLock && <Lock className="h-3.5 w-3.5 text-[var(--text-muted)]" />}
+                        <Badge tone={QC_TONE[st]}>{QC_LABEL[st]}</Badge>
                       </div>
                     </div>
                     <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
-                      <Mini label="Meta title" value={r.metaTitle} />
+                      <Mini label="Handle" value={newHandle} />
                       <Mini label="product_type" value={productType} />
+                      <Mini label="Meta title" value={r.metaTitle} />
+                      {r.vendor && <Mini label="Vendor" value={r.vendor} />}
                       <Mini label="Meta description" value={r.metaDescription} full />
                       {collections.length > 0 && <Mini label="Collections" value={collections.join(", ")} />}
                       {r.tags && <Mini label="Tags" value={r.tags} />}
@@ -504,10 +613,12 @@ export default function ImportFactoryPage() {
                     {r.imageAlts.length > 0 && (
                       <div className="mt-2"><div className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">Alt text ({r.imageAlts.length})</div><div className="mt-1 flex flex-wrap gap-1">{r.imageAlts.slice(0, 4).map((a, i) => <span key={i} className="rounded bg-[var(--bg)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{a}</span>)}{r.imageAlts.length > 4 && <span className="text-[10px] text-[var(--text-muted)]">+{r.imageAlts.length - 4}</span>}</div></div>
                     )}
-                    {r.notes && r.notes.length > 0 && <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {r.notes.join(" · ")}</div>}
+                    {rep && rep.issues.length > 0 && <div className={`mt-2 flex items-start gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] ${st === "risk" || st === "failed" ? "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300" : "bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"}`}><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {rep.issues.join(" · ")}</div>}
                     <div className="mt-3 flex flex-wrap gap-2 border-t border-[var(--border)] pt-3">
-                      <Button size="sm" variant={isVal ? "secondary" : "ghost"} icon={<Check className="h-3.5 w-3.5" />} onClick={() => setValidated((v) => (v.includes(r.handle) ? v.filter((x) => x !== r.handle) : [...v, r.handle]))}>{isVal ? "Validé" : "Marquer validé"}</Button>
-                      <Button size="sm" variant="ghost" icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={() => regenerateOne(r.handle)}>Régénérer</Button>
+                      <Button size="sm" variant={isVal ? "secondary" : "ghost"} icon={<Check className="h-3.5 w-3.5" />} onClick={() => { toggle(validated, setValidated, r.handle); setRejected((x) => x.filter((h) => h !== r.handle)); }}>{isVal ? "Approuvé" : "Approuver"}</Button>
+                      <Button size="sm" variant="ghost" icon={<X className="h-3.5 w-3.5" />} onClick={() => { toggle(rejected, setRejected, r.handle); setValidated((x) => x.filter((h) => h !== r.handle)); }}>{isRej ? "Rejeté" : "Rejeter"}</Button>
+                      <Button size="sm" variant="ghost" icon={<Lock className="h-3.5 w-3.5" />} onClick={() => toggle(locked, setLocked, r.handle)}>{isLock ? "Déverrouiller" : "Verrouiller"}</Button>
+                      <Button size="sm" variant="ghost" icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={() => regenerateOne(r.handle)} disabled={isLock}>Régénérer</Button>
                     </div>
                   </Card>
                 );

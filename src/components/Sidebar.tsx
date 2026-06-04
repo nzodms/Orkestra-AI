@@ -47,7 +47,7 @@ const NAV: { group: string; items: { href: string; label: string; icon: React.El
 export function Sidebar() {
   const pathname = usePathname();
   return (
-    <aside className="hidden w-64 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)] lg:flex">
+    <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)] lg:flex">
       <div className="flex h-16 items-center gap-2.5 px-5">
         <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
           <Sparkles className="h-5 w-5" />

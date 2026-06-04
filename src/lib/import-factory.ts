@@ -255,6 +255,8 @@ export type DescriptionLevel = "short" | "standard" | "long" | "html_rich";
 export type HandleMode = "keep" | "clean" | "fr" | "short";
 export type Level = "léger" | "standard" | "poussé" | "ultra complet";
 
+export interface ProfileCollection { name: string; url: string }
+
 export interface ImportRules {
   language: string;
   country: string;
@@ -273,6 +275,12 @@ export interface ImportRules {
   handleMode: HandleMode;
   convertUnits: boolean;
   level: Level;
+  // ── Profil boutique ──
+  profileId: string;
+  vendor: string;
+  metaSuffix: string;           // ex « ✓ Livraison gratuite. »
+  titleFormat: "plain" | "brand_suffix";
+  collectionsUrls: ProfileCollection[];
 }
 
 export const BASE_RULES: ImportRules = {
@@ -282,6 +290,7 @@ export const BASE_RULES: ImportRules = {
   description: "html_rich", descriptionParts: ["h2h3", "benefits", "features", "faq"],
   collections: [], internalLinking: false, meta: true, altText: true, tagsType: true,
   handleMode: "clean", convertUnits: true, level: "standard",
+  profileId: "custom", vendor: "", metaSuffix: "", titleFormat: "plain", collectionsUrls: [],
 };
 
 export interface Preset { id: string; label: string; desc: string; rules: Partial<ImportRules> }
@@ -320,6 +329,8 @@ export interface TransformedProduct {
   handle: string;
   title: string;
   brandName?: string;
+  vendor?: string;
+  keyword?: string;
   bodyHtml: string;
   newHandle?: string;
   metaTitle: string;
@@ -336,6 +347,13 @@ export interface ImportContext {
   brandName?: string;
   niche?: string;
   positioning?: string;
+  style?: string;
+  vendor?: string;
+  metaSuffix?: string;
+  titleFormat?: "plain" | "brand_suffix";
+  titleRules?: string;
+  collectionsUrls?: ProfileCollection[];
+  oldTerms?: string[];
 }
 
 export interface ImportMemory {
@@ -378,56 +396,110 @@ const TITLE_LABEL: Record<TitleStyle, string> = {
   descriptive_long: "Titres descriptifs plus longs",
 };
 
+/** Termes internes interdits dans le texte public (anti-jargon). Réutilisé par le QC. */
+export const FORBIDDEN_JARGON = [
+  "seo", "référencement", "referencement", "mot-clé", "mot clé", "mots-clés", "maillage interne",
+  "intention de recherche", "champ lexical", "optimisé pour google", "optimise pour google",
+  "stratégie seo", "strategie seo", "contenu optimisé", "cette page travaille",
+];
+
+const VARIANT_TRANSLATIONS =
+  "Size→Taille, Color→Couleur, Style→Style, Emitting Color→Couleur d'éclairage, Lampshade Color→Couleur de l'abat-jour, " +
+  "Plug Type→Type de prise, Single→Unité, Set of 2→Lot de 2, Set of 3→Lot de 3, Small/S→S, Medium/M→M, Large/L→L, XL→XL";
+
+const UNIT_EXAMPLES = "10\"→25 cm, 11.8\"→30 cm, 15.7\"→40 cm, 23.6\"→60 cm, 31.5\"→80 cm, 39.4\"→100 cm (1 inch = 2,54 cm, arrondi propre)";
+
+const DESC_SKELETON = `<h2>[Titre produit, sans nom brandé]</h2>
+<p>[Introduction naturelle : produit, style, usage, ambiance]</p>
+<p>[Rendu visuel, matière SI connue, forme, couleur, intérêt déco/pratique]</p>
+<h3>Pourquoi choisir ce produit ?</h3>
+<ul><li><strong>[Point fort]</strong> [bénéfice client]</li><li><strong>[Point fort]</strong> [bénéfice]</li><li><strong>[Point fort]</strong> [bénéfice]</li></ul>
+<h3>Où installer ce produit ?</h3>
+<p>[Pièces adaptées, usages, situations]</p>
+<h3>Détails du produit</h3>
+<ul><li>Type : …</li><li>Style : …</li><li>Couleur : …</li><li>Matériaux : UNIQUEMENT si connu</li><li>Usage conseillé : …</li><li>Dimensions : UNIQUEMENT si disponibles</li></ul>
+<h3>Conseils pour bien le choisir</h3>
+<p>[Aide au choix : taille, style, pièce, installation]</p>
+<h3>Questions fréquentes</h3>
+<h4>[Question utile ?]</h4><p>[Réponse courte]</p><h4>[Question utile ?]</h4><p>[Réponse courte]</p>
+<p>[Conclusion naturelle, vendeuse et rassurante]</p>`;
+
 export function buildTransformSystem(rules: ImportRules): string {
   return (
     "Tu es Orkestra Import Factory, expert en catalogues e-commerce Shopify. Tu transformes des produits importés " +
-    "(fournisseur, ancienne boutique, concurrent, export Shopify) en fiches PROPRES, traduites et optimisées, prêtes à réimporter dans Shopify.\n" +
-    `Langue cible : ${rules.language}. Pays cible : ${rules.country}. Ton : ${rules.tone}.\n` +
-    "Réponds UNIQUEMENT par un objet JSON valide de la forme {\"products\":[ ... ]}. Chaque produit a EXACTEMENT ces clés : " +
-    "handle (string, le handle d'origine reçu, inchangé, sert de clé), title (string), brandName (string, vide si non demandé), " +
-    "bodyHtml (string, HTML Shopify propre), newHandle (string, slug propre ou vide), metaTitle (string ≤ 60), metaDescription (string ≤ 155), " +
-    "tags (string, séparés par des virgules), productType (string), collections (string[], 1 à 3 recommandées), " +
-    "imageAlts (string[], un alt par image, dans l'ordre), status ('ok'|'review'), notes (string[], points 'à vérifier').\n" +
-    "GARDE-FOUS STRICTS — n'invente JAMAIS : dimensions, matériaux, compatibilités, certifications, garanties, pays d'origine, délais de livraison, prix, stock. " +
-    "Si une donnée manque, reste prudent ou ajoute-la dans notes ('à vérifier') et mets status 'review'. " +
-    "PRÉSERVE le sens des variantes/tailles (ne les réécris pas, n'en inventes pas). " +
-    "Évite les superlatifs, les claims agressifs, le bourrage de mots-clés et les alt text absurdes. Pas de « Achetez maintenant »."
+    "(fournisseur, ancienne boutique, concurrent, export Shopify) en fiches PROPRES, traduites, RÉÉCRITES ENTIÈREMENT et optimisées, prêtes à réimporter dans Shopify.\n" +
+    `Langue : ${rules.language}. Pays : ${rules.country}. Ton : ${rules.tone}.\n` +
+    "Réponds UNIQUEMENT par un JSON valide {\"products\":[ ... ]}. Chaque produit a EXACTEMENT ces clés : " +
+    "handle (string, handle d'origine reçu, clé inchangée), title (string), brandName (string, vide si non demandé), vendor (string), " +
+    "keyword (string, mot-clé principal = requête d'achat naturelle), bodyHtml (string, HTML Shopify), newHandle (string slug ou vide), " +
+    "metaTitle (string), metaDescription (string), tags (string, virgules), productType (string), collections (string[], 1 à 3), " +
+    "imageAlts (string[], un alt par image dans l'ordre), status ('ok'|'review'), notes (string[], points 'à vérifier').\n" +
+    "GARDE-FOUS STRICTS :\n" +
+    "1) N'invente JAMAIS : dimensions, matériaux, compatibilités, certifications, garanties, origine, délais, prix, stock, fonctionnalités (LED, télécommande, 360°…). Absent → ne pas l'écrire, le noter dans notes et mettre status 'review'.\n" +
+    "2) RÉÉCRIS ENTIÈREMENT : ne recopie aucune phrase entière de la source ; supprime toute marque concurrente, tout ancien domaine, toute promesse non vérifiée.\n" +
+    "3) PRÉSERVE le sens des variantes/tailles ; ne mélange pas options/couleurs/images.\n" +
+    "4) INTERDITS dans le texte public (bodyHtml/meta/title) : « SEO », « référencement », « mot-clé », « maillage interne », « intention de recherche », « champ lexical », « optimisé pour Google », « stratégie SEO ». Pas de « premium/professionnel/meilleur » sans preuve, pas de « Achetez maintenant »."
   );
 }
 
 export function buildTransformPrompt(products: ImportProductInput[], rules: ImportRules, mem: ImportMemory, ctx: ImportContext): string {
+  const brand = ctx.brandName || rules.vendor || "la boutique";
+  const vendor = ctx.vendor || rules.vendor || brand;
+  const suffix = ctx.metaSuffix || rules.metaSuffix;
+  const cols = ctx.collectionsUrls && ctx.collectionsUrls.length ? ctx.collectionsUrls : rules.collectionsUrls;
+
+  // Bloc « boutique cible ».
+  const profileLines: string[] = [`Marque : ${brand} · Vendor : ${vendor}`];
+  if (ctx.niche) profileLines.push(`Niche : ${ctx.niche}`);
+  if (ctx.style) profileLines.push(`Style rédactionnel : ${ctx.style}`);
+  if (cols.length) profileLines.push(`Collections (nom → URL) :\n${cols.slice(0, 12).map((c) => `  - ${c.name} → ${c.url}`).join("\n")}`);
+  else if (rules.collections.length) profileLines.push(`Collections : ${rules.collections.slice(0, 20).join(", ")}`);
+  if (ctx.oldTerms?.length) profileLines.push(`À SUPPRIMER partout (anciens noms/domaines) : ${ctx.oldTerms.join(", ")}`);
+
+  // Directives par responsabilité (agents).
   const directives: string[] = [];
   directives.push(`Mode : ${TRANSFORM_LABEL[rules.transform]}.`);
-  directives.push(`Titres : ${TITLE_LABEL[rules.titleStyle]}. Ne pas ajouter de caractéristique non présente (ex : LED, télécommande) ; titres naturels adaptés Shopify / Google Merchant.`);
-  if (rules.brandNames) directives.push(`Noms brandés : génère un nom brandé UNIQUE par produit (style ${rules.brandNameStyle}), format « Titre | NomBrandé ». N'utilise JAMAIS un nom déjà pris : ${mem.brandNames.slice(0, 60).join(", ") || "(aucun pour l'instant)"}. Évite les doublons même avec accents.`);
-  else directives.push("Noms brandés : aucun (titres descriptifs sans nom fantaisie).");
-  const partLabel: Record<string, string> = { h2h3: "structure H2/H3", faq: "FAQ", benefits: "bénéfices", features: "caractéristiques", usage: "conseils d'usage/installation", reassurance: "réassurance" };
-  const descLevel = { short: "courte", standard: "standard", long: "longue", html_rich: "HTML riche" }[rules.description];
-  directives.push(`Description : ${descLevel}${rules.descriptionParts.length ? ` avec ${rules.descriptionParts.map((p) => partLabel[p] || p).join(", ")}` : ""}. Conserve les dimensions/tailles présentes${rules.convertUnits ? " ; convertis les pouces en cm si pertinent (garde les deux si utile)" : ""}. Mentionne matériaux/pièce recommandée UNIQUEMENT si présents ou clairement cohérents.`);
-  if (rules.meta) directives.push("Meta : metaTitle naturel (≤ 60), metaDescription claire (≤ 155), sans promesse agressive, adaptée Google Merchant.");
-  if (rules.altText) directives.push("Alt text : un alt par image (imageAlts, longueur = nombre d'images). Réutilise le MÊME nom produit dans chaque alt, différencié par la vue (vue de face, en situation, détail, dimensions, variante). Décris l'image avant de viser le mot-clé. Jamais « Image de… ».");
-  if (rules.tagsType) directives.push("Tags / product_type : product_type clair, tags utiles (pas absurdes, pas inventés).");
-  if (rules.internalLinking && rules.collections.length) directives.push(`Maillage : recommande 1 à 3 collections parmi : ${rules.collections.slice(0, 30).join(", ")}. Ajoute un maillage naturel dans bodyHtml avec des ancres variées (évite de répéter : ${mem.anchors.slice(0, 30).join(", ") || "(aucune encore)"}).`);
-  else if (rules.collections.length) directives.push(`Collections : recommande 1 à 3 collections parmi : ${rules.collections.slice(0, 30).join(", ")}.`);
+  directives.push("Analyse produit : déduis type, usage, pièce adaptée, style, couleur/matière SEULEMENT si présents. Ce qui est inconnu reste non mentionné (jamais inventé).");
+  directives.push("Mot-clé : déduis 1 mot-clé principal d'achat par produit + des termes naturels (usage, pièce, style) ; intègre-les sans bourrage.");
+  // Titres (profil).
+  if (ctx.titleFormat === "brand_suffix" || (rules.titleFormat === "brand_suffix" && !ctx.titleFormat)) {
+    directives.push(`Titres : format OBLIGATOIRE « Nom Produit SEO | NomBrandé ». Le nom produit avant le « | » fait 3 à 6 mots (le nom brandé ne compte pas). NomBrandé court, premium, mémorisable (~2 syllabes), UNIQUE, sans doublon ni quasi-doublon (éviter même début, accents inclus). Déjà pris : ${mem.brandNames.slice(0, 80).join(", ") || "(aucun)"}.`);
+  } else {
+    directives.push(`Titres : ${TITLE_LABEL[rules.titleStyle]}, SANS nom brandé. ${ctx.titleRules || "3 à 8 mots, naturel, descriptif, pas générique."} Ne finis jamais par « et/ou/en/de/- ».`);
+  }
+  // Description.
+  const richDesc = rules.description === "html_rich" || rules.level === "poussé" || rules.level === "ultra complet";
+  if (richDesc) directives.push(`Description : HTML riche${rules.level === "ultra complet" || rules.level === "poussé" ? ", VISE 500 à 900 mots si les données le permettent" : ""}, naturelle, premium, orientée client, SANS blabla. Suis CETTE structure exacte :\n${DESC_SKELETON}`);
+  else directives.push("Description : claire et naturelle, exploitable, sans blabla ni invention.");
+  // Meta (profil).
+  if (rules.meta) directives.push(`Meta : metaTitle « ${"{mot-clé}"} | ${brand} » (50–70 car.). metaDescription ≤ 160 car., inclut le mot-clé, donne envie, NATURELLE${suffix ? `, et FINIT EXACTEMENT par « ${suffix} »` : ""}.`);
+  // Maillage.
+  if (rules.internalLinking && cols.length) directives.push(`Maillage : ajoute dans un paragraphe de bodyHtml UN lien naturel vers la collection la plus pertinente, au format EXACT <strong><u><a href="URL">ancre</a></u></strong>. Varie les ancres (déjà utilisées : ${mem.anchors.slice(0, 40).join(", ") || "(aucune)"}). N'écris jamais « maillage interne ».`);
+  // Alt.
+  if (rules.altText) directives.push("Alt text : un par image (imageAlts), MÊME nom produit dans chaque, différencié par la vue (face, en situation, détail, dimensions, variante). Jamais « Image de… ».");
+  // Tags / type.
+  if (rules.tagsType) directives.push("Tags / product_type : product_type clair ; tags pertinents (niche, usage, pièce), supprime les tags fournisseur inutiles, pas de surcharge.");
+  // Variantes / unités.
+  directives.push(`Variantes : conserve-les ; traduis les options (${VARIANT_TRANSLATIONS}).`);
+  if (rules.convertUnits) directives.push(`Unités : convertis pouces/ft/lbs en cm/m/kg dans le texte si pertinent (${UNIT_EXAMPLES}). Ne touche pas aux dimensions de variantes, n'en invente pas.`);
+  const handleLabel: Record<HandleMode, string> = { keep: "garder les handles d'origine (newHandle vide)", clean: "nettoyer (minuscules, sans accents, tirets, court)", fr: "générer en français propre", short: "générer courts" };
+  directives.push(`Handles : ${handleLabel[rules.handleMode]} ; basé sur le titre, sans marque concurrente ni ancien nom brandé.`);
   directives.push(`Niveau d'intervention : ${rules.level}.`);
-  const handleLabel: Record<HandleMode, string> = { keep: "garder les handles d'origine (newHandle vide)", clean: "nettoyer les handles", fr: "générer des handles en français", short: "générer des handles courts" };
-  directives.push(`Handles : ${handleLabel[rules.handleMode]}.`);
-
-  const ctxLine = [ctx.brandName && `Boutique : ${ctx.brandName}`, ctx.niche && `Niche : ${ctx.niche}`, ctx.positioning && `Positionnement : ${ctx.positioning}`].filter(Boolean).join(" · ");
 
   const list = products.map((p, i) => (
     `--- Produit ${i + 1} (handle: ${p.handle}) ---\n` +
-    `Titre actuel : ${p.title}\n` +
-    `Type : ${p.type || "(non renseigné)"} | Tags : ${p.tags || "(aucun)"} | Vendor : ${p.vendor || "(aucun)"}${p.sourceCollection ? ` | Collection source : ${p.sourceCollection}` : ""}\n` +
+    `Titre source : ${p.title}\n` +
+    `Type : ${p.type || "(n/a)"} | Tags : ${p.tags || "(aucun)"} | Vendor source : ${p.vendor || "(aucun)"}${p.sourceCollection ? ` | Collection source : ${p.sourceCollection}` : ""}\n` +
     `Variantes (${p.variantCount}) : ${p.variantOptions.join(", ") || "(aucune option)"} | Prix exemple : ${p.priceSample || "(n/a)"}\n` +
     `Images : ${p.imageCount}${p.existingAlts.filter(Boolean).length ? ` | alts actuels : ${p.existingAlts.filter(Boolean).join(" / ")}` : ""}\n` +
-    `Description actuelle : ${p.bodyExcerpt || "(vide)"}`
+    `Description source : ${p.bodyExcerpt || "(vide)"}`
   )).join("\n\n");
 
   return (
-    `${ctxLine ? ctxLine + "\n\n" : ""}=== Règles de transformation ===\n- ${directives.join("\n- ")}\n\n` +
+    `=== Boutique cible ===\n${profileLines.join("\n")}\n\n` +
+    `=== Règles de transformation ===\n- ${directives.join("\n- ")}\n\n` +
     `=== ${products.length} produit(s) à transformer ===\n${list}\n\n` +
-    `Renvoie le JSON {"products":[...]} avec un objet par produit, dans le MÊME ordre, en conservant le handle d'origine comme clé.`
+    `Renvoie le JSON {"products":[...]} dans le MÊME ordre, handle d'origine en clé. vendor = « ${vendor} » pour tous.`
   );
 }
 
@@ -442,10 +514,12 @@ export function coerceTransformed(p: unknown, fallback: ImportProductInput): Tra
     handle: str(o.handle, fallback.handle),
     title: str(o.title, fallback.title),
     brandName: str(o.brandName) || undefined,
+    vendor: str(o.vendor) || undefined,
+    keyword: str(o.keyword) || undefined,
     bodyHtml: str(o.bodyHtml),
     newHandle: str(o.newHandle) || undefined,
-    metaTitle: str(o.metaTitle).slice(0, 65),
-    metaDescription: str(o.metaDescription).slice(0, 160),
+    metaTitle: str(o.metaTitle).slice(0, 70),
+    metaDescription: str(o.metaDescription).slice(0, 200),
     tags: str(o.tags, fallback.tags),
     productType: str(o.productType, fallback.type),
     collections: arr(o.collections).slice(0, 3),
@@ -500,6 +574,8 @@ export function applyTransform(
   const iSeoT = ensureColumn(headers, rows, map, "SeoTitle", "SEO Title");
   const iSeoD = ensureColumn(headers, rows, map, "SeoDescription", "SEO Description");
   const iAlt = ensureColumn(headers, rows, map, "ImageAlt", "Image Alt Text");
+  const wantsVendor = !!(rules.vendor || results.some((r) => r.vendor));
+  const iVendor = wantsVendor ? ensureColumn(headers, rows, map, "Vendor", "Vendor") : undefined;
   // Si des options de variante existent, garantir une colonne « Option1 Name ».
   const iOptName = map.Option1Value !== undefined ? ensureColumn(headers, rows, map, "Option1Name", "Option1 Name") : undefined;
 
@@ -513,6 +589,7 @@ export function applyTransform(
       if (t.bodyHtml) def[iBody] = t.bodyHtml;
       if (rules.tagsType) { def[iType] = t.productType; def[iTags] = t.tags; }
       if (rules.meta) { def[iSeoT] = t.metaTitle; def[iSeoD] = t.metaDescription; }
+      if (iVendor !== undefined) def[iVendor] = t.vendor || rules.vendor;
     }
     // Handle garanti : nouveau slug si demandé, sinon original, sinon dérivé du titre.
     const finalHandle = rules.handleMode !== "keep" && t.newHandle ? t.newHandle : handleExisted && g.handle ? g.handle : slugify(t.title) || g.handle;

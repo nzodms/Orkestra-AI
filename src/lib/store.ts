@@ -105,6 +105,8 @@ interface OrkestraState {
   factoryOutputs: FactoryOutput[];
   // ── Import Factory (persisté) ──
   importMemory: ImportFactoryMemory;
+  /** Profil boutique cible sélectionné dans Import Factory. */
+  selectedProfileId: string;
 
   setOnboardingComplete: (v: boolean) => void;
   setGuideHidden: (v: boolean) => void;
@@ -128,6 +130,7 @@ interface OrkestraState {
   clearFactoryOutputs: () => void;
   rememberImport: (patch: RememberImportPatch) => void;
   resetImportMemory: () => void;
+  setImportProfile: (id: string) => void;
 }
 
 export const useOrkestra = create<OrkestraState>()(
@@ -150,6 +153,7 @@ export const useOrkestra = create<OrkestraState>()(
       factoryStatus: {},
       factoryOutputs: [],
       importMemory: EMPTY_IMPORT,
+      selectedProfileId: "custom",
 
       setOnboardingComplete: (v) => set({ onboardingComplete: v }),
       setGuideHidden: (v) => set({ guideHidden: v }),
@@ -222,6 +226,7 @@ export const useOrkestra = create<OrkestraState>()(
           };
         }),
       resetImportMemory: () => set({ importMemory: EMPTY_IMPORT }),
+      setImportProfile: (id) => set({ selectedProfileId: id }),
     }),
     {
       name: "orkestra-store",
