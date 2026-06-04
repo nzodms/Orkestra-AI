@@ -54,6 +54,8 @@ function emptyConnections(): Record<AIProviderId, AIConnection> {
 
 interface OrkestraState {
   onboardingComplete: boolean;
+  /** Le guide « Comment utiliser Orkestra » a-t-il été masqué ? */
+  guideHidden: boolean;
   /** La boutique a-t-elle été scannée/renseignée ? Pilote l'état neutre du dashboard. */
   storeScanned: boolean;
   theme: "light" | "dark";
@@ -76,6 +78,7 @@ interface OrkestraState {
   seo: SeoStudioState;
 
   setOnboardingComplete: (v: boolean) => void;
+  setGuideHidden: (v: boolean) => void;
   setStoreScanned: (v: boolean) => void;
   setAnalysis: (a: StoreAnalysis | null) => void;
   toggleTheme: () => void;
@@ -97,6 +100,7 @@ export const useOrkestra = create<OrkestraState>()(
   persist(
     (set) => ({
       onboardingComplete: false,
+      guideHidden: false,
       storeScanned: false,
       theme: "light",
       brand: DEFAULT_BRAND_MEMORY,
@@ -111,6 +115,7 @@ export const useOrkestra = create<OrkestraState>()(
       seo: EMPTY_SEO,
 
       setOnboardingComplete: (v) => set({ onboardingComplete: v }),
+      setGuideHidden: (v) => set({ guideHidden: v }),
       setStoreScanned: (v) => set({ storeScanned: v }),
       setAnalysis: (a) => set({ analysis: a }),
       toggleTheme: () =>

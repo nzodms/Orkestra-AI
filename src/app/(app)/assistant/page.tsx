@@ -235,6 +235,11 @@ export default function AssistantPage() {
     { label: "Ajouter une FAQ collection", q: "Comment ajouter une FAQ à une collection ?", icon: HelpCircle },
     { label: "Comprendre une erreur Shopify", q: "Je ne comprends pas une erreur dans Shopify, peux-tu m'aider ?", icon: Wrench },
   ];
+  const bigCards = [
+    { icon: Wrench, title: "Corriger un problème détecté", sub: "Textes anglais, meta, alt text, product_type…", q: detected[0]?.q || "Où corriger les textes anglais ?" },
+    { icon: MapPin, title: "Savoir où cliquer dans Shopify", sub: "Produits, collections, pages, thème, politiques…", q: "Où modifier une page produit dans Shopify ?" },
+    { icon: ShieldCheck, title: "Préparer ma boutique", sub: "SEO, Merchant Center, Google Shopping, confiance…", q: "Comment préparer ma boutique pour Google Merchant Center ?" },
+  ];
 
   return (
     <>
@@ -255,13 +260,26 @@ export default function AssistantPage() {
 
             <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
               {assistantMessages.length === 0 ? (
-                <div className="py-2">
+                <div className="py-2 ork-rise">
                   <div className="flex flex-col items-center text-center">
-                    <div className="grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-950"><LifeBuoy className="h-7 w-7" /></div>
-                    <h3 className="mt-4 text-base font-semibold">Je peux vous guider pas à pas dans Shopify</h3>
-                    <p className="mt-1.5 max-w-sm text-sm text-[var(--text-muted)]">Choisissez un problème détecté ou décrivez ce que vous voulez modifier.</p>
+                    <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-pop"><LifeBuoy className="h-7 w-7" /></div>
+                    <h3 className="mt-4 text-base font-semibold">Bonjour, je peux vous guider pas à pas dans Shopify</h3>
+                    <p className="mt-1.5 max-w-sm text-sm text-[var(--text-muted)]">Décrivez ce que vous voulez modifier, ou choisissez un problème détecté par Orkestra.</p>
                   </div>
-                  <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                  <div className="ork-stagger mt-5 grid gap-2.5 sm:grid-cols-3">
+                    {bigCards.map((c) => {
+                      const Icon = c.icon;
+                      return (
+                        <button key={c.title} onClick={() => send(c.q)} className="ork-interactive group flex flex-col gap-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5 text-left hover:border-brand-300">
+                          <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-600 transition group-hover:scale-105 dark:bg-brand-950 dark:text-brand-300"><Icon className="h-[18px] w-[18px]" /></span>
+                          <span className="mt-1 text-sm font-semibold leading-tight">{c.title}</span>
+                          <span className="text-xs leading-relaxed text-[var(--text-muted)]">{c.sub}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="mb-2 mt-4 text-[11px] font-semibold uppercase tracking-wide text-ink-400">{detected.length >= 3 ? "Détecté dans votre scan" : "Actions fréquentes"}</div>
+                  <div className="ork-stagger grid gap-2 sm:grid-cols-2">
                     {homeCards.map((c) => {
                       const Icon = c.icon;
                       return (
@@ -277,7 +295,7 @@ export default function AssistantPage() {
               ) : (
                 assistantMessages.map((m) =>
                   m.role === "user" ? (
-                    <div key={m.id} className="flex justify-end"><div className="max-w-[85%] rounded-2xl rounded-br-md bg-brand-600 px-4 py-2.5 text-sm text-white shadow-soft">{m.text}</div></div>
+                    <div key={m.id} className="flex justify-end"><div className="ork-rise max-w-[85%] rounded-2xl rounded-br-md bg-brand-600 px-4 py-2.5 text-sm text-white shadow-soft">{m.text}</div></div>
                   ) : (
                     <AssistantAnswer key={m.id} proc={m.proc} onFollow={send} />
                   )
@@ -343,7 +361,7 @@ function AssistantAnswer({ proc, onFollow }: { proc: AssistantProc; onFollow: (q
   // Réponse IA live (markdown) pour les demandes hors-procédure.
   if (proc.ai) {
     return (
-      <div className="max-w-[94%] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-soft">
+      <div className="ork-rise max-w-[94%] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-soft">
         <div className="mb-2 flex items-center gap-2"><span className="grid h-6 w-6 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white"><Sparkles className="h-3.5 w-3.5" /></span><h4 className="text-sm font-bold">{proc.title}</h4><Badge tone="good" className="ml-auto">OpenAI</Badge></div>
         <div className="min-w-0 break-words"><Markdown content={proc.ai} /></div>
         <p className="mt-2 text-[11px] text-[var(--text-muted)]">Raisonné par l&apos;IA à partir de votre contexte (pas de recherche web).</p>
@@ -351,7 +369,7 @@ function AssistantAnswer({ proc, onFollow }: { proc: AssistantProc; onFollow: (q
     );
   }
   return (
-    <div className="max-w-[92%] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-soft">
+    <div className="ork-rise max-w-[92%] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-soft">
       <div className="mb-2 flex items-center gap-2"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><MapPin className="h-3.5 w-3.5" /></span><h4 className="text-sm font-bold">{proc.title}</h4></div>
       {proc.short && <p className="mb-2.5 text-sm text-[var(--text-muted)]">{proc.short}</p>}
       <ol className="space-y-1.5">

@@ -56,7 +56,7 @@ body {
 
 @layer components {
   .card {
-    @apply rounded-2xl border bg-[var(--surface)] shadow-card;
+    @apply rounded-2xl border bg-[var(--surface)] shadow-card transition;
   }
   .input {
     @apply w-full rounded-xl border bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--text)]
@@ -74,4 +74,77 @@ body {
 .bg-grid {
   background-image: radial-gradient(circle at 1px 1px, rgba(109, 94, 242, 0.12) 1px, transparent 0);
   background-size: 22px 22px;
+}
+
+/* ── Animations premium (subtiles, rapides, cohérentes) ───────────────────── */
+@keyframes ork-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ork-skeleton-sweep {
+  100% { transform: translateX(100%); }
+}
+
+/* Entrée douce d'un élément */
+.ork-rise {
+  animation: ork-rise 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Entrée en cascade des enfants directs (cards, listes) */
+.ork-stagger > * {
+  animation: ork-rise 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.ork-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.ork-stagger > *:nth-child(2) { animation-delay: 45ms; }
+.ork-stagger > *:nth-child(3) { animation-delay: 90ms; }
+.ork-stagger > *:nth-child(4) { animation-delay: 135ms; }
+.ork-stagger > *:nth-child(5) { animation-delay: 180ms; }
+.ork-stagger > *:nth-child(6) { animation-delay: 225ms; }
+.ork-stagger > *:nth-child(7) { animation-delay: 270ms; }
+.ork-stagger > *:nth-child(8) { animation-delay: 300ms; }
+.ork-stagger > *:nth-child(n + 9) { animation-delay: 320ms; }
+
+/* Skeleton premium : balayage shimmer discret (au lieu d'un pulse plat) */
+.ork-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--border);
+}
+.ork-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(109, 94, 242, 0.14), transparent);
+  animation: ork-skeleton-sweep 1.4s infinite;
+}
+
+/* Carte/élément interactif : léger lift + ombre au survol */
+.ork-interactive {
+  @apply transition duration-200;
+}
+.ork-interactive:hover {
+  transform: translateY(-2px);
+  @apply shadow-pop;
+}
+.ork-interactive:active {
+  transform: translateY(0) scale(0.995);
+}
+
+/* Respect total de prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .ork-interactive:hover {
+    transform: none;
+  }
+  .ork-skeleton::after {
+    animation: none;
+  }
 }

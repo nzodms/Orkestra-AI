@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { cn, scoreTone } from "@/lib/utils";
 
 // ── Card ──────────────────────────────────────────────────────────────────
@@ -95,7 +96,26 @@ export function ScoreRing({
   const tone = scoreTone(value);
   const r = (size - 10) / 2;
   const c = 2 * Math.PI * r;
-  const offset = c - (value / 100) * c;
+  // Comptage progressif 0 → value (anneau + nombre synchronisés), reduced-motion OK.
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      setShown(value);
+      return;
+    }
+    let raf = 0;
+    const start = performance.now();
+    const dur = 700;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setShown(Math.round(value * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  const offset = c - (shown / 100) * c;
   return (
     <div className="relative inline-grid place-items-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
@@ -110,11 +130,10 @@ export function ScoreRing({
           strokeLinecap="round"
           strokeDasharray={c}
           strokeDashoffset={offset}
-          style={{ transition: "stroke-dashoffset 0.8s ease" }}
         />
       </svg>
       <div className="absolute text-center">
-        <div className="text-lg font-bold text-[var(--text)]">{value}</div>
+        <div className="text-lg font-bold text-[var(--text)]">{shown}</div>
         {label && <div className="text-[10px] text-[var(--text-muted)]">{label}</div>}
       </div>
     </div>

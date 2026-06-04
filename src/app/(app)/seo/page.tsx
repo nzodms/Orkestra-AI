@@ -83,11 +83,11 @@ export default function SeoStudioPage() {
   }
 
   const queue = [
-    { id: "product" as WF, icon: Sparkles, label: "Fiches produits prioritaires", count: analysis?.priorityProducts?.length ?? 0, sub: "à optimiser" },
-    { id: "collection" as WF, icon: FolderOpen, label: "Collections à enrichir", count: brand.collections.length, sub: "texte + FAQ" },
-    { id: "meta" as WF, icon: Tag, label: "Meta à générer", count: analysis?.metrics?.missingMetaDescriptions ?? 0, sub: "title + description" },
-    { id: "alt" as WF, icon: ImageIcon, label: "Alt text à compléter", count: analysis?.catalogStats?.imagesNoAlt ?? analysis?.metrics?.imagesWithoutAlt ?? 0, sub: "images" },
-    { id: "blog" as WF, icon: Newspaper, label: "Articles à écrire", count: Math.max(2, Math.min(4, brand.collections.length || 3)), sub: "longue traîne" },
+    { id: "product" as WF, icon: Sparkles, label: "Produits à optimiser", count: analysis?.priorityProducts?.length ?? 0, sub: "à optimiser", tip: "Title, meta, description HTML, FAQ, tags → fiche produit" },
+    { id: "collection" as WF, icon: FolderOpen, label: "Collections à enrichir", count: brand.collections.length, sub: "texte + FAQ", tip: "Description 200–300 mots, FAQ, maillage → page collection" },
+    { id: "meta" as WF, icon: Tag, label: "Meta à générer", count: analysis?.metrics?.missingMetaDescriptions ?? 0, sub: "title + description", tip: "3 variantes → Aperçu du référencement naturel" },
+    { id: "alt" as WF, icon: ImageIcon, label: "Images sans alt", count: analysis?.catalogStats?.imagesNoAlt ?? analysis?.metrics?.imagesWithoutAlt ?? 0, sub: "images", tip: "Alt descriptifs → Médias du produit" },
+    { id: "blog" as WF, icon: Newspaper, label: "Articles recommandés", count: Math.max(2, Math.min(4, brand.collections.length || 3)), sub: "longue traîne", tip: "Plan, intro, FAQ, CTA → article de blog" },
   ];
 
   return (
@@ -98,16 +98,17 @@ export default function SeoStudioPage() {
       />
 
       {/* File d'attente SEO */}
-      <Card className="mb-5">
-        <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><ListChecks className="h-4 w-4 text-brand-600" /> File d&apos;attente SEO</h3>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <Card className="ork-rise mb-5">
+        <div className="mb-1 flex items-center gap-1.5 text-sm font-semibold"><ListChecks className="h-4 w-4 text-brand-600" /> File d&apos;attente SEO</div>
+        <p className="mb-3 text-xs text-[var(--text-muted)]">SEO Studio transforme les problèmes détectés en contenus prêts à copier. <span className="text-brand-700 dark:text-brand-300">Basé sur votre scan public et la mémoire boutique.</span></p>
+        <div className="ork-stagger grid grid-cols-2 gap-3 lg:grid-cols-5">
           {queue.map((q) => {
             const Icon = q.icon;
             return (
-              <button key={q.id} onClick={() => setActive(q.id)} className={`flex flex-col gap-1 rounded-xl border p-3 text-left transition hover:-translate-y-0.5 hover:border-brand-300 ${active === q.id ? "border-brand-500 bg-brand-50 dark:bg-brand-950" : "border-[var(--border)]"}`}>
+              <button key={q.id} onClick={() => setActive(q.id)} className={`ork-interactive flex flex-col gap-1 rounded-xl border p-3 text-left hover:border-brand-300 ${active === q.id ? "border-brand-500 bg-brand-50 dark:bg-brand-950" : "border-[var(--border)]"}`}>
                 <div className="flex items-center justify-between"><Icon className="h-4 w-4 text-brand-500" /><span className="text-lg font-bold">{q.count}</span></div>
                 <div className="text-xs font-medium leading-tight">{q.label}</div>
-                <div className="text-[10px] text-[var(--text-muted)]">{q.sub}</div>
+                <div className="text-[10px] leading-tight text-[var(--text-muted)]">{q.tip}</div>
               </button>
             );
           })}
@@ -245,7 +246,7 @@ function EmptyResult({ label }: { label: string }) {
     </Card>
   );
 }
-function SkeletonResult() { return <Card className="min-h-[360px] space-y-3">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-4 animate-pulse rounded bg-ink-100 dark:bg-ink-900" style={{ width: `${60 + Math.random() * 40}%` }} />)}</Card>; }
+function SkeletonResult() { return <Card className="min-h-[360px] space-y-3">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-4 rounded ork-skeleton" style={{ width: `${60 + ((i * 13) % 40)}%` }} />)}</Card>; }
 function CopyBtn({ text }: { text: string }) {
   const [c, setC] = useState(false);
   return <button onClick={() => { navigator.clipboard.writeText(text); setC(true); setTimeout(() => setC(false), 1400); }} className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--text-muted)] transition hover:text-brand-600">{c ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}{c ? "Copié" : "Copier"}</button>;

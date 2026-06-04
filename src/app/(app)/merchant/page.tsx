@@ -28,12 +28,16 @@ const STATUS: Record<MCStatus, { tone: "good" | "bad" | "warn"; label: string }>
 const GMC_TONE: Record<string, "good" | "warn" | "bad"> = { ready: "good", fix: "warn", risk: "bad" };
 
 const WILL_CHECK = [
-  { icon: ShieldCheck, t: "Pages de confiance", d: "Contact, mentions, retours, livraison, CGV, confidentialité, FAQ, garantie." },
-  { icon: Languages, t: "Langue & cohérence", d: "Libellés anglais résiduels, cohérence langue / devise." },
-  { icon: Package, t: "Données produit", d: "product_type, descriptions, meta, alt text, tags." },
-  { icon: Percent, t: "Promotions & prix", d: "Réductions agressives, prix barrés, urgence, cohérence prix/feed." },
-  { icon: FileText, t: "Promesses & claims", d: "Formulations marketing à risque (« meilleur », « garanti »…)." },
-  { icon: ShieldQuestion, t: "Signaux Merchant", d: "Ce qui peut fragiliser Merchant Center / Google Shopping." },
+  { icon: ShieldCheck, t: "Pages de confiance", d: "Contact, mentions légales, livraison, retours, confidentialité, CGV." },
+  { icon: Languages, t: "Cohérence boutique", d: "Langue, pays, devise, textes anglais, promesses commerciales." },
+  { icon: Package, t: "Données produit", d: "product_type, descriptions, titles, prix, images, variants." },
+  { icon: Percent, t: "Promotions & risques GMC", d: "Prix barrés, codes promo, urgence artificielle, cohérence prix/feed." },
+  { icon: Rocket, t: "Plan Google Shopping", d: "Avant soumission, pendant validation, après acceptation, avant PMax." },
+];
+const BENEFITS = [
+  { icon: ShieldQuestion, t: "Repérer les risques avant Google" },
+  { icon: Wrench, t: "Savoir quoi corriger dans Shopify" },
+  { icon: ListChecks, t: "Suivre votre préparation GMC" },
 ];
 
 const DURING_CHECKS = [
@@ -63,12 +67,22 @@ export default function MerchantPage() {
   const { brand, analysis, merchantAuditAt, merchantResolved, setMerchantAudited, toggleMerchantResolved } = useOrkestra();
   const [loading, setLoading] = useState(false);
   const [phase, setPhase] = useState<Phase>("avant");
+  const [toast, setToast] = useState<string | null>(null);
   const report = useMemo(() => buildMerchantReport(analysis, brand, merchantResolved), [analysis, brand, merchantResolved]);
   const audited = !!merchantAuditAt;
 
+  function flash(msg: string) { setToast(msg); window.setTimeout(() => setToast(null), 1800); }
+
   function runAudit() {
+    const was = audited;
     setLoading(true);
-    setTimeout(() => { setMerchantAudited(); setLoading(false); }, 550);
+    setTimeout(() => { setMerchantAudited(); setLoading(false); flash(was ? "Audit relancé" : "Analyse terminée"); }, 550);
+  }
+
+  function handleResolve(key: string) {
+    const wasResolved = merchantResolved.includes(key);
+    toggleMerchantResolved(key);
+    flash(wasResolved ? "Action rétablie" : "Action marquée comme corrigée");
   }
 
   const quickActions = useMemo(() => {
@@ -112,7 +126,7 @@ export default function MerchantPage() {
       ) : (
         <>
           {/* Préparation GMC + métriques */}
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="ork-stagger grid gap-4 lg:grid-cols-3">
             <Card className="lg:col-span-1 border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40">
               <div className="flex items-center gap-3">
                 <ScoreRing value={report.readiness} />
@@ -133,24 +147,34 @@ export default function MerchantPage() {
 
           {/* Avant audit */}
           {!audited && !loading && (
-            <Card className="mt-4 flex flex-col items-center gap-3 text-center sm:flex-row sm:justify-between sm:text-left">
-              <div>
-                <h3 className="text-sm font-semibold">Lancez l&apos;audit pour le détail</h3>
-                <p className="mt-0.5 text-sm text-[var(--text-muted)]">Checklist, risques classés, plan avant/pendant/après GMC et actions priorisées.</p>
+            <Card className="ork-rise mt-4">
+              <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:justify-between sm:text-left">
+                <div>
+                  <h3 className="text-sm font-semibold">Prêt à analyser votre boutique</h3>
+                  <p className="mt-0.5 text-sm text-[var(--text-muted)]">Orkestra va comparer votre scan public aux signaux Merchant Center les plus fréquents : checklist, risques classés et plan avant / pendant / après GMC.</p>
+                </div>
+                <Button onClick={runAudit} icon={<ScanSearch className="h-4 w-4" />}>Lancer l&apos;audit Merchant</Button>
               </div>
-              <Button onClick={runAudit} icon={<ScanSearch className="h-4 w-4" />}>Lancer l&apos;audit Merchant</Button>
+              <div className="mt-3"><Benefits /></div>
+              <details className="group mt-3 rounded-xl border border-[var(--border)] bg-[var(--bg)]">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-3.5 py-2.5 text-sm font-medium">
+                  Voir ce qui sera vérifié
+                  <ArrowRight className="h-4 w-4 text-ink-400 transition-transform group-open:rotate-90" />
+                </summary>
+                <div className="px-3.5 pb-3.5"><WhatWeCheckGrid /></div>
+              </details>
             </Card>
           )}
 
           {loading && (
             <Card className="mt-4 space-y-3">
               <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]"><ScanSearch className="h-4 w-4 animate-pulse text-brand-600" /> Analyse de conformité en cours…</div>
-              {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-12 animate-pulse rounded-xl bg-ink-100 dark:bg-ink-900" />)}
+              {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-12 rounded-xl ork-skeleton" />)}
             </Card>
           )}
 
           {audited && !loading && (
-            <div className="mt-4 space-y-5">
+            <div key={phase} className="ork-stagger mt-4 space-y-5">
               {/* Phases */}
               <div className="flex flex-wrap gap-2">
                 {([["avant", "1 · Avant la demande GMC"], ["pendant", "2 · Pendant la validation"], ["apres", "3 · Après acceptation"]] as [Phase, string][]).map(([p, label]) => (
@@ -158,7 +182,7 @@ export default function MerchantPage() {
                 ))}
               </div>
 
-              {phase === "avant" && <PhaseAvant report={report} quickActions={quickActions} onResolve={toggleMerchantResolved} />}
+              {phase === "avant" && <PhaseAvant report={report} quickActions={quickActions} onResolve={handleResolve} />}
               {phase === "pendant" && <PhasePendant />}
               {phase === "apres" && <PhaseApres />}
 
@@ -167,14 +191,33 @@ export default function MerchantPage() {
           )}
         </>
       )}
+
+      {toast && (
+        <div className="ork-rise pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
+          <div className="inline-flex items-center gap-2 rounded-full bg-ink-900 px-4 py-2 text-xs font-medium text-white shadow-pop dark:bg-ink-100 dark:text-ink-900">
+            <Check className="h-3.5 w-3.5 text-emerald-400 dark:text-emerald-600" /> {toast}
+          </div>
+        </div>
+      )}
     </>
   );
 }
 
 // ── Phase 1 : Avant la demande ──────────────────────────────────────────────
 function PhaseAvant({ report, quickActions, onResolve }: { report: ReturnType<typeof buildMerchantReport>; quickActions: { label: string; href: string; icon: React.ElementType }[]; onResolve: (k: string) => void }) {
+  const next = report.critical[0] || report.important[0] || report.optimizations[0];
   return (
     <>
+      {next && (
+        <Card className="ork-rise flex flex-col items-start gap-3 border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300"><Rocket className="h-3.5 w-3.5" /> Votre prochaine action</div>
+            <div className="mt-1 text-sm font-semibold">{next.label}</div>
+            <p className="mt-0.5 text-xs text-[var(--text-muted)]">{next.fix}</p>
+          </div>
+          <Link href={resolveHref(next)} className="shrink-0"><Button size="sm" icon={next.module === "seo" ? <Sparkles className="h-3.5 w-3.5" /> : <Wand2 className="h-3.5 w-3.5" />}>Résoudre la prochaine action</Button></Link>
+        </Card>
+      )}
       <div className="flex flex-wrap gap-2">
         {quickActions.map((a) => {
           const Icon = a.icon;
@@ -312,24 +355,45 @@ function Metric({ icon: Icon, label, big, sub, tone }: { icon: React.ElementType
   );
 }
 
+function Benefits() {
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-2">
+      {BENEFITS.map((b) => {
+        const I = b.icon;
+        return <span key={b.t} className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700 dark:bg-brand-950 dark:text-brand-300"><I className="h-3.5 w-3.5" />{b.t}</span>;
+      })}
+    </div>
+  );
+}
+
+function WhatWeCheckGrid() {
+  return (
+    <div className="ork-stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {WILL_CHECK.map((w) => {
+        const Icon = w.icon;
+        return (
+          <div key={w.t} className="ork-interactive flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5 text-left hover:border-brand-300">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><Icon className="h-[18px] w-[18px]" /></div>
+            <div><div className="text-sm font-semibold">{w.t}</div><p className="mt-0.5 text-xs text-[var(--text-muted)]">{w.d}</p></div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function EmptyState({ onScan }: { onScan?: boolean }) {
   return (
-    <Card className="text-center">
-      <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><ShieldCheck className="h-7 w-7" /></div>
-      <h3 className="mt-4 text-base font-semibold">Préparez votre boutique pour Google Merchant Center</h3>
-      <p className="mx-auto mt-1.5 max-w-md text-sm text-[var(--text-muted)]">Merchant Shield contrôle ce qui peut bloquer ou fragiliser votre validation. Scannez d&apos;abord votre boutique — voici ce qui sera analysé :</p>
-      <div className="mx-auto mt-5 grid max-w-2xl gap-3 sm:grid-cols-2">
-        {WILL_CHECK.map((w) => {
-          const Icon = w.icon;
-          return (
-            <div key={w.t} className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5 text-left">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><Icon className="h-[18px] w-[18px]" /></div>
-              <div><div className="text-sm font-semibold">{w.t}</div><p className="mt-0.5 text-xs text-[var(--text-muted)]">{w.d}</p></div>
-            </div>
-          );
-        })}
+    <Card className="ork-rise">
+      <div className="text-center">
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><ShieldCheck className="h-7 w-7" /></div>
+        <h3 className="mt-4 text-base font-semibold">{onScan ? "Prêt à analyser votre boutique" : "Préparez votre boutique pour Google Merchant Center"}</h3>
+        <p className="mx-auto mt-1.5 max-w-xl text-sm text-[var(--text-muted)]">Merchant Shield analyse les signaux visibles qui peuvent fragiliser votre compte Merchant Center : pages de confiance, textes anglais, politiques, promotions, données produit et cohérence du site.</p>
+        <div className="mt-4"><Benefits /></div>
       </div>
-      {onScan && <Link href="/onboarding" className="mt-5 inline-block"><Button icon={<ScanSearch className="h-4 w-4" />}>Scanner ma boutique</Button></Link>}
+      <div className="mb-1.5 mt-6 text-xs font-semibold uppercase tracking-wide text-ink-400">Ce que Merchant Shield vérifie</div>
+      <WhatWeCheckGrid />
+      {onScan && <div className="mt-5 text-center"><Link href="/onboarding"><Button icon={<ScanSearch className="h-4 w-4" />}>Scanner ma boutique</Button></Link></div>}
     </Card>
   );
 }

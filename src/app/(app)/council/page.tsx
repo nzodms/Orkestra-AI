@@ -7,7 +7,7 @@ import { PROVIDERS } from "@/lib/providers";
 import { PageHeader, Card, Badge, ScoreRing, Progress } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import { Markdown } from "@/components/ui/Markdown";
-import type { CouncilMode, CouncilResult, CouncilTurn, GenerationRecord, AIProviderId, SiteReview, ModuleId, GenMeta } from "@/lib/types";
+import type { CouncilMode, CouncilResult, CouncilTurn, GenerationRecord, AIProviderId, SiteReview, ModuleId, GenMeta, StoreAnalysis } from "@/lib/types";
 import {
   MessagesSquare, Send, Sparkles, Search, Code2, ShieldCheck, Mail, FileText,
   TrendingUp, Swords, MessageCircle, Copy, Check, Wand2, Scissors, FileCode2,
@@ -24,15 +24,6 @@ const MODES: { id: CouncilMode; label: string; icon: React.ElementType }[] = [
   { id: "strategy", label: "Stratégie", icon: TrendingUp },
   { id: "competitive", label: "Concurrence", icon: Swords },
   { id: "free", label: "Question libre", icon: MessageCircle },
-];
-
-const EXAMPLE_PROMPTS = [
-  "Comment améliorer le SEO de ma boutique ?",
-  "Crée une section FAQ premium",
-  "Analyse les risques Merchant Center de mon site",
-  "Rédige une réponse client professionnelle",
-  "Améliore le SEO de ma collection",
-  "Fais-moi un plan d'action sur 30 jours",
 ];
 
 type Directive = "improve" | "shorten" | "premium" | "html";
@@ -254,7 +245,7 @@ export default function CouncilPage() {
             {/* Messages */}
             <div ref={scrollRef} className="flex-1 space-y-5 overflow-y-auto p-4 sm:p-5">
               {councilMessages.length === 0 && !loading ? (
-                <EmptyCouncil providers={providers} onPick={(p) => runCouncil(p)} />
+                <EmptyCouncil providers={providers} analysis={analysis} onStart={(m, q) => { setMode(m); runCouncil(q, null, m); }} />
               ) : (
                 councilMessages.map((turn) =>
                   turn.role === "user" ? (
@@ -308,24 +299,60 @@ export default function CouncilPage() {
 }
 
 // ── Empty state premium ─────────────────────────────────────────────────────
-function EmptyCouncil({ providers, onPick }: { providers: AIProviderId[]; onPick: (p: string) => void }) {
+const COUNCIL_START: { mode: CouncilMode; icon: React.ElementType; label: string; q: string }[] = [
+  { mode: "seo", icon: Search, label: "Améliorer mon SEO", q: "Comment améliorer le SEO de ma boutique à partir des données analysées ?" },
+  { mode: "merchant", icon: ShieldCheck, label: "Préparer Merchant Center", q: "Fais un audit Merchant Center de ma boutique et liste les risques à corriger en priorité." },
+  { mode: "code", icon: Code2, label: "Créer du code Shopify", q: "Crée une section Shopify premium adaptée à ma boutique." },
+  { mode: "email", icon: Mail, label: "Répondre à un client", q: "Aide-moi à rédiger un email professionnel pour répondre à un client." },
+  { mode: "strategy", icon: TrendingUp, label: "Analyser ma stratégie", q: "Analyse ma boutique et propose une stratégie de croissance priorisée." },
+  { mode: "competitive", icon: Swords, label: "Trouver mes concurrents", q: "Identifie mes concurrents directs probables et mes angles de différenciation." },
+];
+
+function EmptyCouncil({ providers, analysis, onStart }: { providers: AIProviderId[]; analysis: StoreAnalysis | null; onStart: (mode: CouncilMode, q: string) => void }) {
+  const scan: { label: string; mode: CouncilMode; q: string }[] = [];
+  if (analysis) {
+    const eng = analysis.englishTexts?.length ?? 0;
+    const meta = analysis.metrics?.missingMetaDescriptions ?? 0;
+    const noType = analysis.catalogStats?.noType ?? 0;
+    const alt = analysis.catalogStats?.imagesNoAlt ?? analysis.metrics?.imagesWithoutAlt ?? 0;
+    if (eng) scan.push({ label: `Textes anglais (${eng})`, mode: "merchant", q: "Contexte : des textes anglais ont été détectés sur la boutique. Réponds uniquement à ce problème : liste-les, donne la correction française, l'impact Merchant et le chemin Shopify." });
+    if (meta) scan.push({ label: `Meta manquantes (${meta})`, mode: "seo", q: "Donne-moi uniquement les meta titles et descriptions prêts à copier pour mes pages prioritaires." });
+    if (noType) scan.push({ label: `Product_type (${noType})`, mode: "merchant", q: "Contexte : des product_type sont manquants. Réponds uniquement : produits concernés, types à ajouter et chemin Shopify." });
+    if (alt) scan.push({ label: `Alt text (${alt})`, mode: "seo", q: "Comment ajouter des alt text descriptifs à mes images, et où dans Shopify ?" });
+    if ((analysis.collectionsFound ?? 0) > 0) scan.push({ label: "Collections à enrichir", mode: "seo", q: "Comment enrichir mes pages collections (texte, FAQ, maillage interne) ?" });
+  }
   return (
-    <div className="flex flex-col items-center justify-center py-10 text-center">
+    <div className="ork-rise flex flex-col items-center py-8 text-center">
       <div className="grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-pop">
         <MessagesSquare className="h-8 w-8" />
       </div>
-      <h3 className="mt-4 text-lg font-bold">Posez une demande à vos IA connectées</h3>
+      <h3 className="mt-4 text-lg font-bold">Que voulez-vous améliorer aujourd&apos;hui ?</h3>
       <p className="mt-1.5 max-w-md text-sm text-[var(--text-muted)]">
-        Orkestra interroge {providers.length ? `vos ${providers.length} IA` : "vos IA"}, compare leurs réponses et vous livre une synthèse finale plus complète.
+        Orkestra interroge {providers.length ? `vos ${providers.length} IA` : "vos IA"}, compare leurs réponses et livre une synthèse finale. Choisissez un point de départ :
       </p>
-      <div className="mt-6 grid w-full max-w-xl gap-2 sm:grid-cols-2">
-        {EXAMPLE_PROMPTS.map((p) => (
-          <button key={p} onClick={() => onPick(p)} className="flex items-center gap-2.5 rounded-xl border border-[var(--border)] px-3.5 py-3 text-left text-sm transition hover:border-brand-300 hover:bg-ink-50 dark:hover:bg-ink-900">
-            <Sparkles className="h-4 w-4 shrink-0 text-brand-500" />
-            <span className="min-w-0">{p}</span>
-          </button>
-        ))}
+      <div className="ork-stagger mt-6 grid w-full max-w-xl gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+        {COUNCIL_START.map((c) => {
+          const Icon = c.icon;
+          return (
+            <button key={c.mode} onClick={() => onStart(c.mode, c.q)} className="ork-interactive group flex flex-col items-start gap-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5 text-left hover:border-brand-300">
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-600 transition group-hover:scale-105 dark:bg-brand-950 dark:text-brand-300"><Icon className="h-[18px] w-[18px]" /></span>
+              <span className="mt-1 text-sm font-semibold">{c.label}</span>
+            </button>
+          );
+        })}
       </div>
+      {scan.length > 0 && (
+        <div className="mt-6 w-full max-w-xl">
+          <div className="mb-2 text-xs text-[var(--text-muted)]">D&apos;après votre scan, Orkestra peut déjà vous aider sur :</div>
+          <div className="flex flex-wrap justify-center gap-2">
+            {scan.map((s) => (
+              <button key={s.label} onClick={() => onStart(s.mode, s.q)} className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium transition hover:-translate-y-0.5 hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300">
+                <Sparkles className="h-3.5 w-3.5 text-brand-500" /> {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -339,7 +366,7 @@ function Thinking({ providers }: { providers: AIProviderId[] }) {
       </div>
       <div className="mt-3 space-y-2">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-3.5 animate-pulse rounded bg-ink-100 dark:bg-ink-900" style={{ width: `${55 + Math.random() * 40}%` }} />
+          <div key={i} className="h-3.5 rounded ork-skeleton" style={{ width: `${55 + ((i * 17) % 40)}%` }} />
         ))}
       </div>
     </div>
@@ -363,7 +390,7 @@ function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: C
   const time = meta ? new Date(meta.generatedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "";
 
   return (
-    <div className="min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-card">
+    <div className="ork-rise min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-card">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
         <div className="flex items-center gap-2">

@@ -337,7 +337,7 @@ export function Markdown({ content }: { content: string }) {
   const { preamble, sections } = splitSections(content);
   const hasPreamble = preamble.some((l) => l.trim() !== "");
   return (
-    <div className="space-y-3">
+    <div className={sections.length > 1 ? "space-y-3 ork-stagger" : "space-y-3"}>
       {hasPreamble && <div>{renderBlocks(preamble, "pre")}</div>}
       {sections.map((s, i) =>
         i === 0 ? (
