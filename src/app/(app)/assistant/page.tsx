@@ -57,7 +57,7 @@ function resolveAnswer(q: string, analysis: Analysis, brand: Brand): AssistantPr
         steps: ["Allez dans Shopify → Produits, Collections ou Pages.", "Ouvrez la page concernée.", "Descendez jusqu'à « Aperçu du référencement naturel ».", "Cliquez sur « Modifier ».", "Renseignez le title (≤ 60 car.) et la meta description (≤ 155 car.).", "Enregistrez, puis relancez un scan Orkestra."],
         note: "Title = phrase descriptive + marque. Évitez « Achetez maintenant », « Qualité premium ».",
         products: products.length ? products : undefined,
-        council: { label: "Générer les metas (Content Factory)", href: "/seo" }, seo: true,
+        council: { label: "Générer les metas (Import Factory)", href: "/seo" }, seo: true,
         nextActions: [{ label: "Voir les meta manquantes", q: "Quelles meta sont manquantes et où les corriger ?" }],
       };
     case "english":
@@ -73,7 +73,7 @@ function resolveAnswer(q: string, analysis: Analysis, brand: Brand): AssistantPr
         title: "Ajouter du texte à une collection", short: "Dans le champ Description de la collection, avec une structure SEO.",
         steps: ["Allez dans Shopify → Produits → Collections.", `Ouvrez la collection concernée (ex. « ${coll} »).`, "Ajoutez un texte dans le champ « Description ».", "Structure : intro 150–250 mots + H2/H3 si le thème les affiche.", "Pour une FAQ, créez une section via AI Council → Code Shopify.", "Enregistrez et vérifiez le rendu."],
         note: "La description cible une requête transactionnelle : placez le mot-clé dans le 1er paragraphe et le H1.",
-        council: { label: "Générer le contenu (Content Factory)", href: "/seo" }, seo: true,
+        council: { label: "Générer le contenu (Import Factory)", href: "/seo" }, seo: true,
       };
     case "alt":
       return {
@@ -81,7 +81,7 @@ function resolveAnswer(q: string, analysis: Analysis, brand: Brand): AssistantPr
         steps: ["Ouvrez le produit (ou la collection) dans Shopify.", "Section « Médias » → survolez l'image → « Modifier le texte alternatif ».", "Rédigez un alt descriptif et naturel (ce que montre l'image).", "Évitez le bourrage de mots-clés.", "Enregistrez."],
         note: "Mineur pour Merchant, mais utile pour le SEO images et l'accessibilité.",
         products: products.length ? products : undefined, seo: true,
-        council: { label: "Générer les alt text (Content Factory)", href: "/seo" },
+        council: { label: "Générer les alt text (Import Factory)", href: "/seo" },
       };
     case "product_type":
       return {
@@ -425,7 +425,7 @@ function AssistantAnswer({ proc, onFollow }: { proc: AssistantProc; onFollow: (q
 
       <div className="mt-3 flex flex-wrap gap-2 border-t border-[var(--border)] pt-3">
         {proc.council && <Link href={proc.council.href}><Button variant="secondary" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />}>{proc.council.label}</Button></Link>}
-        {proc.seo && <Link href="/seo"><Button variant="outline" size="sm" icon={<Wrench className="h-3.5 w-3.5" />}>Ouvrir Content Factory</Button></Link>}
+        {proc.seo && <Link href="/seo"><Button variant="outline" size="sm" icon={<Wrench className="h-3.5 w-3.5" />}>Ouvrir Import Factory</Button></Link>}
         <Link href={councilLink("free", `Contexte : procédure « ${proc.title} » vue dans l'Assistant Shopify. Explique uniquement l'impact SEO / Merchant / conversion de cette correction, sans refaire l'audit complet.`)}><Button variant="ghost" size="sm" icon={<TrendingUp className="h-3.5 w-3.5" />}>Expliquer l&apos;impact</Button></Link>
         {proc.nextActions?.filter((n) => n.q).map((n) => <Button key={n.label} variant="ghost" size="sm" icon={<ArrowRight className="h-3.5 w-3.5" />} onClick={() => onFollow(n.q)}>{n.label}</Button>)}
       </div>

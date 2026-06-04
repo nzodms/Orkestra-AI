@@ -381,7 +381,7 @@ export function buildReviewIssues(ctx: NicheCtx): ReviewIssue[] {
       severity: "important",
       explanation: `Les collections ${cols.slice(0, 3).join(", ")} manquent de texte SEO unique et de structure Hn.`,
       impact: "Faible visibilité sur des requêtes commerciales à fort volume.",
-      fix: `Générer 150–300 mots + FAQ par collection dans Content Factory, ciblés sur « ${kws[0]} ».`,
+      fix: `Générer 150–300 mots + FAQ par collection dans Import Factory, ciblés sur « ${kws[0]} ».`,
       module: "seo",
     },
     {
@@ -389,7 +389,7 @@ export function buildReviewIssues(ctx: NicheCtx): ReviewIssue[] {
       severity: "important",
       explanation: "Descriptions trop courtes, peu de bénéfices et pas de FAQ produit.",
       impact: "Conversion et longue traîne sous-exploitées.",
-      fix: "Générer des fiches SEO complètes (200+ mots, bénéfices, FAQ, alt text) dans Content Factory.",
+      fix: "Générer des fiches SEO complètes (200+ mots, bénéfices, FAQ, alt text) dans Import Factory.",
       module: "seo",
     },
     {

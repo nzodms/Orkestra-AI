@@ -16,7 +16,7 @@ import {
 const TOOLS: { icon: React.ElementType; action: string; name: string; cta: string; href: string }[] = [
   { icon: MessagesSquare, action: "Comprendre les priorités", name: "AI Council", cta: "Demander un audit", href: "" },
   { icon: ShieldCheck, action: "Préparer Google Merchant", name: "Merchant Shield", cta: "Lancer l'audit", href: "/merchant" },
-  { icon: Sparkles, action: "Produire les contenus", name: "Content Factory", cta: "Générer", href: "/seo" },
+  { icon: Sparkles, action: "Transformer un catalogue", name: "Import Factory", cta: "Importer un CSV", href: "/seo" },
   { icon: LifeBuoy, action: "Savoir où cliquer", name: "Assistant Shopify", cta: "Me guider", href: "/assistant" },
   { icon: UserCog, action: "Suivre l'évolution", name: "Mémoire boutique", cta: "Voir la mémoire", href: "/memory" },
 ];

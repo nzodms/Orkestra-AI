@@ -15,10 +15,11 @@ import type {
 } from "./types";
 import type { CollectionSeoResult, MetaVariant, BlogOutlineResult, AltTextItem } from "./ai/engine";
 import type { FactoryStatus, FactoryOutput } from "./factory";
+import type { ImportRules } from "./import-factory";
 import { PROVIDER_ORDER } from "./providers";
 import { DEFAULT_BRAND_MEMORY } from "./mock-data";
 
-// État persisté de Content Factory : dernières générations par workflow.
+// État persisté de Import Factory : dernières générations par workflow.
 export interface SeoStudioState {
   product: ProductSeoResult | null;
   productMeta: GenMeta | null;
@@ -29,6 +30,27 @@ export interface SeoStudioState {
   blog: BlogOutlineResult | null;
 }
 const EMPTY_SEO: SeoStudioState = { product: null, productMeta: null, collection: null, meta: null, alt: null, altSubject: "", blog: null };
+
+// Mémoire Import Factory : évite les doublons (noms brandés, handles, ancres),
+// retient les collections et les dernières règles de transformation.
+export interface ImportFactoryMemory {
+  brandNames: string[];
+  handles: string[];
+  anchors: string[];
+  collections: string[];
+  lastRules: ImportRules | null;
+  transformedCount: number;
+}
+const EMPTY_IMPORT: ImportFactoryMemory = { brandNames: [], handles: [], anchors: [], collections: [], lastRules: null, transformedCount: 0 };
+
+export interface RememberImportPatch {
+  brandNames?: string[];
+  handles?: string[];
+  anchors?: string[];
+  collections?: string[];
+  rules?: ImportRules;
+  count?: number;
+}
 
 // ──────────────────────────────────────────────────────────────────────────
 // Store client (zustand + persist localStorage).
@@ -75,12 +97,14 @@ interface OrkestraState {
   merchantResolved: string[];
   // ── Assistant Shopify (persisté) ──
   assistantMessages: AssistantTurn[];
-  // ── Content Factory (persisté) ──
+  // ── Import Factory (persisté) ──
   seo: SeoStudioState;
-  /** Statut de production par tâche (atelier Content Factory). */
+  /** Statut de production par tâche (héritage Import Factory). */
   factoryStatus: Record<string, FactoryStatus>;
-  /** Feed « Sorties récentes » de Content Factory. */
+  /** Feed « Sorties récentes » (héritage Import Factory). */
   factoryOutputs: FactoryOutput[];
+  // ── Import Factory (persisté) ──
+  importMemory: ImportFactoryMemory;
 
   setOnboardingComplete: (v: boolean) => void;
   setGuideHidden: (v: boolean) => void;
@@ -102,6 +126,8 @@ interface OrkestraState {
   setFactoryStatus: (id: string, status: FactoryStatus) => void;
   addFactoryOutput: (output: FactoryOutput) => void;
   clearFactoryOutputs: () => void;
+  rememberImport: (patch: RememberImportPatch) => void;
+  resetImportMemory: () => void;
 }
 
 export const useOrkestra = create<OrkestraState>()(
@@ -123,6 +149,7 @@ export const useOrkestra = create<OrkestraState>()(
       seo: EMPTY_SEO,
       factoryStatus: {},
       factoryOutputs: [],
+      importMemory: EMPTY_IMPORT,
 
       setOnboardingComplete: (v) => set({ onboardingComplete: v }),
       setGuideHidden: (v) => set({ guideHidden: v }),
@@ -180,13 +207,29 @@ export const useOrkestra = create<OrkestraState>()(
           return { factoryOutputs: [output, ...rest].slice(0, 12) };
         }),
       clearFactoryOutputs: () => set({ factoryOutputs: [] }),
+      rememberImport: (patch) =>
+        set((s) => {
+          const merge = (a: string[], b?: string[]) => Array.from(new Set([...a, ...(b ?? []).filter(Boolean)])).slice(0, 800);
+          return {
+            importMemory: {
+              brandNames: merge(s.importMemory.brandNames, patch.brandNames),
+              handles: merge(s.importMemory.handles, patch.handles),
+              anchors: merge(s.importMemory.anchors, patch.anchors),
+              collections: patch.collections && patch.collections.length ? Array.from(new Set(patch.collections)) : s.importMemory.collections,
+              lastRules: patch.rules ?? s.importMemory.lastRules,
+              transformedCount: s.importMemory.transformedCount + (patch.count ?? 0),
+            },
+          };
+        }),
+      resetImportMemory: () => set({ importMemory: EMPTY_IMPORT }),
     }),
     {
       name: "orkestra-store",
       // v2 : purge des données de démo hardcodées. v3 : nouveau format seo.alt
       // (string[] → AltTextItem[]) → on réinitialise le slice seo.
-      // v4 : atelier Content Factory (statuts + sorties récentes).
-      version: 4,
+      // v4 : atelier Import Factory (statuts + sorties récentes).
+      // v5 : Import Factory (mémoire d'import : noms brandés, handles, règles).
+      version: 5,
       migrate: (persisted: unknown, version: number) => {
         const state = (persisted ?? {}) as Partial<OrkestraState>;
         if (version < 2) {
@@ -201,13 +244,17 @@ export const useOrkestra = create<OrkestraState>()(
             seo: EMPTY_SEO,
             factoryStatus: {},
             factoryOutputs: [],
+            importMemory: EMPTY_IMPORT,
           } as OrkestraState;
         }
         if (version < 3) {
-          return { ...state, seo: EMPTY_SEO, factoryStatus: {}, factoryOutputs: [] } as OrkestraState;
+          return { ...state, seo: EMPTY_SEO, factoryStatus: {}, factoryOutputs: [], importMemory: EMPTY_IMPORT } as OrkestraState;
         }
         if (version < 4) {
-          return { ...state, factoryStatus: {}, factoryOutputs: [] } as OrkestraState;
+          return { ...state, factoryStatus: {}, factoryOutputs: [], importMemory: EMPTY_IMPORT } as OrkestraState;
+        }
+        if (version < 5) {
+          return { ...state, importMemory: EMPTY_IMPORT } as OrkestraState;
         }
         return state as OrkestraState;
       },

@@ -748,7 +748,7 @@ function buildSynthesis(
 }
 
 function moduleLabel(m: ReviewIssue["module"]): string {
-  const map: Record<string, string> = { seo: "Content Factory", merchant: "Merchant Shield", sections: "Section Builder", council: "AI Council", memory: "Mémoire boutique" };
+  const map: Record<string, string> = { seo: "Import Factory", merchant: "Merchant Shield", sections: "Section Builder", council: "AI Council", memory: "Mémoire boutique" };
   return map[m] || "AI Council";
 }
 
@@ -787,7 +787,7 @@ function buildIssues(
       severity: "important",
       explanation: `${d.collectionsWithoutSeo} collection(s) analysée(s) ont peu ou pas de contenu SEO.`,
       impact: "Faible visibilité sur des requêtes commerciales à fort volume.",
-      fix: "Générer 150–300 mots + FAQ par collection dans Content Factory.",
+      fix: "Générer 150–300 mots + FAQ par collection dans Import Factory.",
       module: "seo",
     });
   }
@@ -799,7 +799,7 @@ function buildIssues(
       severity: "important",
       explanation: "Descriptions courtes, FAQ ou avis souvent absents sur les fiches analysées.",
       impact: "Conversion et longue traîne sous-exploitées.",
-      fix: "Générer des fiches SEO complètes (200+ mots, bénéfices, FAQ, alt text) dans Content Factory.",
+      fix: "Générer des fiches SEO complètes (200+ mots, bénéfices, FAQ, alt text) dans Import Factory.",
       module: "seo",
     });
   }
@@ -810,7 +810,7 @@ function buildIssues(
       severity: "important",
       explanation: `${d.metaMissing} page(s) analysée(s) n'ont pas de meta description.`,
       impact: "Taux de clic (CTR) réduit dans les résultats Google.",
-      fix: "Générer une meta unique par page (≤ 155 car.) avec un CTA dans Content Factory.",
+      fix: "Générer une meta unique par page (≤ 155 car.) avec un CTA dans Import Factory.",
       module: "seo",
     });
   }
@@ -880,7 +880,7 @@ function buildIssues(
         severity: weakDesc > cs.productsEnriched * 0.3 ? "critique" : "important",
         explanation: `${cs.noDescription} produit(s) sans description et ${cs.shortDescriptions} avec une description trop courte (sur ${cs.productsEnriched} enrichis via products.json).`,
         impact: "SEO et conversion faibles ; risque de contenu jugé pauvre par Google.",
-        fix: "Enrichir les fiches prioritaires (200+ mots : bénéfices, dimensions, matériaux, usage, FAQ) dans Content Factory.",
+        fix: "Enrichir les fiches prioritaires (200+ mots : bénéfices, dimensions, matériaux, usage, FAQ) dans Import Factory.",
         module: "seo",
       });
     }
@@ -890,7 +890,7 @@ function buildIssues(
         severity: "important",
         explanation: `${cs.weakTitles} titre(s) trop courts ou génériques, sans mots-clés d'usage ou de pièce.`,
         impact: "Moins de visibilité sur les requêtes longue traîne.",
-        fix: "Réécrire les titres avec mot-clé + usage/pièce/matériau dans Content Factory.",
+        fix: "Réécrire les titres avec mot-clé + usage/pièce/matériau dans Import Factory.",
         module: "seo",
       });
     }
@@ -923,7 +923,7 @@ function buildIssues(
       severity: "mineur",
       explanation: "Peu de contenu éditorial (guides d'achat) pour soutenir la longue traîne.",
       impact: "Opportunités de trafic informationnel non captées.",
-      fix: "Créer un cluster blog (« comment choisir », « guide ») relié aux collections via Content Factory.",
+      fix: "Créer un cluster blog (« comment choisir », « guide ») relié aux collections via Import Factory.",
       module: "seo",
     });
   }

@@ -143,7 +143,7 @@ function modeStructure(mode: CouncilMode): string {
     "## Routine SEO hebdomadaire (enrichir 1 collection, optimiser 2 fiches produits, publier 1 article, ajouter 5–10 liens internes, corriger les alt text prioritaires, relancer un scan Orkestra, suivre Search Console, ajuster selon impressions/CTR. NE dis PAS « ajouter X produits par jour » : dis « ajouter de nouveaux produits seulement s'ils répondent à une vraie intention de recherche ou à une demande catalogue »)\n" +
     "## Plan 7 jours (chaque jour : action + CHEMIN SHOPIFY exact)\n" +
     "## Roadmap 30 jours (S1 technique visible, S2 pages business, S3 cocon de contenu, S4 consolidation + relance scan + Search Console)\n" +
-    "## Actions Orkestra recommandées (modules RÉELS uniquement : Content Factory, Merchant Shield, AI Council, Code Shopify, Mémoire boutique)\n" +
+    "## Actions Orkestra recommandées (modules RÉELS uniquement : Import Factory, Merchant Shield, AI Council, Code Shopify, Mémoire boutique)\n" +
     "CHEMINS SHOPIFY EXACTS à utiliser : Meta = Produit/Collection/Page → Aperçu du référencement naturel → Modifier ; Description collection = Produits → Collections → Collection → Description ; Alt text = Produit → Médias → Modifier le texte alternatif ; Product type = Produit → Organisation du produit → Type de produit ; Tags = Produit → Organisation du produit → Tags ; H1 multiples = Boutique en ligne → Thèmes → Personnaliser → Page concernée ; Textes anglais = Paramètres → Langues → Modifier le contenu du thème.\n" +
     "INTERDIT dans les titles/meta/contenus (sauf si une donnée le justifie) : « premium », « professionnel », « haut de gamme », « meilleur », « qualité premium », « Achetez maintenant », « Livraison rapide », « Commandez dès aujourd'hui ». Les titles doivent être NATURELS et descriptifs (ex. « Reformer Pilates pliable en bois | Reformio », « Équipement Pilates pour la maison | Reformio », « Barrel Pilates Ladder | Reformio »). Le contenu de collection va dans la description de collection Shopify ou une section SEO du thème. Si tu recommandes un blog, fournis le calendrier éditorial complet (titre + mot-clé + intention + page à mailler + objectif SEO + CTA).";
   const map: Record<CouncilMode, string> = {
@@ -209,7 +209,7 @@ export async function runCouncil(
       `### Pourquoi c'est important\n(impact SEO / Merchant / conversion selon le sujet, 1 à 3 puces)\n` +
       `### Comment corriger\n(étapes concrètes et courtes)\n` +
       `### Où corriger dans Shopify\n(chemin Shopify exact)\n` +
-      `### Action suivante\n(UNE seule action claire ou un module Orkestra : Content Factory, Merchant Shield, Assistant Shopify)\n` +
+      `### Action suivante\n(UNE seule action claire ou un module Orkestra : Import Factory, Merchant Shield, Assistant Shopify)\n` +
       `N'ajoute AUCUNE autre section. Reste dans le périmètre du mode « ${MODE_LABEL[mode]} ».`
     : "\n\n" + modeStructure(mode);
   // En mode Concurrence, on suggère des concurrents DIRECTS spécialisés (niche)
@@ -258,7 +258,7 @@ export async function runCouncil(
   return { result, meta: { live: true, provider: "openai", model: r.model, tokens: r.tokens, generatedAt: nowIso(), ...codeMeta } };
 }
 
-// ── Content Factory live ─────────────────────────────────────────────────────────
+// ── Import Factory live ─────────────────────────────────────────────────────────
 
 export async function runProductSeo(
   input: ProductSeoInput,

@@ -1,6 +1,6 @@
 // ──────────────────────────────────────────────────────────────────────────
 // Chemins Shopify exacts + liens inter-modules (cohérence entre les outils).
-// Partagé par Merchant Shield, Assistant Shopify, Content Factory et le Dashboard.
+// Partagé par Merchant Shield, Assistant Shopify, Import Factory et le Dashboard.
 // ──────────────────────────────────────────────────────────────────────────
 
 export const SHOPIFY_PATHS = {

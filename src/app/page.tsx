@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 
 const FEATURES = [
-  { icon: Sparkles, title: "Content Factory", desc: "Fiches produits, collections, FAQ, meta et blog optimisés pour Google." },
+  { icon: Sparkles, title: "Import Factory", desc: "Importez un CSV produit (fournisseur, concurrent, export) et obtenez un catalogue Shopify propre, traduit et optimisé." },
   { icon: Blocks, title: "Code Shopify", desc: "Sections Shopify (Liquid + CSS + schema 2.0) générées en discutant dans l'AI Council." },
   { icon: ShieldCheck, title: "Merchant Shield", desc: "Détecte les risques fréquents avant Google Merchant Center / Ads." },
   { icon: MessagesSquare, title: "AI Council", desc: "Plusieurs IA répondent, Orkestra fusionne la meilleure réponse finale." },

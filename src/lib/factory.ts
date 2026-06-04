@@ -2,7 +2,7 @@ import type { StoreAnalysis, BrandMemory } from "./types";
 import { SHOPIFY_PATHS } from "./shopify";
 
 // ──────────────────────────────────────────────────────────────────────────
-// Content Factory — modèle « atelier de production ».
+// Import Factory — modèle « atelier de production ».
 //
 // À partir du scan public + de la mémoire boutique, on dérive une FILE DE
 // PRODUCTION de contenus concrets (meta, collections, fiches, alt, articles),
