@@ -59,31 +59,36 @@ function similarTo(n: string, set: Set<string>): { match: string; exact: boolean
   return null;
 }
 
-function enforceMeta(md: string, suffix?: string): { md: string; changed: boolean; tooLong: boolean } {
+function enforceMeta(md: string, suffix?: string): { md: string; changed: boolean; issue?: string } {
   let s = (md || "").trim();
-  let changed = false;
-  if (suffix) {
-    if (!s.endsWith(suffix)) {
-      const room = Math.max(0, 160 - suffix.length - 1);
-      s = s.replace(/[\s.]+$/, "");
-      if (s.length > room) s = s.slice(0, room).replace(/\s+\S*$/, "").trim();
-      s = `${s} ${suffix}`.trim();
-      changed = true;
-    }
+  if (!suffix) {
+    if (s.length > 160) { s = s.slice(0, 160).replace(/\s+\S*$/, "").trim(); return { md: s, changed: true, issue: "Meta description tronquée à 160" }; }
+    return { md: s, changed: false };
   }
-  let tooLong = false;
-  if (s.length > 160) {
-    tooLong = true;
-    if (suffix && s.endsWith(suffix)) {
-      const room = Math.max(0, 160 - suffix.length - 1);
-      const head = s.slice(0, s.length - suffix.length).trim().slice(0, room).replace(/\s+\S*$/, "").trim();
-      s = `${head} ${suffix}`.trim();
-    } else {
-      s = s.slice(0, 160).replace(/\s+\S*$/, "").trim();
-    }
-    changed = true;
+  // Retire TOUTES les occurrences finales du suffixe (exactes, doublées ou mal écrites).
+  const core = escapeRe(suffix.replace(/[.!]+$/, "").replace(/^[\s✓✔•·\-–—]+/, "").trim()).replace(/ /g, "\\s+");
+  const tailRe = new RegExp(`[\\s✓✔•·\\-–—]*${core}\\s*[.!]*\\s*$`, "i");
+  let body = s;
+  let count = 0;
+  let exactLast = false;
+  while (body) {
+    const m = body.match(tailRe);
+    if (!m) break;
+    if (count === 0) exactLast = m[0].trim() === suffix;
+    count++;
+    body = body.slice(0, body.length - m[0].length).replace(/\s+$/, ""); // garde la ponctuation de fin de phrase
   }
-  return { md: s, changed, tooLong };
+  // Tronque le corps pour laisser la place au suffixe (≤ 160).
+  let truncated = false;
+  const room = Math.max(0, 160 - suffix.length - 1);
+  if (body.length > room) { body = body.slice(0, room).replace(/\s+\S*$/, "").trim(); truncated = true; }
+  const out = body ? `${body} ${suffix}` : suffix;
+  let issue: string | undefined;
+  if (count === 0) issue = "Suffixe meta ajouté";
+  else if (count > 1) issue = "Suffixe meta doublé corrigé";
+  else if (!exactLast) issue = "Suffixe meta normalisé (casse / espace)";
+  if (truncated) issue = "Meta description ajustée (≤ 160 + suffixe)";
+  return { md: out, changed: out !== s, issue };
 }
 
 function fixTitle(t: string): string {
@@ -151,6 +156,26 @@ function fixBrandCase(s: string, vendor: string): string {
 }
 function capFirst(s: string): string { return s ? s[0].toUpperCase() + s.slice(1) : s; }
 function isFrench(lang?: string): boolean { return /fran[çc]ais/i.test(lang || ""); }
+
+// Connecteurs français en minuscule (sauf en 1er mot du titre).
+const FR_LOWER = new Set(["en", "de", "du", "des", "au", "aux", "à", "et", "ou", "le", "la", "les", "avec", "pour", "sur", "sans", "dans", "par"]);
+/** Capitalisation française : minuscule après apostrophe + connecteurs en minuscule. */
+function fixFrenchCaps(s: string): string {
+  if (!s) return s;
+  let out = s.replace(/([A-Za-zÀ-ÿ]['’])([A-ZÀ-Ÿ])/g, (_m, p: string, c: string) => p + c.toLowerCase());
+  let wordIdx = 0;
+  out = out.split(/(\s+)/).map((tok) => {
+    if (!tok || /^\s+$/.test(tok)) return tok;
+    wordIdx++;
+    if (wordIdx === 1) return tok;
+    const bare = tok.toLowerCase().replace(/[^a-zàâäéèêëîïôöûüç]/g, "");
+    if (FR_LOWER.has(bare) && tok[0] === tok[0].toUpperCase()) return tok.toLowerCase();
+    return tok;
+  }).join("");
+  return out;
+}
+// Tags trop génériques (à compléter par du type + longue traîne).
+const GENERIC_TAGS = new Set(["moderne", "interieur", "design", "elegant", "salon", "deco", "decoration", "contemporain", "chic", "tendance", "maison", "nouveau", "qualite", "luxe", "minimaliste"]);
 
 /** Contrôle qualité + corrections déterministes d'un produit transformé. */
 export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport {
@@ -225,21 +250,18 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
 
   // ── Casse marque / vendor dans titre + meta title + meta description ──
   if (vendor) { fixed.title = fixBrandCase(fixed.title, vendor); fixed.metaTitle = fixBrandCase(fixed.metaTitle, vendor); fixed.metaDescription = fixBrandCase(fixed.metaDescription, vendor); }
+  // Capitalisation française : majuscule en début, minuscule après apostrophe (Goutte d'Eau → Goutte d'eau).
+  if (fr) { fixed.title = fixFrenchCaps(fixed.title); fixed.metaTitle = fixFrenchCaps(fixed.metaTitle); }
   fixed.metaTitle = capFirst(fixed.metaTitle.trim());
 
-  // Meta description : ≤ 160 + suffixe exact du profil.
-  if (ctx.metaSuffix !== undefined && ctx.metaSuffix !== "") {
-    const m = enforceMeta(fixed.metaDescription, ctx.metaSuffix);
-    if (m.changed) { issues.push(m.tooLong ? "Meta description ajustée (≤ 160 + suffixe)" : "Suffixe meta ajouté"); bump("warning"); }
-    fixed.metaDescription = m.md;
-  } else if (fixed.metaDescription.length > 160) {
-    fixed.metaDescription = fixed.metaDescription.slice(0, 160).replace(/\s+\S*$/, "").trim();
-    issues.push("Meta description tronquée à 160"); bump("warning");
-  }
+  // Meta description : suffixe exact (gère absent / doublé / mal écrit) + ≤ 160.
+  const me = enforceMeta(fixed.metaDescription, ctx.metaSuffix);
+  if (me.changed) { if (me.issue) issues.push(me.issue); bump("warning"); }
+  fixed.metaDescription = me.md;
 
   // Meta description : générique / répétitive ?
   const mdNorm = normName(fixed.metaDescription).replace(/[0-9]/g, "");
-  if (/(elegancemoderne|decouvreznotre|elegancecontemporaine)/.test(mdNorm)) { issues.push("Meta description générique (« élégance moderne / découvrez notre »)"); bump("warning"); }
+  if (/(elegancemoderne|decouvreznotre|elegancecontemporaine|ambiancechaleureuse|interieurelegant|apporteraunetouche|touchemoderne|touchederaffinement)/.test(mdNorm)) { issues.push("Meta description générique (formule passe-partout)"); bump("warning"); }
   const opening = fixed.metaDescription.toLowerCase().replace(/[^a-zàâäéèêëîïôöûüç ]/g, "").split(/\s+/).filter(Boolean).slice(0, 6).join(" ");
   if (opening.length > 8) {
     if (ctx.usedMetaOpenings.has(opening)) { issues.push("Meta description répétitive (même structure qu'un autre produit)"); bump("warning"); }
@@ -264,16 +286,25 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
 
   // Tags trop pauvres.
   if (ctx.tagsType) {
-    const tagCount = fixed.tags.split(",").map((t) => t.trim()).filter(Boolean).length;
-    if (tagCount < 4) { issues.push(`Tags trop pauvres (${tagCount})`); bump("warning"); }
+    const tagList = fixed.tags.split(",").map((t) => t.trim()).filter(Boolean);
+    if (tagList.length < 4) { issues.push(`Tags trop pauvres (${tagList.length})`); bump("warning"); }
+    else {
+      const longTail = tagList.filter((t) => t.split(/\s+/).length >= 2).length;
+      const generic = tagList.filter((t) => GENERIC_TAGS.has(normName(t))).length;
+      if (longTail === 0) { issues.push("Tags sans longue traîne (ajouter « type + pièce / matière », ex. « luminaire salon »)"); bump("warning"); }
+      else if (generic > tagList.length / 2) { issues.push("Tags trop génériques"); bump("warning"); }
+    }
   }
 
-  // Collections : français naturel (Foyer → Entrée), pas d'anglais.
+  // Collections : français naturel (Foyer → Entrée, Living Room → Salon…) + accents + anglais.
   if (fr && fixed.collections.length) {
     fixed.collections = fixed.collections.map((c) => {
       const key = normName(c);
       if (COLLECTION_FIX[key]) { issues.push(`Collection « ${c} » → « ${COLLECTION_FIX[key]} »`); bump("warning"); return COLLECTION_FIX[key]; }
-      return c;
+      // accents / mots anglais dans le nom de collection
+      const a = applyWordMap(c, FR_FIX); const b = applyWordMap(a.out, EN_FIX);
+      if (b.out !== c) { issues.push(`Collection corrigée : « ${c} » → « ${b.out} »`); bump("warning"); }
+      return b.out;
     });
     const enCol = fixed.collections.find((c) => EN_FLAG.some((w) => new RegExp(`\\b${escapeRe(w)}\\b`, "i").test(c)));
     if (enCol) { issues.push(`Collection en anglais : ${enCol}`); bump("warning"); }
