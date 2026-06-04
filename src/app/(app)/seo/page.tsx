@@ -74,7 +74,6 @@ const VALUE = [
   { icon: Sparkles, t: "Optimiser pour Shopify", d: "Descriptions HTML, meta, alt text, tags, product_type et collections." },
   { icon: Layers, t: "Éviter les doublons", d: "Mémoire des noms, brand names, ancres et produits déjà traités." },
 ];
-const STEPS = ["Importez votre CSV", "Choisissez vos règles", "Orkestra transforme les produits", "Vérifiez l'aperçu", "Téléchargez le CSV Shopify final"];
 const WORK_STEPS = ["Analyse du CSV", "Détection des produits", "Lecture des variantes", "Application des règles", "Génération titres & descriptions", "Génération meta & alt text", "Vérification des doublons", "Préparation de l'export"];
 
 export default function ImportFactoryPage() {
@@ -188,6 +187,7 @@ export default function ImportFactoryPage() {
 
   async function transform() {
     if (!parsed || !stats?.hasTitle) return;
+    if (!openaiConnected) { setError("Connectez OpenAI pour lancer la transformation."); return; }
     setError(null);
     const all = groups.slice(0, MAX_PRODUCTS);
     setPhase("working");
@@ -355,16 +355,6 @@ export default function ImportFactoryPage() {
     return c;
   })();
 
-  // ── OpenAI requis ──
-  if (!openaiConnected) {
-    return (
-      <>
-        <PageHeader title="Import Factory" description="Transformez vos CSV produits en catalogues Shopify propres, traduits et prêts à importer." />
-        <OpenAIRequired showExample={showExample} onToggleExample={() => setShowExample((v) => !v)} />
-      </>
-    );
-  }
-
   const tooMany = groups.length > MAX_PRODUCTS;
 
   return (
@@ -372,8 +362,21 @@ export default function ImportFactoryPage() {
       <PageHeader
         title="Import Factory"
         description="Importez un CSV produit, choisissez vos règles, et laissez Orkestra transformer le catalogue en fichier Shopify prêt à publier."
-        actions={<Badge tone="good"><ShieldCheck className="h-3 w-3" /> OpenAI connecté</Badge>}
+        actions={openaiConnected ? <Badge tone="good"><ShieldCheck className="h-3 w-3" /> OpenAI connecté</Badge> : <Badge tone="warn"><Plug className="h-3 w-3" /> OpenAI requis pour transformer</Badge>}
       />
+
+      {!openaiConnected && (
+        <Card className="ork-rise mb-5 flex flex-col items-start gap-3 border-amber-200 bg-amber-50/60 dark:border-amber-900/60 dark:bg-amber-950/20 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-500 text-white"><Plug className="h-5 w-5" /></span>
+            <div>
+              <h3 className="text-sm font-semibold">OpenAI requis pour transformer le catalogue</h3>
+              <p className="mt-0.5 max-w-xl text-sm text-[var(--text-muted)]">Vous pouvez préparer votre import, mapper vos colonnes, ajouter un produit manuel et configurer vos règles. Connectez OpenAI pour lancer la transformation IA.</p>
+            </div>
+          </div>
+          <Link href="/connect" className="shrink-0"><Button icon={<Plug className="h-4 w-4" />}>Connecter OpenAI</Button></Link>
+        </Card>
+      )}
 
       <div className="ork-stagger space-y-5">
         {/* ── Hero ── */}
@@ -614,8 +617,12 @@ export default function ImportFactoryPage() {
             {/* Transformer */}
             {phase === "configure" && (
               <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
-                <p className="text-xs text-[var(--text-muted)]">{stats.hasTitle ? `${Math.min(groups.length, MAX_PRODUCTS)} produit(s) seront transformés via OpenAI. Vous validez l'aperçu avant l'export.` : "Mappez d'abord la colonne « Titre produit » pour activer la transformation."}</p>
-                <Button size="lg" onClick={() => transform()} disabled={!stats.hasTitle} icon={<Wand2 className="h-4 w-4" />}>{source === "manual" ? "Transformer ce produit" : "Transformer le catalogue"}</Button>
+                <p className="text-xs text-[var(--text-muted)]">{!openaiConnected ? "Connectez OpenAI pour lancer la transformation IA." : stats.hasTitle ? `${Math.min(groups.length, MAX_PRODUCTS)} produit(s) seront transformés via OpenAI. Vous validez l'aperçu avant l'export.` : "Mappez d'abord la colonne « Titre produit » pour activer la transformation."}</p>
+                {openaiConnected ? (
+                  <Button size="lg" onClick={() => transform()} disabled={!stats.hasTitle} icon={<Wand2 className="h-4 w-4" />}>{source === "manual" ? "Transformer ce produit" : "Transformer le catalogue"}</Button>
+                ) : (
+                  <Link href="/connect"><Button size="lg" icon={<Plug className="h-4 w-4" />}>Connecter OpenAI pour transformer</Button></Link>
+                )}
               </div>
             )}
 
@@ -947,42 +954,3 @@ function ExampleCard() {
   );
 }
 
-function OpenAIRequired({ showExample, onToggleExample }: { showExample: boolean; onToggleExample: () => void }) {
-  return (
-    <div className="ork-stagger space-y-5">
-      <Card className="ork-rise overflow-hidden border-brand-200 bg-gradient-to-br from-brand-50 to-transparent text-center dark:border-brand-900 dark:from-brand-950/40">
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-brand-600 text-white"><Boxes className="h-8 w-8" /></div>
-        <h2 className="mt-4 text-lg font-bold">Connectez OpenAI pour transformer vos imports produit avec l&apos;IA</h2>
-        <p className="mx-auto mt-2 max-w-xl text-sm text-[var(--text-muted)]">Import Factory utilise OpenAI pour comprendre les produits, conserver les données importantes (variantes, tailles, prix), réécrire et traduire les textes, et générer les meta, alt text et recommandations de collection. Cet outil ne fonctionne pas en mode démo.</p>
-        <div className="mt-5 flex flex-wrap justify-center gap-2">
-          <Link href="/connect"><Button icon={<Plug className="h-4 w-4" />}>Connecter OpenAI</Button></Link>
-          <Button variant="outline" onClick={onToggleExample} icon={<Eye className="h-4 w-4" />}>Voir un exemple de résultat</Button>
-        </div>
-      </Card>
-
-      {showExample && <ExampleCard />}
-
-      <div className="ork-stagger grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {VALUE.map((v) => { const I = v.icon; return (
-          <Card key={v.t} className="ork-interactive">
-            <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><I className="h-[18px] w-[18px]" /></div>
-            <h3 className="mt-3 text-sm font-semibold">{v.t}</h3>
-            <p className="mt-1 text-xs text-[var(--text-muted)]">{v.d}</p>
-          </Card>
-        ); })}
-      </div>
-
-      <Card>
-        <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><ListChecks className="h-4 w-4 text-brand-600" /> Comment ça marche</div>
-        <div className="ork-stagger grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {STEPS.map((s, i) => (
-            <div key={i} className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5">
-              <span className="grid h-6 w-6 place-items-center rounded-lg bg-brand-50 text-[11px] font-bold text-brand-700 dark:bg-brand-950 dark:text-brand-300">{i + 1}</span>
-              <p className="mt-2 text-xs leading-snug">{s}</p>
-            </div>
-          ))}
-        </div>
-      </Card>
-    </div>
-  );
-}
