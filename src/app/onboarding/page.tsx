@@ -418,7 +418,7 @@ export default function OnboardingPage() {
                   {/* Statistiques du crawl réel : trouvés vs analysés */}
                   {analysis && analysis.pagesAnalyzed != null && (
                     <>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <div className="ork-stagger grid grid-cols-2 gap-2 sm:grid-cols-4">
                         {[
                           { label: "Produits", big: analysis.productsFound ?? 0, sub: `${analysis.productsEnriched ?? 0} enrichis · ${analysis.productsAnalyzed ?? 0} HTML` },
                           { label: "Collections", big: analysis.collectionsFound ?? 0, sub: `${analysis.collectionsAnalyzed ?? 0} analysées` },

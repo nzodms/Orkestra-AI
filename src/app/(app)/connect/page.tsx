@@ -164,7 +164,7 @@ export default function ConnectPage() {
         </div>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="ork-stagger grid gap-4 md:grid-cols-2">
         {PROVIDER_ORDER.map((id) => (
           <ProviderCard key={id} id={id} />
         ))}

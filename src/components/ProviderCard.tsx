@@ -97,9 +97,9 @@ export function ProviderCard({ id }: { id: AIProviderId }) {
               ) : conn.connected ? (
                 <>
                   <Badge tone="good">
-                    <CheckCircle2 className="h-3 w-3" /> Connecté
+                    <CheckCircle2 className="h-3 w-3 animate-pop" /> Connecté
                   </Badge>
-                  {conn.live ? <Badge tone="brand">Live</Badge> : <Badge tone="neutral">Démo</Badge>}
+                  {conn.live ? <Badge tone="brand" className="ork-rise">Live</Badge> : <Badge tone="neutral">Démo</Badge>}
                 </>
               ) : conn.status === "error" ? (
                 <Badge tone="bad">
@@ -126,7 +126,7 @@ export function ProviderCard({ id }: { id: AIProviderId }) {
           Ce provider n&apos;est pas encore branché dans cette version. Le support {meta.name} arrive prochainement — pour l&apos;instant, seul <strong>OpenAI</strong> est disponible en live.
         </div>
       ) : conn.connected ? (
-        <div className="mt-4 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3.5 py-3">
+        <div className="ork-rise mt-4 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3.5 py-3">
           <div>
             <div className="font-mono text-sm">{conn.maskedKey}</div>
             <div className="mt-0.5 text-xs text-[var(--text-muted)]">
@@ -161,7 +161,7 @@ export function ProviderCard({ id }: { id: AIProviderId }) {
             className="input font-mono"
             autoComplete="off"
           />
-          {error && <p className="text-xs text-red-500">{error}</p>}
+          {error && <p className="ork-rise text-xs text-red-500">{error}</p>}
           <div className="flex items-center justify-between">
             <button
               type="button"
