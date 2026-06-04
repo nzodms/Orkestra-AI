@@ -151,9 +151,14 @@ export default function ImportFactoryPage() {
   function runQc(list: TransformedProduct[]): { fixed: TransformedProduct[]; reports: Record<string, QCReport> } {
     const usedBrand = new Set(mem.brandNames.map(normName));
     const usedHandle = new Set(mem.handles.map((h) => h.toLowerCase()));
+    const usedMetaOpenings = new Set<string>();
     const reports: Record<string, QCReport> = {};
     const fixed = list.map((r) => {
-      const rep = qualityControl(r, { metaSuffix: eff.metaSuffix || rules.metaSuffix, vendor: eff.vendor || rules.vendor, level: rules.level, oldTerms: eff.oldTerms, usedBrand, usedHandle });
+      const rep = qualityControl(r, {
+        metaSuffix: eff.metaSuffix || rules.metaSuffix, vendor: eff.vendor || rules.vendor, level: rules.level, oldTerms: eff.oldTerms,
+        brandNames: rules.brandNames, language: rules.language, tagsType: rules.tagsType,
+        usedBrand, usedHandle, usedMetaOpenings,
+      });
       reports[r.handle] = rep;
       return rep.fixed;
     });

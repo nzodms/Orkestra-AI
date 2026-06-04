@@ -470,7 +470,9 @@ export function buildTransformSystem(rules: ImportRules): string {
     "(fournisseur, ancienne boutique, concurrent, export Shopify) en fiches PROPRES, traduites, RÉÉCRITES ENTIÈREMENT et optimisées, prêtes à réimporter dans Shopify.\n" +
     `Langue : ${rules.language}. Pays : ${rules.country}. Ton : ${rules.tone}.\n` +
     "Réponds UNIQUEMENT par un JSON valide {\"products\":[ ... ]}. Chaque produit a EXACTEMENT ces clés : " +
-    "handle (string, handle d'origine reçu, clé inchangée), title (string), brandName (string, vide si non demandé), vendor (string), " +
+    "handle (string, handle d'origine reçu, clé inchangée), title (string, propre et sans faute), " +
+    "brandName (string : UNIQUEMENT un nom de gamme court placé après le « | », SEULEMENT si demandé — ce n'est JAMAIS le vendor / la marque de la boutique ; chaîne vide sinon), " +
+    "vendor (string, la marque fournie avec sa CASSE EXACTE, ex : « Lumio », jamais « lumio »), " +
     "keyword (string, mot-clé principal = requête d'achat naturelle), bodyHtml (string, HTML Shopify), newHandle (string slug ou vide), " +
     "metaTitle (string), metaDescription (string), tags (string, virgules), productType (string), collections (string[], 1 à 3), " +
     "imageAlts (string[], un alt par image dans l'ordre), status ('ok'|'review'), notes (string[], points 'à vérifier').\n" +
@@ -478,7 +480,10 @@ export function buildTransformSystem(rules: ImportRules): string {
     "1) N'invente JAMAIS : dimensions, matériaux, compatibilités, certifications, garanties, origine, délais, prix, stock, fonctionnalités (LED, télécommande, 360°…). Absent → ne pas l'écrire, le noter dans notes et mettre status 'review'.\n" +
     "2) RÉÉCRIS ENTIÈREMENT : ne recopie aucune phrase entière de la source ; supprime toute marque concurrente, tout ancien domaine, toute promesse non vérifiée.\n" +
     "3) PRÉSERVE le sens des variantes/tailles ; ne mélange pas options/couleurs/images.\n" +
-    "4) INTERDITS dans le texte public (bodyHtml/meta/title) : « SEO », « référencement », « mot-clé », « maillage interne », « intention de recherche », « champ lexical », « optimisé pour Google », « stratégie SEO ». Pas de « premium/professionnel/meilleur » sans preuve, pas de « Achetez maintenant »."
+    "4) INTERDITS dans le texte public (bodyHtml/meta/title) : « SEO », « référencement », « mot-clé », « maillage interne », « intention de recherche », « champ lexical », « optimisé pour Google », « stratégie SEO ». Pas de « premium/professionnel/meilleur » sans preuve, pas de « Achetez maintenant ».\n" +
+    `5) LANGUE = ${rules.language}. ` + (/fran[çc]ais/i.test(rules.language)
+      ? "FRANÇAIS PROPRE OBLIGATOIRE : accents corrects (doré, carrée, élégant, intérieur…), ZÉRO mot anglais résiduel — traduis tout (Round→Rond, Square→Carré, Rectangular→Rectangulaire, Gold→Doré, Black→Noir, White→Blanc, Modern→Moderne, Contemporary→Contemporain, Ceiling Light→Plafonnier, Pendant→Suspension, Chandelier→Lustre, Glass→Verre, Crystal→Cristal, Raindrop→goutte d'eau…), AUCUNE faute (« Rond » pas « Ronf », « Carrée », « doré », « craquelé »), pas de mots collés. Noms de pièces en français naturel (« Entrée »/« Hall d'entrée », jamais « Foyer »). La marque garde sa casse exacte."
+      : "Écris uniquement dans cette langue, sans résidu d'une autre langue.")
   );
 }
 
@@ -503,22 +508,24 @@ export function buildTransformPrompt(products: ImportProductInput[], rules: Impo
   directives.push("Mot-clé : déduis 1 mot-clé principal d'achat par produit + des termes naturels (usage, pièce, style) ; intègre-les sans bourrage.");
   // Titres (profil).
   if (ctx.titleFormat === "brand_suffix" || (rules.titleFormat === "brand_suffix" && !ctx.titleFormat)) {
-    directives.push(`Titres : format OBLIGATOIRE « Nom Produit SEO | NomBrandé ». Le nom produit avant le « | » fait 3 à 6 mots (le nom brandé ne compte pas). NomBrandé court, premium, mémorisable (~2 syllabes), UNIQUE, sans doublon ni quasi-doublon (éviter même début, accents inclus). Déjà pris : ${mem.brandNames.slice(0, 80).join(", ") || "(aucun)"}.`);
+    directives.push(`Titres : format OBLIGATOIRE « Nom Produit | NomBrandé ». Le nom produit avant le « | » fait 3 à 6 mots, naturel, descriptif, propre (accents, casse). Le NomBrandé est court, premium, mémorisable (~2 syllabes), UNIQUE, sans doublon ni quasi-doublon (éviter même début, accents inclus) — ce N'EST PAS le vendor « ${vendor} ». Noms brandés déjà pris : ${mem.brandNames.slice(0, 80).join(", ") || "(aucun)"}.`);
   } else {
-    directives.push(`Titres : ${TITLE_LABEL[rules.titleStyle]}, SANS nom brandé. ${ctx.titleRules || "3 à 8 mots, naturel, descriptif, pas générique."} Ne finis jamais par « et/ou/en/de/- ».`);
+    directives.push(`Titres : ${TITLE_LABEL[rules.titleStyle]}, SANS nom brandé (le vendor « ${vendor} » ne va PAS dans le titre). ${ctx.titleRules || "3 à 8 mots, naturel, descriptif, pas générique."} Casse propre (« Lustre Rond en Aluminium »), pas de mot anglais, pas de faute. Ne finis jamais par « et/ou/en/de/- ».`);
   }
   // Description.
   const richDesc = rules.description === "html_rich" || rules.level === "poussé" || rules.level === "ultra complet";
   if (richDesc) directives.push(`Description : HTML riche${rules.level === "ultra complet" || rules.level === "poussé" ? ", VISE 500 à 900 mots si les données le permettent" : ""}, naturelle, premium, orientée client, SANS blabla. Suis CETTE structure exacte :\n${DESC_SKELETON}`);
   else directives.push("Description : claire et naturelle, exploitable, sans blabla ni invention.");
   // Meta (profil).
-  if (rules.meta) directives.push(`Meta : metaTitle « ${"{mot-clé}"} | ${brand} » (50–70 car.). metaDescription ≤ 160 car., inclut le mot-clé, donne envie, NATURELLE${suffix ? `, et FINIT EXACTEMENT par « ${suffix} »` : ""}.`);
+  if (rules.meta) directives.push(`Meta : metaTitle au format « Mot-clé principal | ${brand} » (50–70 car.), première lettre en MAJUSCULE, marque « ${brand} » avec sa casse EXACTE (jamais en minuscule). metaDescription ≤ 160 car., inclut le mot-clé, formulation NATURELLE et VARIÉE d'un produit à l'autre (ne répète pas la même structure ni « élégance moderne » / « Découvrez notre… » partout), pas de promesse agressive${suffix ? `, et FINIT EXACTEMENT par « ${suffix} »` : ""}. Ex : « Suspension en verre craquelé au style raffiné pour salle à manger ou cuisine. ✓ Livraison gratuite. ».`);
   // Maillage.
   if (rules.internalLinking && cols.length) directives.push(`Maillage : ajoute dans un paragraphe de bodyHtml UN lien naturel vers la collection la plus pertinente, au format EXACT <strong><u><a href="URL">ancre</a></u></strong>. Varie les ancres (déjà utilisées : ${mem.anchors.slice(0, 40).join(", ") || "(aucune)"}). N'écris jamais « maillage interne ».`);
   // Alt.
   if (rules.altText) directives.push("Alt text : un par image (imageAlts), MÊME nom produit dans chaque, différencié par la vue (face, en situation, détail, dimensions, variante). Jamais « Image de… ».");
   // Tags / type.
-  if (rules.tagsType) directives.push("Tags / product_type : product_type clair ; tags pertinents (niche, usage, pièce), supprime les tags fournisseur inutiles, pas de surcharge.");
+  if (rules.tagsType) directives.push("Tags / product_type : product_type clair en français ; AU MOINS 5 tags pertinents et variés (type de produit, matière si connue, couleur si connue, pièce cohérente, style fiable, usage), séparés par des virgules. Supprime les tags fournisseur inutiles, pas de tags génériques seuls (« salon, moderne »).");
+  // Collections.
+  if (cols.length || rules.collections.length) directives.push("Collections : recommande 1 à 3 collections en français naturel, cohérentes avec le produit ; privilégie les collections fournies ci-dessus ; n'invente pas de nouvelles collections si une liste est donnée ; pas de nom de collection en anglais.");
   // Variantes / unités.
   directives.push(`Variantes : conserve-les ; traduis les options (${VARIANT_TRANSLATIONS}).`);
   if (rules.convertUnits) directives.push(`Unités : convertis pouces/ft/lbs en cm/m/kg dans le texte si pertinent (${UNIT_EXAMPLES}). Ne touche pas aux dimensions de variantes, n'en invente pas.`);
