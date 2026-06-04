@@ -189,22 +189,27 @@ export function generateCollectionSeo(input: {
   const kwInput = (input.keywords || "").split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
   const primary = kwInput.length ? kwInput.slice(0, 3) : [sing, `acheter ${sing}`, `${sing} ${vocab.pieces[0]}`];
   const others = (input.others ?? []).filter((c) => c !== coll).slice(0, 3);
+  const pieces3 = vocab.pieces.slice(0, 3);
   const descriptionHtml = `<h2>Comment choisir ${articled(sing)} ?</h2>
-<p>Découvrez notre sélection de ${coll.toLowerCase()}, ${nicheBenefit(key)}. Pour bien choisir, comparez ${hints.join(", ")}.</p>
-<p>Chaque modèle répond à un usage précis (${vocab.pieces.slice(0, 3).join(", ")}). Retrouvez ci-dessous nos best-sellers et nos conseils.</p>
-<h2>Nos conseils</h2>
-<ul>${hints.map((h) => `<li>${cap(h)}</li>`).join("")}</ul>`;
+<p>Découvrez notre sélection de ${coll.toLowerCase()}, ${nicheBenefit(key)}. Pour bien choisir, comparez ${hints.join(", ")} afin de trouver le modèle adapté à votre usage et à votre budget.</p>
+<p>Chaque modèle de la collection « ${coll} » répond à un besoin précis (${pieces3.join(", ")}). Que vous cherchiez ${pieces3[0] || "un usage quotidien"} ou ${pieces3[1] || "une utilisation occasionnelle"}, vous trouverez une option pensée pour durer.</p>
+<h2>Nos conseils pour bien choisir</h2>
+<ul>${hints.map((h) => `<li><strong>${cap(h)}</strong> : un critère à comparer avant l'achat.</li>`).join("")}</ul>
+<h2>Pourquoi commander chez nous</h2>
+<p>Livraison soignée et suivie, politique de retour claire et conseils avant achat : nous vous accompagnons pour faire le bon choix sans mauvaise surprise.</p>`;
   return {
     title: titleFor(coll, ctx),
     metaTitle: titleFor(coll, ctx),
     metaDescription: metaFor(coll, key),
     h1: coll,
     descriptionHtml,
-    outline: [`H1 : ${coll}`, `H2 : Comment choisir ${articled(sing)}`, "H2 : Nos best-sellers", "H2 : Questions fréquentes"],
+    outline: [`H1 : ${coll}`, `H2 : Comment choisir ${articled(sing)}`, "H2 : Nos conseils pour bien choisir", "H2 : Nos best-sellers", "H2 : Pourquoi commander chez nous", "H2 : Questions fréquentes"],
     faq: [
-      { q: faqs[0], a: `Cela dépend de ${hints.join(", ")}.` },
-      { q: faqs[1], a: `Selon votre usage (${vocab.pieces.slice(0, 2).join(", ")}).` },
-      { q: "Quels sont les délais de livraison et la garantie ?", a: "Livraison soignée et suivie, avec une politique de retour claire." },
+      { q: faqs[0] || `Comment choisir ${articled(sing)} ?`, a: `Cela dépend de ${hints.join(", ")}. Comparez ces critères selon votre usage.` },
+      { q: faqs[1] || `Quel ${sing} pour quel usage ?`, a: `Selon votre usage (${vocab.pieces.slice(0, 2).join(", ")}), un modèle sera plus adapté qu'un autre.` },
+      { q: faqs[2] || `Quel budget prévoir pour ${articled(sing)} ?`, a: "Le prix varie selon les matériaux, les dimensions et les finitions. Plusieurs gammes sont proposées pour s'adapter à votre budget." },
+      { q: faqs[3] || `Comment entretenir ${articled(sing)} ?`, a: "Un entretien régulier et adapté au matériau prolonge la durée de vie du produit. Les conseils figurent sur chaque fiche." },
+      { q: "Quels sont les délais de livraison et la garantie ?", a: "Livraison soignée et suivie, avec une politique de retour claire et une garantie selon le produit." },
     ],
     primaryKeywords: primary,
     longTailKeywords: [`quel ${sing} choisir`, `${sing} ${vocab.pieces[0]}`, `${sing} ${vocab.pieces[1] || vocab.pieces[0]}`],

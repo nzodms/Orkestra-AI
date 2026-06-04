@@ -14,6 +14,7 @@ import type {
   GenMeta,
 } from "./types";
 import type { CollectionSeoResult, MetaVariant, BlogOutlineResult, AltTextItem } from "./ai/engine";
+import type { FactoryStatus, FactoryOutput } from "./factory";
 import { PROVIDER_ORDER } from "./providers";
 import { DEFAULT_BRAND_MEMORY } from "./mock-data";
 
@@ -76,6 +77,10 @@ interface OrkestraState {
   assistantMessages: AssistantTurn[];
   // ── Content Factory (persisté) ──
   seo: SeoStudioState;
+  /** Statut de production par tâche (atelier Content Factory). */
+  factoryStatus: Record<string, FactoryStatus>;
+  /** Feed « Sorties récentes » de Content Factory. */
+  factoryOutputs: FactoryOutput[];
 
   setOnboardingComplete: (v: boolean) => void;
   setGuideHidden: (v: boolean) => void;
@@ -94,6 +99,9 @@ interface OrkestraState {
   addAssistantTurn: (turn: AssistantTurn) => void;
   clearAssistant: () => void;
   setSeo: (patch: Partial<SeoStudioState>) => void;
+  setFactoryStatus: (id: string, status: FactoryStatus) => void;
+  addFactoryOutput: (output: FactoryOutput) => void;
+  clearFactoryOutputs: () => void;
 }
 
 export const useOrkestra = create<OrkestraState>()(
@@ -113,6 +121,8 @@ export const useOrkestra = create<OrkestraState>()(
       merchantResolved: [],
       assistantMessages: [],
       seo: EMPTY_SEO,
+      factoryStatus: {},
+      factoryOutputs: [],
 
       setOnboardingComplete: (v) => set({ onboardingComplete: v }),
       setGuideHidden: (v) => set({ guideHidden: v }),
@@ -160,12 +170,23 @@ export const useOrkestra = create<OrkestraState>()(
         set((s) => ({ assistantMessages: [...s.assistantMessages, turn] })),
       clearAssistant: () => set({ assistantMessages: [] }),
       setSeo: (patch) => set((s) => ({ seo: { ...s.seo, ...patch } })),
+      setFactoryStatus: (id, status) =>
+        set((s) => ({ factoryStatus: { ...s.factoryStatus, [id]: status } })),
+      addFactoryOutput: (output) =>
+        set((s) => {
+          // Upsert par taskId (sinon par id) : la dernière production remonte en tête.
+          const matchKey = output.taskId ?? output.id;
+          const rest = s.factoryOutputs.filter((o) => (o.taskId ?? o.id) !== matchKey);
+          return { factoryOutputs: [output, ...rest].slice(0, 12) };
+        }),
+      clearFactoryOutputs: () => set({ factoryOutputs: [] }),
     }),
     {
       name: "orkestra-store",
       // v2 : purge des données de démo hardcodées. v3 : nouveau format seo.alt
       // (string[] → AltTextItem[]) → on réinitialise le slice seo.
-      version: 3,
+      // v4 : atelier Content Factory (statuts + sorties récentes).
+      version: 4,
       migrate: (persisted: unknown, version: number) => {
         const state = (persisted ?? {}) as Partial<OrkestraState>;
         if (version < 2) {
@@ -178,10 +199,15 @@ export const useOrkestra = create<OrkestraState>()(
             councilMessages: [],
             resolvedIssues: [],
             seo: EMPTY_SEO,
+            factoryStatus: {},
+            factoryOutputs: [],
           } as OrkestraState;
         }
         if (version < 3) {
-          return { ...state, seo: EMPTY_SEO } as OrkestraState;
+          return { ...state, seo: EMPTY_SEO, factoryStatus: {}, factoryOutputs: [] } as OrkestraState;
+        }
+        if (version < 4) {
+          return { ...state, factoryStatus: {}, factoryOutputs: [] } as OrkestraState;
         }
         return state as OrkestraState;
       },
