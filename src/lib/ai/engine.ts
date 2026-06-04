@@ -1656,7 +1656,7 @@ function targetedAnswer(mode: CouncilMode, question: string, ctx: CouncilContext
         direct: "Réécrivez les formulations trop marketing (« meilleur », « professionnel », « garanti ») de façon factuelle pour limiter le risque de misrepresentation.",
         concerned: "Textes à vérifier sur vos fiches produits et promesses de marque.",
         why: "- Google peut considérer un claim non prouvé comme trompeur.\n- Un texte factuel rassure autant et réduit le risque.",
-        how: "Remplacez les superlatifs par des faits : matériaux, dimensions, usages. Ex. « Reformer pliable en érable, stable à domicile » plutôt que « le meilleur reformer professionnel ».",
+        how: "Remplacez les superlatifs par des faits : matériaux, dimensions, usages. Ex. « pliable en bois massif, stable à domicile » plutôt que « le meilleur produit professionnel ».",
         where: "Produits / Pages concernés → contenu et Aperçu du référencement naturel",
         next: "Générer des textes factuels dans le **Import Factory**.",
       });
@@ -2033,7 +2033,7 @@ function titleFor(coll: string, ctx: CouncilContext): string {
 
 /**
  * Variante de title avec un attribut concret (usage/contexte), sans superlatif.
- * Ex. « Reformer maison | Reformio ». Repli sur le title simple si trop long.
+ * Ex. « Produit + usage | Marque ». Repli sur le title simple si trop long.
  */
 function titleVariant(coll: string, ctx: CouncilContext, vocab: NicheVocab): string {
   const brand = brandOf(ctx);
@@ -2158,7 +2158,7 @@ function productKeyword(title: string): string {
 /** Bloc SEO pour UN produit prioritaire réel. */
 function productSeoBlock(p: { title: string; reason: string; contentScore: number }, vocab: NicheVocab, parent?: string): string {
   const kwd = productKeyword(p.title);
-  const ptype = cap(p.title.split(/\s+/)[0] || kwd); // catégorie (1er mot), ex. « Reformer »
+  const ptype = cap(p.title.split(/\s+/)[0] || kwd); // catégorie (1er mot)
   const piece = vocab.pieces[0];
   return `**🛍️ ${p.title}** (score contenu ${p.contentScore}/100)
 - **Problème détecté** : ${p.reason.toLowerCase()}.

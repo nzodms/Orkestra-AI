@@ -28,6 +28,31 @@ const ORDER: Record<QCStatus, number> = { ok: 0, warning: 1, risk: 2, failed: 3 
 function escapeRe(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 const collapse = (s: string) => s.replace(/[ \t]{2,}/g, " ").replace(/\s+([,.;:!?])/g, "$1");
 
+function editDistance(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (Math.abs(m - n) > 2) return 3;
+  const dp = Array.from({ length: m + 1 }, (_, i) => i);
+  for (let j = 1; j <= n; j++) {
+    let prev = dp[0]; dp[0] = j;
+    for (let i = 1; i <= m; i++) {
+      const tmp = dp[i];
+      dp[i] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[i], dp[i - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[m];
+}
+/** Détecte un nom déjà pris : exact, accent-insensible, ou trop similaire. */
+function similarTo(n: string, set: Set<string>): { match: string; exact: boolean } | null {
+  if (!n) return null;
+  if (set.has(n)) return { match: n, exact: true };
+  for (const m of set) {
+    if (Math.min(n.length, m.length) >= 4 && n.slice(0, 4) === m.slice(0, 4)) return { match: m, exact: false };
+    if (Math.abs(n.length - m.length) <= 1 && editDistance(n, m) <= 1) return { match: m, exact: false };
+  }
+  return null;
+}
+
 function enforceMeta(md: string, suffix?: string): { md: string; changed: boolean; tooLong: boolean } {
   let s = (md || "").trim();
   let changed = false;
@@ -120,17 +145,19 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     issues.push("Meta description tronquée à 160"); bump("warning");
   }
 
-  // Nom brandé : doublon ?
+  // Nom brandé : doublon exact / accent / trop similaire ?
   if (fixed.brandName) {
     const n = normName(fixed.brandName);
-    if (n && ctx.usedBrand.has(n)) { issues.push(`Nom brandé en doublon : ${fixed.brandName}`); bump("risk"); }
+    const sim = similarTo(n, ctx.usedBrand);
+    if (sim?.exact) { issues.push(`Nom brandé déjà utilisé : ${fixed.brandName}`); bump("risk"); }
+    else if (sim) { issues.push(`Nom brandé trop similaire à un nom existant : ${fixed.brandName}`); bump("risk"); if (n) ctx.usedBrand.add(n); }
     else if (n) ctx.usedBrand.add(n);
   }
 
-  // Handle : doublon ?
+  // Handle : doublon (exact ou après normalisation) ?
   const h = (fixed.newHandle || "").trim().toLowerCase();
   if (h) {
-    if (ctx.usedHandle.has(h)) { issues.push(`Handle en doublon : ${h}`); bump("warning"); }
+    if (ctx.usedHandle.has(h)) { issues.push(`Handle déjà utilisé : ${h}`); bump("warning"); }
     else ctx.usedHandle.add(h);
   }
 

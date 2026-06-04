@@ -15,7 +15,8 @@ import type {
 } from "./types";
 import type { CollectionSeoResult, MetaVariant, BlogOutlineResult, AltTextItem } from "./ai/engine";
 import type { FactoryStatus, FactoryOutput } from "./factory";
-import type { ImportRules } from "./import-factory";
+import type { ImportRules, ProfileCollection } from "./import-factory";
+import type { ProfileConfig } from "./import-profiles";
 import { PROVIDER_ORDER } from "./providers";
 import { DEFAULT_BRAND_MEMORY } from "./mock-data";
 
@@ -50,6 +51,36 @@ export interface RememberImportPatch {
   collections?: string[];
   rules?: ImportRules;
   count?: number;
+}
+
+// Mémoire SÉPARÉE PAR PROFIL boutique : noms brandés, handles, ancres, termes
+// interdits, réglages privés (saisis par l'utilisateur) et dernières règles.
+// Structure prête pour une future bascule en base de données.
+export interface ProfileMemory {
+  brandNames: string[];
+  titles: string[];
+  handles: string[];
+  anchors: string[];
+  collections: string[];
+  productTypes: string[];
+  tags: string[];
+  forbiddenTerms: string[];
+  forbiddenDomains: string[];
+  // réglages privés saisis par l'utilisateur (jamais codés en dur)
+  brand: string;
+  metaSuffix: string;
+  configCollections: ProfileCollection[];
+  lastRules: ImportRules | null;
+  lastImportAt: string | null;
+  transformedCount: number;
+}
+export function emptyProfileMemory(): ProfileMemory {
+  return { brandNames: [], titles: [], handles: [], anchors: [], collections: [], productTypes: [], tags: [], forbiddenTerms: [], forbiddenDomains: [], brand: "", metaSuffix: "", configCollections: [], lastRules: null, lastImportAt: null, transformedCount: 0 };
+}
+export interface ProfileImportPatch {
+  brandNames?: string[]; titles?: string[]; handles?: string[]; anchors?: string[];
+  collections?: string[]; productTypes?: string[]; tags?: string[];
+  rules?: ImportRules; count?: number;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -105,6 +136,8 @@ interface OrkestraState {
   factoryOutputs: FactoryOutput[];
   // ── Import Factory (persisté) ──
   importMemory: ImportFactoryMemory;
+  /** Mémoire séparée par profil boutique. */
+  importProfiles: Record<string, ProfileMemory>;
   /** Profil boutique cible sélectionné dans Import Factory. */
   selectedProfileId: string;
 
@@ -131,6 +164,10 @@ interface OrkestraState {
   rememberImport: (patch: RememberImportPatch) => void;
   resetImportMemory: () => void;
   setImportProfile: (id: string) => void;
+  rememberImportFor: (profileId: string, patch: ProfileImportPatch) => void;
+  setProfileConfig: (profileId: string, config: ProfileConfig) => void;
+  addForbidden: (profileId: string, v: { term?: string; domain?: string }) => void;
+  resetProfileMemory: (profileId: string) => void;
 }
 
 export const useOrkestra = create<OrkestraState>()(
@@ -153,6 +190,7 @@ export const useOrkestra = create<OrkestraState>()(
       factoryStatus: {},
       factoryOutputs: [],
       importMemory: EMPTY_IMPORT,
+      importProfiles: {},
       selectedProfileId: "custom",
 
       setOnboardingComplete: (v) => set({ onboardingComplete: v }),
@@ -227,6 +265,54 @@ export const useOrkestra = create<OrkestraState>()(
         }),
       resetImportMemory: () => set({ importMemory: EMPTY_IMPORT }),
       setImportProfile: (id) => set({ selectedProfileId: id }),
+      rememberImportFor: (profileId, patch) =>
+        set((s) => {
+          const cur = s.importProfiles[profileId] ?? emptyProfileMemory();
+          const merge = (a: string[], b?: string[]) => Array.from(new Set([...a, ...(b ?? []).filter(Boolean)])).slice(0, 3000);
+          return {
+            importProfiles: {
+              ...s.importProfiles,
+              [profileId]: {
+                ...cur,
+                brandNames: merge(cur.brandNames, patch.brandNames),
+                titles: merge(cur.titles, patch.titles),
+                handles: merge(cur.handles, patch.handles),
+                anchors: merge(cur.anchors, patch.anchors),
+                collections: merge(cur.collections, patch.collections),
+                productTypes: merge(cur.productTypes, patch.productTypes),
+                tags: merge(cur.tags, patch.tags),
+                lastRules: patch.rules ?? cur.lastRules,
+                lastImportAt: patch.count ? new Date().toISOString() : cur.lastImportAt,
+                transformedCount: cur.transformedCount + (patch.count ?? 0),
+              },
+            },
+          };
+        }),
+      setProfileConfig: (profileId, config) =>
+        set((s) => {
+          const cur = s.importProfiles[profileId] ?? emptyProfileMemory();
+          return {
+            importProfiles: {
+              ...s.importProfiles,
+              [profileId]: { ...cur, brand: config.brand ?? cur.brand, metaSuffix: config.metaSuffix ?? cur.metaSuffix, configCollections: config.collections ?? cur.configCollections },
+            },
+          };
+        }),
+      addForbidden: (profileId, { term, domain }) =>
+        set((s) => {
+          const cur = s.importProfiles[profileId] ?? emptyProfileMemory();
+          return {
+            importProfiles: {
+              ...s.importProfiles,
+              [profileId]: {
+                ...cur,
+                forbiddenTerms: term && term.trim() ? Array.from(new Set([...cur.forbiddenTerms, term.trim()])) : cur.forbiddenTerms,
+                forbiddenDomains: domain && domain.trim() ? Array.from(new Set([...cur.forbiddenDomains, domain.trim()])) : cur.forbiddenDomains,
+              },
+            },
+          };
+        }),
+      resetProfileMemory: (profileId) => set((s) => ({ importProfiles: { ...s.importProfiles, [profileId]: emptyProfileMemory() } })),
     }),
     {
       name: "orkestra-store",

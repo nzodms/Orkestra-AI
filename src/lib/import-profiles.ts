@@ -1,10 +1,12 @@
 import type { ImportRules, ProfileCollection } from "./import-factory";
 
 // ──────────────────────────────────────────────────────────────────────────
-// Import Factory — profils boutique configurables.
-// Chaque profil pilote la transformation : marque, vendor, suffixe meta,
-// collections (+ URLs pour le maillage), noms brandés, format de titre, niche,
-// style rédactionnel, langue. Pur (aucune dépendance serveur).
+// Import Factory — profils boutique GÉNÉRIQUES (multi-boutiques).
+// Aucune donnée réelle d'une boutique cliente n'est codée ici : marque, vendor,
+// domaine, collections et suffixe meta sont VIDES par défaut et renseignés par
+// l'utilisateur (stockés en local par profil). Les profils ne portent que des
+// COMPORTEMENTS génériques (noms brandés on/off, format de titre, style, niche
+// large) afin que le SaaS soit vendable à n'importe quel e-commerçant.
 // ──────────────────────────────────────────────────────────────────────────
 
 export interface StoreProfile {
@@ -22,94 +24,77 @@ export interface StoreProfile {
   vendor: string;
   language: string;
   collections: ProfileCollection[];
-  /** Anciens noms brandés / domaines à supprimer du contenu. */
+  /** Anciens noms / marques / domaines à supprimer du contenu. */
   oldTerms: string[];
 }
 
-const LUMINAIRE_COLS = (base: string): ProfileCollection[] => [
-  { name: "Lustres", url: `${base}/collections/nos-lustres` },
-  { name: "Suspensions", url: `${base}/collections/nos-lampes-suspendues` },
-  { name: "Plafonniers", url: `${base}/collections/nos-plafonniers` },
-  { name: "Lampes de chevet", url: `${base}/collections/nos-lampes-de-chevet` },
-];
+/** Réglages privés saisis par l'utilisateur pour un profil (stockés en local). */
+export interface ProfileConfig {
+  brand?: string;
+  metaSuffix?: string;
+  collections?: ProfileCollection[];
+  forbiddenTerms?: string[];
+  forbiddenDomains?: string[];
+}
 
+// Profils visibles = comportements génériques, sans aucune donnée réelle.
 export const PROFILES: StoreProfile[] = [
   {
-    id: "lumio",
-    label: "Lumio",
-    brand: "Lumio",
-    domain: "https://lumio-o.com",
-    niche: "Luminaires",
-    style: "Professionnel, clair, e-commerce, premium accessible, sans nom brandé.",
-    brandNames: false,
-    brandNameStyle: "neutre",
-    titleFormat: "plain",
-    titleRules: "3 à 8 mots selon le produit, titre SEO naturel, pas de titre générique, AUCUN nom brandé. Ne pas inventer LED, télécommande, 360°, matière, dimension ou fonctionnalité absente.",
-    metaSuffix: "✓ Livraison gratuite.",
-    vendor: "Lumio",
-    language: "Français",
-    collections: LUMINAIRE_COLS("https://lumio-o.com"),
-    oldTerms: [],
+    id: "deco", label: "Boutique Déco",
+    brand: "", domain: "", niche: "décoration", style: "Premium, soigné, orienté style et ambiance.",
+    brandNames: true, brandNameStyle: "luxe discret", titleFormat: "brand_suffix",
+    titleRules: "Nom produit avant le « | » : 3 à 6 mots, descriptif. Nom brandé court, premium, ~2 syllabes, UNIQUE. Pas de superlatif, pas de caractéristique inventée.",
+    metaSuffix: "", vendor: "", language: "Français", collections: [], oldTerms: [],
   },
   {
-    id: "lpl",
-    label: "Le Petit Luminaire",
-    brand: "Le Petit Luminaire",
-    domain: "https://le-petit-luminaire.com",
-    niche: "Luminaires",
-    style: "Premium, travaillé, marque déco.",
-    brandNames: true,
-    brandNameStyle: "luxe discret",
-    titleFormat: "brand_suffix",
-    titleRules: "Format obligatoire « Nom Produit SEO | NomBrandé ». Nom produit avant le | : 3 à 6 mots. NomBrandé court, premium, ~2 syllabes, UNIQUE, sans doublon ni quasi-doublon (éviter même début, accents inclus). Le nom brandé ne compte pas dans la limite 3 à 6 mots. Ex : Suspension Verre Fumé | Velia.",
-    metaSuffix: "✓ Livraison gratuite.",
-    vendor: "Le Petit Luminaire",
-    language: "Français",
-    collections: LUMINAIRE_COLS("https://le-petit-luminaire.com"),
-    oldTerms: [],
+    id: "maison", label: "Boutique Maison",
+    brand: "", domain: "", niche: "maison & équipement", style: "Clair, sobre, e-commerce, premium accessible.",
+    brandNames: false, brandNameStyle: "neutre", titleFormat: "plain",
+    titleRules: "Titres naturels et descriptifs (3 à 8 mots), sans nom de marque, sans superlatif, sans caractéristique inventée.",
+    metaSuffix: "", vendor: "", language: "Français", collections: [], oldTerms: [],
   },
   {
-    id: "bebilo",
-    label: "Bebilo",
-    brand: "Bebilo",
-    domain: "",
-    niche: "Bébé, maternité, allaitement, sommeil bébé, repas bébé, sécurité bébé",
-    style: "Rassurant, clair, orienté parents.",
-    brandNames: false,
-    brandNameStyle: "neutre",
-    titleFormat: "plain",
-    titleRules: "Titres naturels, SEO, clairs et rassurants, sans nom brandé. NE PAS inventer de promesse médicale ou de sécurité non prouvée. Ex : Lit Cododo Réglable Bébé.",
-    metaSuffix: "✓ Livraison gratuite.",
-    vendor: "Bebilo",
-    language: "Français",
-    collections: [],
-    oldTerms: [],
+    id: "bebe", label: "Boutique Bébé",
+    brand: "", domain: "", niche: "bébé & puériculture", style: "Rassurant, clair, orienté parents.",
+    brandNames: false, brandNameStyle: "neutre", titleFormat: "plain",
+    titleRules: "Titres clairs et rassurants, sans nom de marque, SANS promesse médicale ou de sécurité non prouvée.",
+    metaSuffix: "", vendor: "", language: "Français", collections: [], oldTerms: [],
+  },
+  {
+    id: "mode", label: "Boutique Mode",
+    brand: "", domain: "", niche: "mode & vêtements", style: "Naturel, désirable, orienté matière et coupe.",
+    brandNames: false, brandNameStyle: "neutre", titleFormat: "plain",
+    titleRules: "Titres naturels (type, matière, coupe, usage), sans nom de marque, sans superlatif.",
+    metaSuffix: "", vendor: "", language: "Français", collections: [], oldTerms: [],
   },
 ];
 
 export const CUSTOM_PROFILE: StoreProfile = {
-  id: "custom",
-  label: "Profil personnalisé",
-  brand: "",
-  domain: "",
-  niche: "",
-  style: "",
-  brandNames: false,
-  brandNameStyle: "neutre",
-  titleFormat: "plain",
-  titleRules: "",
-  metaSuffix: "",
-  vendor: "",
-  language: "Français",
-  collections: [],
-  oldTerms: [],
+  id: "custom", label: "Profil personnalisé",
+  brand: "", domain: "", niche: "", style: "",
+  brandNames: false, brandNameStyle: "neutre", titleFormat: "plain", titleRules: "",
+  metaSuffix: "", vendor: "", language: "Français", collections: [], oldTerms: [],
 };
 
 export function profileById(id: string): StoreProfile {
   return PROFILES.find((p) => p.id === id) ?? CUSTOM_PROFILE;
 }
 
-/** Overrides de règles dérivés d'un profil (fusionnés au preset courant). */
+/** Profil enrichi des réglages privés saisis par l'utilisateur (jamais codés en dur). */
+export function effectiveProfile(p: StoreProfile, config?: ProfileConfig): StoreProfile {
+  if (!config) return p;
+  const forbidden = [...(config.forbiddenTerms ?? []), ...(config.forbiddenDomains ?? [])].filter(Boolean);
+  return {
+    ...p,
+    brand: config.brand || p.brand,
+    vendor: config.brand || p.vendor,
+    metaSuffix: config.metaSuffix ?? p.metaSuffix,
+    collections: config.collections && config.collections.length ? config.collections : p.collections,
+    oldTerms: Array.from(new Set([...p.oldTerms, ...forbidden])),
+  };
+}
+
+/** Overrides de règles dérivés d'un profil (effectif). */
 export function profileRuleOverrides(p: StoreProfile): Partial<ImportRules> {
   return {
     profileId: p.id,
@@ -125,7 +110,7 @@ export function profileRuleOverrides(p: StoreProfile): Partial<ImportRules> {
   };
 }
 
-/** Contexte profil injecté dans le prompt (champs lus par buildTransformPrompt). */
+/** Contexte profil injecté dans le prompt (uniquement des données effectives). */
 export function profileContext(p: StoreProfile): {
   brandName?: string; niche?: string; style?: string; vendor?: string;
   metaSuffix?: string; titleFormat?: "plain" | "brand_suffix"; titleRules?: string;
@@ -139,7 +124,7 @@ export function profileContext(p: StoreProfile): {
     metaSuffix: p.metaSuffix || undefined,
     titleFormat: p.titleFormat,
     titleRules: p.titleRules || undefined,
-    collectionsUrls: p.collections,
+    collectionsUrls: p.collections.length ? p.collections : undefined,
     oldTerms: p.oldTerms.length ? p.oldTerms : undefined,
   };
 }

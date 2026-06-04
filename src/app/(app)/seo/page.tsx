@@ -10,18 +10,28 @@ import {
   type ImportRules, type ShopifyField, type TransformedProduct,
   type TransformMode, type TitleStyle, type DescriptionLevel, type HandleMode, type Level,
 } from "@/lib/import-factory";
-import { PROFILES, CUSTOM_PROFILE, profileById, profileRuleOverrides, profileContext } from "@/lib/import-profiles";
+import { PROFILES, CUSTOM_PROFILE, profileById, profileRuleOverrides, profileContext, effectiveProfile, type ProfileConfig } from "@/lib/import-profiles";
+import { emptyProfileMemory } from "@/lib/store";
 import { qualityControl, buildIssueReportCsv, buildExportReport, type QCReport, type QCStatus } from "@/lib/import-qc";
 import { PageHeader, Card, Badge } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import {
   Upload, FileSpreadsheet, Sparkles, Wand2, Languages, Tag, ImageIcon, Link2, Download, Check,
   CheckCircle2, AlertTriangle, RefreshCw, ChevronDown, Globe, FileText, ArrowRight, Plug, Eye,
-  ListChecks, ShieldCheck, Layers, Boxes, Type as TypeIcon, X, Columns3, ListFilter, Store, Lock, Plus, CheckCheck,
+  ListChecks, ShieldCheck, Layers, Boxes, Type as TypeIcon, X, Columns3, ListFilter, Store, Lock, Plus, CheckCheck, Database, Ban,
 } from "lucide-react";
+import { relativeDate } from "@/lib/utils";
 
 const QC_TONE: Record<QCStatus, "good" | "warn" | "bad" | "neutral"> = { ok: "good", warning: "warn", risk: "bad", failed: "bad" };
 const QC_LABEL: Record<QCStatus, string> = { ok: "OK", warning: "Warning", risk: "Risk", failed: "Failed" };
+
+// Collections au format « Nom | URL » (URL optionnelle, pour le maillage).
+function parseCollections(text: string): { name: string; url: string }[] {
+  return text.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => { const [name, url] = l.split("|").map((s) => s.trim()); return { name, url: url || "" }; });
+}
+function colsToText(cols: { name: string; url: string }[]): string {
+  return cols.map((c) => (c.url ? `${c.name} | ${c.url}` : c.name)).join("\n");
+}
 
 const MAX_PRODUCTS = 24;
 const BATCH = 3;
@@ -60,23 +70,24 @@ const STEPS = ["Importez votre CSV", "Choisissez vos règles", "Orkestra transfo
 const WORK_STEPS = ["Analyse du CSV", "Détection des produits", "Lecture des variantes", "Application des règles", "Génération titres & descriptions", "Génération meta & alt text", "Vérification des doublons", "Préparation de l'export"];
 
 export default function ImportFactoryPage() {
-  const { connections, brand, importMemory, rememberImport, selectedProfileId, setImportProfile } = useOrkestra();
+  const { connections, brand, importProfiles, rememberImportFor, setProfileConfig, addForbidden, resetProfileMemory, selectedProfileId, setImportProfile } = useOrkestra();
   const openaiConnected = !!connections.openai?.connected;
   const profile = profileById(selectedProfileId);
+  const mem = importProfiles[selectedProfileId] ?? emptyProfileMemory();
+  function effOf(id: string) {
+    const m = importProfiles[id] ?? emptyProfileMemory();
+    const cfg: ProfileConfig = { brand: m.brand, metaSuffix: m.metaSuffix, collections: m.configCollections, forbiddenTerms: m.forbiddenTerms, forbiddenDomains: m.forbiddenDomains };
+    return effectiveProfile(profileById(id), cfg);
+  }
+  const eff = effOf(selectedProfileId);
 
   const [parsed, setParsed] = useState<{ headers: string[]; rows: string[][] } | null>(null);
   const [mapping, setMapping] = useState<Partial<Record<ShopifyField, number>>>({});
   const [mapOpen, setMapOpen] = useState(false);
   const [fileInfo, setFileInfo] = useState<{ name: string; sizeKb: number } | null>(null);
   const [presetId, setPresetId] = useState("migration");
-  const [rules, setRules] = useState<ImportRules>(() => {
-    const base = { ...presetRules("migration"), collections: brand.collections };
-    return selectedProfileId !== "custom" ? { ...base, ...profileRuleOverrides(profileById(selectedProfileId)) } : base;
-  });
-  const [collectionsText, setCollectionsText] = useState(() => {
-    const p = profileById(selectedProfileId);
-    return (selectedProfileId !== "custom" && p.collections.length ? p.collections.map((c) => c.name) : brand.collections).join("\n");
-  });
+  const [rules, setRules] = useState<ImportRules>(() => ({ ...presetRules("migration"), collections: brand.collections, ...profileRuleOverrides(effOf(selectedProfileId)) }));
+  const [collectionsText, setCollectionsText] = useState(() => colsToText(effOf(selectedProfileId).collections));
   const [phase, setPhase] = useState<"idle" | "configure" | "working" | "preview">("idle");
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [results, setResults] = useState<TransformedProduct[] | null>(null);
@@ -108,25 +119,29 @@ export default function ImportFactoryPage() {
   function updateRule(patch: Partial<ImportRules>) { setRules((r) => ({ ...r, ...patch })); }
   function applyPreset(id: string) {
     setPresetId(id);
-    setRules((r) => {
-      const next = { ...presetRules(id), collections: r.collections };
-      return selectedProfileId !== "custom" ? { ...next, ...profileRuleOverrides(profileById(selectedProfileId)) } : next;
-    });
+    setRules((r) => ({ ...presetRules(id), collections: r.collections, ...profileRuleOverrides(eff) }));
   }
   function selectProfile(id: string) {
     setImportProfile(id);
-    const p = profileById(id);
-    setRules((r) => (id === "custom" ? { ...r, profileId: "custom" } : { ...r, ...profileRuleOverrides(p) }));
-    if (id !== "custom" && p.collections.length) setCollectionsText(p.collections.map((c) => c.name).join("\n"));
+    const e = effOf(id);
+    setRules((r) => ({ ...r, ...profileRuleOverrides(e) }));
+    setCollectionsText(colsToText(e.collections));
   }
-  function syncCollections(text: string) { setCollectionsText(text); updateRule({ collections: text.split("\n").map((s) => s.trim()).filter(Boolean) }); }
-  // Contrôle qualité déterministe sur tout le lot (dédoublonnage partagé).
+  function syncCollections(text: string) {
+    setCollectionsText(text);
+    const cu = parseCollections(text);
+    updateRule({ collections: cu.map((c) => c.name), collectionsUrls: cu });
+    setProfileConfig(selectedProfileId, { collections: cu });
+  }
+  function setBrandConfig(v: string) { updateRule({ vendor: v }); setProfileConfig(selectedProfileId, { brand: v }); }
+  function setMetaSuffixConfig(v: string) { updateRule({ metaSuffix: v }); setProfileConfig(selectedProfileId, { metaSuffix: v }); }
+  // Contrôle qualité déterministe (dédoublonnage amorcé par la mémoire du profil).
   function runQc(list: TransformedProduct[]): { fixed: TransformedProduct[]; reports: Record<string, QCReport> } {
-    const usedBrand = new Set(importMemory.brandNames.map(normName));
-    const usedHandle = new Set(importMemory.handles.map((h) => h.toLowerCase()));
+    const usedBrand = new Set(mem.brandNames.map(normName));
+    const usedHandle = new Set(mem.handles.map((h) => h.toLowerCase()));
     const reports: Record<string, QCReport> = {};
     const fixed = list.map((r) => {
-      const rep = qualityControl(r, { metaSuffix: profile.metaSuffix || rules.metaSuffix, vendor: profile.vendor || rules.vendor, level: rules.level, oldTerms: profile.oldTerms, usedBrand, usedHandle });
+      const rep = qualityControl(r, { metaSuffix: eff.metaSuffix || rules.metaSuffix, vendor: eff.vendor || rules.vendor, level: rules.level, oldTerms: eff.oldTerms, usedBrand, usedHandle });
       reports[r.handle] = rep;
       return rep.fixed;
     });
@@ -166,8 +181,8 @@ export default function ImportFactoryPage() {
     setProgress({ done: 0, total: all.length });
     const batches = chunk(all, BATCH);
     const acc: TransformedProduct[] = [];
-    const brandAcc = [...importMemory.brandNames];
-    const anchorAcc = [...importMemory.anchors];
+    const brandAcc = [...mem.brandNames];
+    const anchorAcc = [...mem.anchors];
     for (let b = 0; b < batches.length; b++) {
       const inputs = batches[b].map(toProductInput);
       let data: { ok: boolean; results?: TransformedProduct[]; error?: string };
@@ -176,7 +191,7 @@ export default function ImportFactoryPage() {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             products: inputs, rules, memory: { brandNames: brandAcc, anchors: anchorAcc },
-            context: { ...profileContext(profile), brandName: profile.brand || brand.storeName || undefined, niche: profile.niche || brand.niche || undefined, positioning: brand.positioning },
+            context: { ...profileContext(eff), brandName: eff.brand || brand.storeName || undefined, niche: eff.niche || brand.niche || undefined, positioning: brand.positioning },
             keyRefs: { openai: connections.openai?.keyId },
           }),
         });
@@ -194,10 +209,14 @@ export default function ImportFactoryPage() {
     setResults(fixed);
     setQcReports(reports);
     setValidated([]); setRejected([]); setLocked([]);
-    rememberImport({
+    rememberImportFor(selectedProfileId, {
       brandNames: fixed.map((r) => r.brandName).filter(Boolean) as string[],
+      titles: fixed.map((r) => r.title).filter(Boolean),
       handles: fixed.map((r) => r.newHandle).filter(Boolean) as string[],
+      anchors: rules.collections,
       collections: rules.collections,
+      productTypes: fixed.map((r) => r.productType).filter(Boolean),
+      tags: fixed.flatMap((r) => r.tags.split(",").map((t) => t.trim())).filter(Boolean),
       rules,
       count: fixed.length,
     });
@@ -212,8 +231,8 @@ export default function ImportFactoryPage() {
       const res = await fetch("/api/import", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          products: [toProductInput(g)], rules, memory: { brandNames: importMemory.brandNames, anchors: importMemory.anchors },
-          context: { ...profileContext(profile), brandName: profile.brand || brand.storeName || undefined, niche: profile.niche || brand.niche || undefined, positioning: brand.positioning },
+          products: [toProductInput(g)], rules, memory: { brandNames: mem.brandNames, anchors: mem.anchors },
+          context: { ...profileContext(eff), brandName: eff.brand || brand.storeName || undefined, niche: eff.niche || brand.niche || undefined, positioning: brand.positioning },
           keyRefs: { openai: connections.openai?.keyId },
         }),
       });
@@ -431,39 +450,51 @@ export default function ImportFactoryPage() {
               )}
             </Card>
 
-            {/* Reprendre les règles du dernier import */}
-            {importMemory.lastRules && phase === "configure" && (
+            {/* Reprendre les règles du dernier import (par profil) */}
+            {mem.lastRules && phase === "configure" && (
               <Card className="flex flex-col items-start gap-3 border-brand-200 bg-brand-50/50 dark:border-brand-900 dark:bg-brand-950/30 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2 text-sm"><RefreshCw className="h-4 w-4 text-brand-600" /> Reprendre les règles de votre dernier import ? <span className="text-xs text-[var(--text-muted)]">({importMemory.transformedCount} produits déjà traités)</span></div>
+                <div className="flex items-center gap-2 text-sm"><RefreshCw className="h-4 w-4 text-brand-600" /> Reprendre les règles du dernier import sur ce profil ? <span className="text-xs text-[var(--text-muted)]">({mem.transformedCount} produits déjà traités)</span></div>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => { const lr = importMemory.lastRules!; setRules({ ...lr, collections: rules.collections }); setCollectionsText(lr.collections.join("\n") || collectionsText); }}>Reprendre les mêmes règles</Button>
+                  <Button size="sm" variant="secondary" onClick={() => { const lr = mem.lastRules!; setRules({ ...lr }); setCollectionsText(lr.collectionsUrls?.length ? colsToText(lr.collectionsUrls) : lr.collections.join("\n")); }}>Reprendre les mêmes règles</Button>
+                  <Button size="sm" variant="ghost" onClick={() => applyPreset("migration")}>Repartir d&apos;un preset</Button>
                 </div>
               </Card>
             )}
 
-            {/* Boutique cible */}
+            {/* Boutique cible + réglages privés (locaux) + mémoire du profil */}
             <Card>
               <div className="mb-1 flex items-center gap-1.5 text-sm font-bold"><Store className="h-4 w-4 text-brand-600" /> Boutique cible</div>
-              <p className="mb-3 text-xs text-[var(--text-muted)]">Le profil pilote la marque, le vendor, le suffixe meta, les collections (+ URLs) et les règles de titre.</p>
-              <div className="ork-stagger grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <p className="mb-3 text-xs text-[var(--text-muted)]">Profil = comportement (noms brandés, format de titre, style). Vos infos privées (marque, suffixe, collections) restent <strong>locales</strong> et ne sont injectées dans l&apos;IA que si vous les saisissez.</p>
+              <div className="ork-stagger grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                 {[...PROFILES, CUSTOM_PROFILE].map((p) => {
                   const on = selectedProfileId === p.id;
                   return (
                     <button key={p.id} onClick={() => selectProfile(p.id)} className={`ork-interactive flex flex-col rounded-xl border p-3 text-left hover:border-brand-300 ${on ? "border-brand-500 bg-brand-50 dark:bg-brand-950" : "border-[var(--border)]"}`}>
                       <div className="flex items-center justify-between"><span className="text-xs font-semibold">{p.label}</span>{on && <Check className="h-3.5 w-3.5 text-brand-600" />}</div>
-                      <p className="mt-1 text-[10px] leading-tight text-[var(--text-muted)]">{p.id === "custom" ? "Vos propres règles (collections ci-dessous)." : `${p.niche.split(",")[0]} · ${p.brandNames ? "noms brandés" : "sans nom brandé"}`}</p>
+                      <p className="mt-1 text-[10px] leading-tight text-[var(--text-muted)]">{p.id === "custom" ? "Vos propres règles." : `${p.niche.split("&")[0].trim()} · ${p.brandNames ? "noms brandés" : "sans nom brandé"}`}</p>
                     </button>
                   );
                 })}
               </div>
-              {selectedProfileId !== "custom" && (
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  <Badge tone="neutral">Vendor : {profile.vendor}</Badge>
-                  {profile.metaSuffix && <Badge tone="neutral">Meta finit par « {profile.metaSuffix} »</Badge>}
-                  <Badge tone="neutral">{profile.collections.length} collection(s)</Badge>
-                  <Badge tone={profile.brandNames ? "brand" : "neutral"}>{profile.brandNames ? "Noms brandés uniques" : "Sans nom brandé"}</Badge>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <Field label="Nom de marque / vendor" icon={Store}><input className="input h-9 py-0 text-xs" value={mem.brand} onChange={(e) => setBrandConfig(e.target.value)} placeholder="Ex : nom de marque" /></Field>
+                <Field label="Suffixe meta (fin de meta description)"><input className="input h-9 py-0 text-xs" value={mem.metaSuffix} onChange={(e) => setMetaSuffixConfig(e.target.value)} placeholder="Ex : ✓ Livraison gratuite." /></Field>
+              </div>
+              <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold"><Database className="h-3.5 w-3.5 text-brand-600" /> Mémoire du profil — {profile.label}</span>
+                  <button onClick={() => resetProfileMemory(selectedProfileId)} className="text-[11px] text-[var(--text-muted)] transition hover:text-red-500">Réinitialiser</button>
                 </div>
-              )}
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge tone="neutral">{mem.brandNames.length} noms brandés</Badge>
+                  <Badge tone="neutral">{mem.handles.length} handles</Badge>
+                  <Badge tone="neutral">{mem.anchors.length} ancres</Badge>
+                  <Badge tone="neutral">{mem.transformedCount} produits</Badge>
+                  {mem.lastImportAt && <Badge tone="neutral">dernier : {relativeDate(mem.lastImportAt)}</Badge>}
+                  {mem.forbiddenTerms.length + mem.forbiddenDomains.length > 0 && <Badge tone="warn">{mem.forbiddenTerms.length + mem.forbiddenDomains.length} termes interdits</Badge>}
+                </div>
+                <ForbiddenAdder onAdd={(type, v) => addForbidden(selectedProfileId, type === "term" ? { term: v } : { domain: v })} />
+              </div>
             </Card>
 
             {/* Presets */}
@@ -499,7 +530,7 @@ export default function ImportFactoryPage() {
 
               <Section title="Titres & noms brandés" icon={TypeIcon} defaultOpen>
                 <Field label="Style de titre"><Seg value={TITLES.find((t) => t.v === rules.titleStyle)!.l} options={TITLES.map((t) => t.l)} onChange={(l) => updateRule({ titleStyle: TITLES.find((t) => t.l === l)!.v })} /></Field>
-                <Toggle label="Générer des noms brandés uniques" hint="Ex : « Suspension en verre fumé | Oriva » — jamais deux fois le même nom." checked={rules.brandNames} onChange={(v) => updateRule({ brandNames: v })} />
+                <Toggle label="Générer des noms brandés uniques" hint="Ex : « Nom du produit | Marque » — jamais deux fois le même nom." checked={rules.brandNames} onChange={(v) => updateRule({ brandNames: v })} />
                 {rules.brandNames && <Field label="Style de nom brandé"><Seg value={rules.brandNameStyle} options={BRAND_STYLES} onChange={(v) => updateRule({ brandNameStyle: v })} /></Field>}
                 <p className="rounded-lg bg-[var(--bg)] px-3 py-2 text-[11px] text-[var(--text-muted)]">Règle : ne jamais inventer de caractéristique (LED, télécommande…), éviter les superlatifs, titres adaptés Shopify / Google Merchant.</p>
               </Section>
@@ -514,7 +545,7 @@ export default function ImportFactoryPage() {
 
               <Section title="Collections & maillage interne" icon={Link2}>
                 <Field label="Vos collections (une par ligne, pour le maillage)">
-                  <textarea className="input min-h-[80px] font-mono text-xs" value={collectionsText} onChange={(e) => syncCollections(e.target.value)} placeholder={"Lustres\nSuspensions\nPlafonniers\nLampes de chevet"} />
+                  <textarea className="input min-h-[80px] font-mono text-xs" value={collectionsText} onChange={(e) => syncCollections(e.target.value)} placeholder={"Collection principale | https://votreboutique.com/collections/principale\nNouveautés\nBest-sellers"} />
                 </Field>
                 <Toggle label="Ajouter un maillage interne dans les descriptions" hint="Ancres naturelles et variées, sans répéter toujours les mêmes." checked={rules.internalLinking} onChange={(v) => updateRule({ internalLinking: v })} />
               </Section>
@@ -674,6 +705,18 @@ export default function ImportFactoryPage() {
 }
 
 // ── Sous-composants ─────────────────────────────────────────────────────────
+function ForbiddenAdder({ onAdd }: { onAdd: (type: "term" | "domain", v: string) => void }) {
+  const [type, setType] = useState<"term" | "domain">("term");
+  const [v, setV] = useState("");
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-2">
+      <span className="flex items-center gap-1 text-[11px] text-[var(--text-muted)]"><Ban className="h-3 w-3" /> À supprimer du contenu :</span>
+      <select className="input h-8 py-0 text-[11px]" value={type} onChange={(e) => setType(e.target.value as "term" | "domain")}><option value="term">Terme / marque</option><option value="domain">Domaine</option></select>
+      <input className="input h-8 py-0 text-[11px]" value={v} onChange={(e) => setV(e.target.value)} placeholder={type === "domain" ? "ancien-domaine.com" : "ancien nom / marque"} />
+      <Button size="sm" variant="ghost" icon={<Plus className="h-3.5 w-3.5" />} disabled={!v.trim()} onClick={() => { onAdd(type, v.trim()); setV(""); }}>Ajouter</Button>
+    </div>
+  );
+}
 function BatchRules({ onApply, matchCount }: { onApply: (kw: string, field: "collections" | "productType", value: string) => number; matchCount: (kw: string) => number }) {
   const [kw, setKw] = useState("");
   const [field, setField] = useState<"collections" | "productType">("collections");
@@ -683,11 +726,11 @@ function BatchRules({ onApply, matchCount }: { onApply: (kw: string, field: "col
   return (
     <Card>
       <div className="mb-1 flex items-center gap-1.5 text-sm font-bold"><ListFilter className="h-4 w-4 text-brand-600" /> Règles de lot</div>
-      <p className="mb-3 text-xs text-[var(--text-muted)]">Corrigez une catégorie d&apos;un coup. Ex : tous les produits contenant « chandelier » → collection « Lustres ».</p>
+      <p className="mb-3 text-xs text-[var(--text-muted)]">Corrigez une catégorie d&apos;un coup. Ex : tous les produits contenant « coton » → collection « Nouveautés ».</p>
       <div className="grid gap-2 sm:grid-cols-[1fr_auto_1fr_auto] sm:items-end">
-        <div><div className="mb-1 text-[11px] font-medium">Produits contenant</div><input className="input h-9 py-0 text-xs" value={kw} onChange={(e) => { setKw(e.target.value); setDone(null); }} placeholder="chandelier" /></div>
+        <div><div className="mb-1 text-[11px] font-medium">Produits contenant</div><input className="input h-9 py-0 text-xs" value={kw} onChange={(e) => { setKw(e.target.value); setDone(null); }} placeholder="mot-clé" /></div>
         <div><div className="mb-1 text-[11px] font-medium">Affecter à</div><select className="input h-9 py-0 text-xs" value={field} onChange={(e) => setField(e.target.value as "collections" | "productType")}><option value="collections">Collection</option><option value="productType">product_type</option></select></div>
-        <div><div className="mb-1 text-[11px] font-medium">Valeur</div><input className="input h-9 py-0 text-xs" value={value} onChange={(e) => setValue(e.target.value)} placeholder={field === "collections" ? "Lustres" : "Lustre"} /></div>
+        <div><div className="mb-1 text-[11px] font-medium">Valeur</div><input className="input h-9 py-0 text-xs" value={value} onChange={(e) => setValue(e.target.value)} placeholder={field === "collections" ? "Nouveautés" : "Catégorie"} /></div>
         <Button size="sm" disabled={!kw.trim() || !value.trim() || n === 0} onClick={() => { const c = onApply(kw, field, value); setDone(`${c} produit(s) modifié(s)`); }}>Appliquer{kw.trim() ? ` (${n})` : ""}</Button>
       </div>
       {done && <p className="mt-2 flex items-center gap-1 text-[11px] text-emerald-600"><Check className="h-3 w-3" /> {done}</p>}
@@ -765,12 +808,12 @@ function Working({ progress }: { progress: { done: number; total: number } }) {
   );
 }
 
-const EXAMPLE_BEFORE = "modern glass pendant light gold E27 lamp 8inch";
-const EXAMPLE_AFTER_TITLE = "Suspension en verre fumé doré — Oriva";
+const EXAMPLE_BEFORE = "blue cotton tote bag large reusable 16inch";
+const EXAMPLE_AFTER_TITLE = "Sac cabas en coton bleu — Marque";
 function ExampleCard() {
   return (
     <Card className="ork-rise">
-      <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><Eye className="h-4 w-4 text-brand-600" /> Exemple de transformation <Badge tone="neutral">illustration</Badge></div>
+      <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><Eye className="h-4 w-4 text-brand-600" /> Exemple de transformation <Badge tone="neutral">données fictives</Badge></div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3">
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-400">Avant (CSV brut)</div>
@@ -781,10 +824,10 @@ function ExampleCard() {
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-brand-600">Après (Orkestra)</div>
           <div className="text-sm font-semibold">{EXAMPLE_AFTER_TITLE}</div>
           <div className="mt-1.5 space-y-1 text-xs text-[var(--text-muted)]">
-            <div><span className="font-medium text-[var(--text)]">Meta :</span> Suspension en verre fumé doré, E27 — Oriva</div>
-            <div><span className="font-medium text-[var(--text)]">Alt :</span> Suspension en verre fumé doré Oriva vue de face</div>
-            <div><span className="font-medium text-[var(--text)]">Taille :</span> Ø 20 cm (8 po) · variante préservée</div>
-            <div><span className="font-medium text-[var(--text)]">product_type :</span> Suspension</div>
+            <div><span className="font-medium text-[var(--text)]">Meta :</span> Sac cabas en coton bleu, grande contenance — Marque</div>
+            <div><span className="font-medium text-[var(--text)]">Alt :</span> Sac cabas en coton bleu Marque vue de face</div>
+            <div><span className="font-medium text-[var(--text)]">Taille :</span> 40 × 35 cm (16 po) · variante préservée</div>
+            <div><span className="font-medium text-[var(--text)]">product_type :</span> Sac</div>
           </div>
         </div>
       </div>
