@@ -61,7 +61,7 @@ export function serializeCsv(headers: string[], rows: string[][]): string {
 // ── Détection des colonnes Shopify ──────────────────────────────────────────
 
 export type ShopifyField =
-  | "Handle" | "Title" | "Body" | "Vendor" | "Category" | "Type" | "Tags" | "Published"
+  | "Handle" | "Title" | "Body" | "Vendor" | "Category" | "Type" | "Tags" | "Published" | "Collection"
   | "Option1Name" | "Option1Value" | "Option2Name" | "Option2Value" | "Option3Name" | "Option3Value"
   | "VariantSKU" | "VariantPrice" | "ImageSrc" | "ImageAlt" | "SeoTitle" | "SeoDescription" | "Status";
 
@@ -99,6 +99,71 @@ export function detectColumns(headers: string[]): DetectedColumns {
   return { map, unknown, recognized, isShopify };
 }
 
+// ── Mapping manuel (CSV fournisseur / concurrent / non-Shopify) ──────────────
+
+/** Cible de mapping affichée à l'utilisateur (ordre + libellé). */
+export const MAP_TARGETS: { field: ShopifyField; label: string; required?: boolean }[] = [
+  { field: "Title", label: "Titre produit", required: true },
+  { field: "Body", label: "Description" },
+  { field: "ImageSrc", label: "Image (URL)" },
+  { field: "ImageAlt", label: "Alt text image" },
+  { field: "VariantPrice", label: "Prix" },
+  { field: "VariantSKU", label: "SKU / référence" },
+  { field: "Handle", label: "Handle (identifiant / URL)" },
+  { field: "Vendor", label: "Vendor / marque" },
+  { field: "Type", label: "Type produit" },
+  { field: "Tags", label: "Tags" },
+  { field: "Collection", label: "Collection (source)" },
+  { field: "Option1Name", label: "Option 1 — nom" },
+  { field: "Option1Value", label: "Option 1 / Taille / Variante" },
+  { field: "Option2Name", label: "Option 2 — nom" },
+  { field: "Option2Value", label: "Option 2 / Couleur" },
+  { field: "SeoTitle", label: "Meta title" },
+  { field: "SeoDescription", label: "Meta description" },
+];
+
+const normKey = (s: string) => s.toLowerCase().trim().replace(/\s+/g, " ").normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+// Synonymes (accent-insensibles) pour la détection automatique du mapping.
+const SYNONYMS: Record<string, ShopifyField> = {
+  title: "Title", name: "Title", "product name": "Title", "product_name": "Title", nom: "Title", titre: "Title", "product title": "Title", libelle: "Title", designation: "Title",
+  "body (html)": "Body", "body html": "Body", body: "Body", description: "Body", desc: "Body", details: "Body", "long description": "Body", "product description": "Body", descriptif: "Body",
+  "image src": "ImageSrc", image: "ImageSrc", "image url": "ImageSrc", "image link": "ImageSrc", img: "ImageSrc", photo: "ImageSrc", picture: "ImageSrc", images: "ImageSrc", "main image": "ImageSrc", "image 1": "ImageSrc",
+  "image alt text": "ImageAlt", alt: "ImageAlt", "alt text": "ImageAlt", "image alt": "ImageAlt",
+  "variant price": "VariantPrice", price: "VariantPrice", prix: "VariantPrice", "sale price": "VariantPrice", "unit price": "VariantPrice", tarif: "VariantPrice",
+  "variant sku": "VariantSKU", sku: "VariantSKU", reference: "VariantSKU", ref: "VariantSKU", code: "VariantSKU", ean: "VariantSKU", barcode: "VariantSKU", "code produit": "VariantSKU",
+  handle: "Handle", slug: "Handle", "url handle": "Handle", permalink: "Handle",
+  vendor: "Vendor", brand: "Vendor", marque: "Vendor", manufacturer: "Vendor", fournisseur: "Vendor", supplier: "Vendor",
+  type: "Type", "product type": "Type", "product_type": "Type", "type produit": "Type",
+  tags: "Tags", tag: "Tags", keywords: "Tags", "mots cles": "Tags",
+  collection: "Collection", collections: "Collection", category: "Collection", categorie: "Collection", "product category": "Collection", rayon: "Collection", famille: "Collection",
+  "option1 name": "Option1Name", "option1 value": "Option1Value", size: "Option1Value", taille: "Option1Value", variant: "Option1Value", variante: "Option1Value", dimension: "Option1Value",
+  "option2 name": "Option2Name", "option2 value": "Option2Value", color: "Option2Value", colour: "Option2Value", couleur: "Option2Value",
+  "seo title": "SeoTitle", "meta title": "SeoTitle", "page title": "SeoTitle",
+  "seo description": "SeoDescription", "meta description": "SeoDescription",
+};
+
+/** Détection automatique « best guess » du mapping (point de départ, corrigeable). */
+export function autoMapColumns(headers: string[]): Partial<Record<ShopifyField, number>> {
+  const map: Partial<Record<ShopifyField, number>> = {};
+  headers.forEach((h, i) => {
+    const f = SYNONYMS[normKey(h)];
+    if (f && map[f] === undefined) map[f] = i;
+  });
+  return map;
+}
+
+/** Le CSV a-t-il une structure multi-lignes (variantes/images par Handle) ? */
+export function isMultiRow(rows: string[][], map: Partial<Record<ShopifyField, number>>): boolean {
+  if (map.Handle === undefined) return false;
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const h = cell(r, map.Handle);
+    if (h) { if (seen.has(h)) return true; seen.add(h); }
+  }
+  return false;
+}
+
 // ── Regroupement par produit (variantes + images) ───────────────────────────
 
 export interface ProductImage { src: string; alt: string; rowIndex: number }
@@ -115,25 +180,36 @@ export interface ProductGroup {
   tags: string;
   seoTitle: string;
   seoDescription: string;
+  collection: string;   // collection source (CSV fournisseur)
   images: ProductImage[];
   variants: ProductVariant[];
 }
 
 function cell(row: string[], idx?: number): string { return idx === undefined ? "" : (row[idx] ?? "").trim(); }
 
-/** Regroupe les lignes Shopify par Handle (1 produit = N lignes variantes/images). */
-export function groupProducts(rows: string[][], map: DetectedColumns["map"]): ProductGroup[] {
+function emptyGroup(handle: string, i: number): ProductGroup {
+  return { handle, defRow: i, rowIndices: [], title: "", body: "", vendor: "", type: "", tags: "", seoTitle: "", seoDescription: "", collection: "", images: [], variants: [] };
+}
+
+/** Regroupe les lignes en produits : multi-lignes (Shopify) ou plat (1 ligne = 1 produit). */
+export function groupProducts(rows: string[][], map: Partial<Record<ShopifyField, number>>): ProductGroup[] {
+  if (map.Title === undefined) return [];
+  return isMultiRow(rows, map) ? groupMultiRow(rows, map) : groupFlat(rows, map);
+}
+
+function groupMultiRow(rows: string[][], map: Partial<Record<ShopifyField, number>>): ProductGroup[] {
   const groups = new Map<string, ProductGroup>();
   rows.forEach((row, i) => {
     const handle = cell(row, map.Handle) || `row-${i}`;
     let g = groups.get(handle);
-    if (!g) {
-      g = { handle, defRow: i, rowIndices: [], title: "", body: "", vendor: "", type: "", tags: "", seoTitle: "", seoDescription: "", images: [], variants: [] };
-      groups.set(handle, g);
-    }
+    if (!g) { g = emptyGroup(handle, i); groups.set(handle, g); }
     g.rowIndices.push(i);
     const title = cell(row, map.Title);
-    if (title && !g.title) { g.title = title; g.defRow = i; g.body = cell(row, map.Body); g.vendor = cell(row, map.Vendor); g.type = cell(row, map.Type); g.tags = cell(row, map.Tags); g.seoTitle = cell(row, map.SeoTitle); g.seoDescription = cell(row, map.SeoDescription); }
+    if (title && !g.title) {
+      g.title = title; g.defRow = i; g.body = cell(row, map.Body); g.vendor = cell(row, map.Vendor);
+      g.type = cell(row, map.Type); g.tags = cell(row, map.Tags); g.seoTitle = cell(row, map.SeoTitle);
+      g.seoDescription = cell(row, map.SeoDescription); g.collection = cell(row, map.Collection);
+    }
     const src = cell(row, map.ImageSrc);
     if (src) g.images.push({ src, alt: cell(row, map.ImageAlt), rowIndex: i });
     const opt1 = cell(row, map.Option1Value);
@@ -141,6 +217,30 @@ export function groupProducts(rows: string[][], map: DetectedColumns["map"]): Pr
     if (opt1 || sku) g.variants.push({ option1: opt1, sku, price: cell(row, map.VariantPrice), rowIndex: i });
   });
   return [...groups.values()];
+}
+
+function groupFlat(rows: string[][], map: Partial<Record<ShopifyField, number>>): ProductGroup[] {
+  return rows.map((row, i) => {
+    const title = cell(row, map.Title) || cell(row, map.Handle) || `Produit ${i + 1}`;
+    const handle = cell(row, map.Handle) || `row-${i}`;
+    const g = emptyGroup(handle, i);
+    g.rowIndices = [i];
+    g.title = title;
+    g.body = cell(row, map.Body);
+    g.vendor = cell(row, map.Vendor);
+    g.type = cell(row, map.Type);
+    g.tags = cell(row, map.Tags);
+    g.seoTitle = cell(row, map.SeoTitle);
+    g.seoDescription = cell(row, map.SeoDescription);
+    g.collection = cell(row, map.Collection);
+    const src = cell(row, map.ImageSrc);
+    if (src) g.images.push({ src, alt: cell(row, map.ImageAlt), rowIndex: i });
+    const opt1 = cell(row, map.Option1Value) || cell(row, map.Option2Value);
+    const sku = cell(row, map.VariantSKU);
+    const price = cell(row, map.VariantPrice);
+    if (opt1 || sku || price) g.variants.push({ option1: opt1, sku, price, rowIndex: i });
+    return g;
+  });
 }
 
 export function stripHtml(html: string): string {
@@ -208,6 +308,7 @@ export interface ImportProductInput {
   type: string;
   tags: string;
   vendor: string;
+  sourceCollection: string;
   imageCount: number;
   existingAlts: string[];
   variantOptions: string[];
@@ -251,6 +352,7 @@ export function toProductInput(g: ProductGroup): ImportProductInput {
     type: g.type,
     tags: g.tags,
     vendor: g.vendor,
+    sourceCollection: g.collection,
     imageCount: Math.max(1, g.images.length),
     existingAlts: g.images.map((i) => i.alt).slice(0, 8),
     variantOptions: options,
@@ -316,7 +418,7 @@ export function buildTransformPrompt(products: ImportProductInput[], rules: Impo
   const list = products.map((p, i) => (
     `--- Produit ${i + 1} (handle: ${p.handle}) ---\n` +
     `Titre actuel : ${p.title}\n` +
-    `Type : ${p.type || "(non renseigné)"} | Tags : ${p.tags || "(aucun)"} | Vendor : ${p.vendor || "(aucun)"}\n` +
+    `Type : ${p.type || "(non renseigné)"} | Tags : ${p.tags || "(aucun)"} | Vendor : ${p.vendor || "(aucun)"}${p.sourceCollection ? ` | Collection source : ${p.sourceCollection}` : ""}\n` +
     `Variantes (${p.variantCount}) : ${p.variantOptions.join(", ") || "(aucune option)"} | Prix exemple : ${p.priceSample || "(n/a)"}\n` +
     `Images : ${p.imageCount}${p.existingAlts.filter(Boolean).length ? ` | alts actuels : ${p.existingAlts.filter(Boolean).join(" / ")}` : ""}\n` +
     `Description actuelle : ${p.bodyExcerpt || "(vide)"}`
@@ -355,7 +457,7 @@ export function coerceTransformed(p: unknown, fallback: ImportProductInput): Tra
 
 // ── Reconstruction du CSV Shopify final ─────────────────────────────────────
 
-function ensureColumn(headers: string[], rows: string[][], map: DetectedColumns["map"], field: ShopifyField, headerName: string): number {
+function ensureColumn(headers: string[], rows: string[][], map: Partial<Record<ShopifyField, number>>, field: ShopifyField, headerName: string): number {
   if (map[field] !== undefined) return map[field]!;
   const idx = headers.length;
   headers.push(headerName);
@@ -366,18 +468,31 @@ function ensureColumn(headers: string[], rows: string[][], map: DetectedColumns[
 
 export interface ApplyResult { headers: string[]; rows: string[][] }
 
-/** Applique les transformations validées sur le CSV d'origine (variantes/images/prix préservés). */
+/** Applique les transformations sur le CSV d'origine (variantes/images/prix préservés).
+ *  Handle/Title sont garantis en sortie (requis par l'import Shopify). */
 export function applyTransform(
   origHeaders: string[],
   origRows: string[][],
-  detected: DetectedColumns,
+  srcMap: Partial<Record<ShopifyField, number>>,
   groups: ProductGroup[],
   results: TransformedProduct[],
   rules: ImportRules
 ): ApplyResult {
   const headers = [...origHeaders];
   const rows = origRows.map((r) => [...r]);
-  const map = { ...detected.map };
+  const map = { ...srcMap };
+  const handleExisted = map.Handle !== undefined;
+
+  // Si une seule colonne de valeur d'option est mappée (ex : couleur seule),
+  // la traiter comme Option 1 (Shopify n'accepte pas Option 2 sans Option 1).
+  if (map.Option1Value === undefined && map.Option2Value !== undefined) {
+    map.Option1Value = map.Option2Value; delete map.Option2Value;
+    if (map.Option1Name === undefined && map.Option2Name !== undefined) { map.Option1Name = map.Option2Name; delete map.Option2Name; }
+  }
+  // Nom d'option par défaut déduit de l'en-tête d'origine (avant normalisation).
+  const optName = map.Option1Value !== undefined ? guessOptionName(origHeaders[map.Option1Value]) : "Titre";
+
+  const iHandle = ensureColumn(headers, rows, map, "Handle", "Handle");
   const iTitle = ensureColumn(headers, rows, map, "Title", "Title");
   const iBody = ensureColumn(headers, rows, map, "Body", "Body (HTML)");
   const iType = ensureColumn(headers, rows, map, "Type", "Type");
@@ -385,7 +500,8 @@ export function applyTransform(
   const iSeoT = ensureColumn(headers, rows, map, "SeoTitle", "SEO Title");
   const iSeoD = ensureColumn(headers, rows, map, "SeoDescription", "SEO Description");
   const iAlt = ensureColumn(headers, rows, map, "ImageAlt", "Image Alt Text");
-  const iHandle = map.Handle;
+  // Si des options de variante existent, garantir une colonne « Option1 Name ».
+  const iOptName = map.Option1Value !== undefined ? ensureColumn(headers, rows, map, "Option1Name", "Option1 Name") : undefined;
 
   const byHandle = new Map(results.map((r) => [r.handle, r]));
   for (const g of groups) {
@@ -398,14 +514,72 @@ export function applyTransform(
       if (rules.tagsType) { def[iType] = t.productType; def[iTags] = t.tags; }
       if (rules.meta) { def[iSeoT] = t.metaTitle; def[iSeoD] = t.metaDescription; }
     }
-    if (rules.handleMode !== "keep" && t.newHandle && iHandle !== undefined) {
-      for (const ri of g.rowIndices) rows[ri][iHandle] = t.newHandle;
+    // Handle garanti : nouveau slug si demandé, sinon original, sinon dérivé du titre.
+    const finalHandle = rules.handleMode !== "keep" && t.newHandle ? t.newHandle : handleExisted && g.handle ? g.handle : slugify(t.title) || g.handle;
+    for (const ri of g.rowIndices) rows[ri][iHandle] = finalHandle;
+    if (iOptName !== undefined && map.Option1Value !== undefined) {
+      for (const v of g.variants) if (cell(rows[v.rowIndex], map.Option1Value)) rows[v.rowIndex][iOptName] = optName;
     }
     if (rules.altText) {
       g.images.forEach((img, k) => { rows[img.rowIndex][iAlt] = t.imageAlts[k] || t.title; });
     }
   }
+
+  // Renommer les colonnes mappées vers les en-têtes Shopify standard (import-ready).
+  for (const [field, name] of Object.entries(CANONICAL_HEADER)) {
+    const idx = map[field as ShopifyField];
+    if (idx !== undefined) headers[idx] = name;
+  }
   return { headers, rows };
+}
+
+const CANONICAL_HEADER: Partial<Record<ShopifyField, string>> = {
+  Handle: "Handle", Title: "Title", Body: "Body (HTML)", Type: "Type", Tags: "Tags", Vendor: "Vendor",
+  VariantPrice: "Variant Price", VariantSKU: "Variant SKU", ImageSrc: "Image Src", ImageAlt: "Image Alt Text",
+  SeoTitle: "SEO Title", SeoDescription: "SEO Description",
+  Option1Name: "Option1 Name", Option1Value: "Option1 Value", Option2Name: "Option2 Name", Option2Value: "Option2 Value",
+};
+
+function guessOptionName(header: string): string {
+  const k = (header || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  if (/(taille|size|dimension)/.test(k)) return "Taille";
+  if (/(couleur|color|colour)/.test(k)) return "Couleur";
+  if (/(materiau|material|matiere)/.test(k)) return "Matériau";
+  return "Modèle";
+}
+
+function slugify(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+// ── Aperçu après mapping (stats + avertissements) ───────────────────────────
+
+export interface MappingStats {
+  products: number;
+  variants: number;
+  images: number;
+  multiRow: boolean;
+  used: { field: ShopifyField; label: string; header: string }[];
+  ignored: string[];
+  warnings: string[];
+  hasTitle: boolean;
+}
+
+export function mappingStats(headers: string[], rows: string[][], map: Partial<Record<ShopifyField, number>>, groups: ProductGroup[]): MappingStats {
+  const usedIdx = new Set(Object.values(map).filter((v) => v !== undefined) as number[]);
+  const used = MAP_TARGETS.filter((t) => map[t.field] !== undefined).map((t) => ({ field: t.field, label: t.label, header: headers[map[t.field]!] }));
+  const ignored = headers.filter((_, i) => !usedIdx.has(i));
+  const multi = isMultiRow(rows, map);
+  const warnings: string[] = [];
+  const hasTitle = map.Title !== undefined;
+  if (!hasTitle) warnings.push("Aucune colonne « titre produit » : indispensable pour transformer le catalogue.");
+  if (map.ImageSrc === undefined) warnings.push("Aucune colonne image détectée — les alt text ne seront pas générés.");
+  if (map.VariantPrice === undefined) warnings.push("Aucune colonne prix détectée — vérifiez les prix avant l'import Shopify.");
+  if (map.VariantSKU === undefined) warnings.push("Aucune colonne SKU / référence détectée.");
+  const descLike = headers.filter((h) => SYNONYMS[normKey(h)] === "Body").length;
+  if (descLike > 1) warnings.push("Plusieurs colonnes ressemblent à des descriptions — vérifiez la colonne choisie.");
+  if (multi && map.Option1Value === undefined) warnings.push("Variantes détectées (handles répétés) mais aucune colonne d'option (taille / couleur) identifiée.");
+  return { products: groups.length, variants: groups.reduce((a, g) => a + g.variants.length, 0), images: groups.reduce((a, g) => a + g.images.length, 0), multiRow: multi, used, ignored, warnings, hasTitle };
 }
 
 /** Rapport de modifications (CSV léger : avant → après). */

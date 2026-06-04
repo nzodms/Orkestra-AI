@@ -5,9 +5,9 @@ import Link from "next/link";
 import { useOrkestra } from "@/lib/store";
 import { assistantLink, councilLink } from "@/lib/shopify";
 import {
-  parseCsv, detectColumns, groupProducts, toProductInput, presetRules, applyTransform, serializeCsv,
-  buildReportCsv, chunk, downloadCsv, PRESETS,
-  type ImportRules, type DetectedColumns, type ProductGroup, type TransformedProduct,
+  parseCsv, detectColumns, autoMapColumns, groupProducts, mappingStats, MAP_TARGETS, toProductInput,
+  presetRules, applyTransform, serializeCsv, buildReportCsv, chunk, downloadCsv, PRESETS,
+  type ImportRules, type ShopifyField, type TransformedProduct,
   type TransformMode, type TitleStyle, type DescriptionLevel, type HandleMode, type Level,
 } from "@/lib/import-factory";
 import { PageHeader, Card, Badge } from "@/components/ui/primitives";
@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/Button";
 import {
   Upload, FileSpreadsheet, Sparkles, Wand2, Languages, Tag, ImageIcon, Link2, Download, Check,
   CheckCircle2, AlertTriangle, RefreshCw, ChevronDown, Globe, FileText, ArrowRight, Plug, Eye,
-  ListChecks, ShieldCheck, Layers, Boxes, Type as TypeIcon, X,
+  ListChecks, ShieldCheck, Layers, Boxes, Type as TypeIcon, X, Columns3, ListFilter,
 } from "lucide-react";
 
 const MAX_PRODUCTS = 24;
@@ -59,8 +59,8 @@ export default function ImportFactoryPage() {
   const openaiConnected = !!connections.openai?.connected;
 
   const [parsed, setParsed] = useState<{ headers: string[]; rows: string[][] } | null>(null);
-  const [detected, setDetected] = useState<DetectedColumns | null>(null);
-  const [groups, setGroups] = useState<ProductGroup[]>([]);
+  const [mapping, setMapping] = useState<Partial<Record<ShopifyField, number>>>({});
+  const [mapOpen, setMapOpen] = useState(false);
   const [fileInfo, setFileInfo] = useState<{ name: string; sizeKb: number } | null>(null);
   const [presetId, setPresetId] = useState("migration");
   const [rules, setRules] = useState<ImportRules>(() => ({ ...presetRules("migration"), collections: brand.collections }));
@@ -68,7 +68,7 @@ export default function ImportFactoryPage() {
   const [phase, setPhase] = useState<"idle" | "configure" | "working" | "preview">("idle");
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [results, setResults] = useState<TransformedProduct[] | null>(null);
-  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [edits, setEdits] = useState<Record<string, Partial<TransformedProduct>>>({});
   const [validated, setValidated] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -79,12 +79,16 @@ export default function ImportFactoryPage() {
   const configRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
 
-  const imageCount = useMemo(() => groups.reduce((a, g) => a + g.images.length, 0), [groups]);
-  const variantCount = useMemo(() => groups.reduce((a, g) => a + g.variants.length, 0), [groups]);
+  const isShopify = useMemo(() => (parsed ? detectColumns(parsed.headers).isShopify : false), [parsed]);
+  const groups = useMemo(() => (parsed ? groupProducts(parsed.rows, mapping) : []), [parsed, mapping]);
+  const stats = useMemo(() => (parsed ? mappingStats(parsed.headers, parsed.rows, mapping, groups) : null), [parsed, mapping, groups]);
 
   function updateRule(patch: Partial<ImportRules>) { setRules((r) => ({ ...r, ...patch })); }
   function applyPreset(id: string) { setPresetId(id); setRules((r) => ({ ...presetRules(id), collections: r.collections })); }
   function syncCollections(text: string) { setCollectionsText(text); updateRule({ collections: text.split("\n").map((s) => s.trim()).filter(Boolean) }); }
+  function setMap(field: ShopifyField, idx: number | null) {
+    setMapping((m) => { const n = { ...m }; if (idx === null) delete n[field]; else n[field] = idx; return n; });
+  }
 
   async function readFile(file: File) {
     setParseError(null);
@@ -95,10 +99,9 @@ export default function ImportFactoryPage() {
     const headers = all[0];
     const rows = all.slice(1);
     const det = detectColumns(headers);
-    const grp = groupProducts(rows, det.map);
     setParsed({ headers, rows });
-    setDetected(det);
-    setGroups(grp);
+    setMapping(det.isShopify ? det.map : autoMapColumns(headers));
+    setMapOpen(!det.isShopify);
     setFileInfo({ name: file.name, sizeKb: Math.max(1, Math.round(file.size / 1024)) });
     setResults(null);
     setEdits({});
@@ -109,7 +112,7 @@ export default function ImportFactoryPage() {
   }
 
   async function transform() {
-    if (!parsed || !detected) return;
+    if (!parsed || !stats?.hasTitle) return;
     setError(null);
     const all = groups.slice(0, MAX_PRODUCTS);
     setPhase("working");
@@ -172,19 +175,47 @@ export default function ImportFactoryPage() {
   }
 
   function finalResults(): TransformedProduct[] {
-    return (results || []).map((r) => (edits[r.handle] ? { ...r, title: edits[r.handle] } : r));
+    return (results || []).map((r) => ({ ...r, ...(edits[r.handle] || {}) }));
   }
   function exportCsv() {
-    if (!parsed || !detected || !results) return;
-    const { headers, rows } = applyTransform(parsed.headers, parsed.rows, detected, groups, finalResults(), rules);
+    if (!parsed || !results) return;
+    const { headers, rows } = applyTransform(parsed.headers, parsed.rows, mapping, groups, finalResults(), rules);
     downloadCsv(`orkestra-import-${Date.now()}.csv`, serializeCsv(headers, rows));
   }
   function exportReport() {
     if (!results) return;
     downloadCsv(`orkestra-rapport-${Date.now()}.csv`, buildReportCsv(groups, finalResults()));
   }
+  // Règle de lot : applique une collection ou un product_type aux produits dont
+  // le titre / la collection source contient un mot-clé.
+  function applyBatchRule(keyword: string, field: "collections" | "productType", value: string) {
+    const kw = keyword.trim().toLowerCase();
+    if (!kw || !value.trim() || !results) return 0;
+    let n = 0;
+    setEdits((prev) => {
+      const next = { ...prev };
+      for (const r of results) {
+        const g = groups.find((x) => x.handle === r.handle);
+        const hay = `${edits[r.handle]?.title ?? r.title} ${g?.title ?? ""} ${g?.collection ?? ""}`.toLowerCase();
+        if (hay.includes(kw)) {
+          next[r.handle] = { ...next[r.handle], [field]: field === "collections" ? [value.trim()] : value.trim() };
+          n++;
+        }
+      }
+      return next;
+    });
+    return n;
+  }
+  function batchMatchCount(keyword: string): number {
+    const kw = keyword.trim().toLowerCase();
+    if (!kw || !results) return 0;
+    return results.filter((r) => {
+      const g = groups.find((x) => x.handle === r.handle);
+      return `${edits[r.handle]?.title ?? r.title} ${g?.title ?? ""} ${g?.collection ?? ""}`.toLowerCase().includes(kw);
+    }).length;
+  }
   function reset() {
-    setParsed(null); setDetected(null); setGroups([]); setFileInfo(null); setResults(null);
+    setParsed(null); setMapping({}); setMapOpen(false); setFileInfo(null); setResults(null);
     setEdits({}); setValidated([]); setError(null); setParseError(null); setPhase("idle");
   }
 
@@ -276,7 +307,7 @@ export default function ImportFactoryPage() {
         )}
 
         {/* ── Configuration (fichier détecté + preset + questionnaire) ── */}
-        {(phase === "configure" || phase === "working") && parsed && detected && (
+        {(phase === "configure" || phase === "working") && parsed && stats && (
           <div ref={configRef} className="space-y-5">
             {/* Résumé fichier */}
             <Card>
@@ -285,23 +316,50 @@ export default function ImportFactoryPage() {
                   <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50"><FileSpreadsheet className="h-5 w-5" /></span>
                   <div>
                     <div className="text-sm font-semibold">{fileInfo?.name}</div>
-                    <div className="text-xs text-[var(--text-muted)]">{fileInfo?.sizeKb} Ko · {parsed.rows.length} lignes · {detected.isShopify ? "export Shopify détecté" : "CSV générique"}</div>
+                    <div className="text-xs text-[var(--text-muted)]">{fileInfo?.sizeKb} Ko · {parsed.rows.length} lignes · {isShopify ? "export Shopify détecté" : "CSV générique — mapping manuel recommandé"}</div>
                   </div>
                 </div>
                 <Button variant="ghost" size="sm" onClick={reset} icon={<X className="h-3.5 w-3.5" />}>Changer de fichier</Button>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Stat icon={Boxes} label="Produits" value={groups.length} />
-                <Stat icon={Layers} label="Variantes" value={variantCount} />
-                <Stat icon={ImageIcon} label="Images" value={imageCount} />
+                <Stat icon={Boxes} label="Produits" value={stats.products} />
+                <Stat icon={Layers} label="Variantes" value={stats.variants} />
+                <Stat icon={ImageIcon} label="Images" value={stats.images} />
                 <Stat icon={FileText} label="Colonnes" value={parsed.headers.length} />
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] font-medium text-[var(--text-muted)]">Colonnes reconnues :</span>
-                {(Object.keys(detected.map) as string[]).slice(0, 14).map((k) => <Badge key={k} tone="neutral">{k}</Badge>)}
-                {detected.recognized === 0 && <span className="text-[11px] text-amber-600">Aucune colonne Shopify standard — un mapping minimal sera appliqué (titre/description/images).</span>}
-              </div>
               {tooMany && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">Catalogue volumineux : cette V1 transforme les <strong>{MAX_PRODUCTS} premiers produits</strong> par lot. Relancez pour traiter les suivants.</p>}
+            </Card>
+
+            {/* Mapping des colonnes */}
+            <Card>
+              <button onClick={() => setMapOpen((v) => !v)} className="flex w-full items-center justify-between gap-2 text-left">
+                <span className="flex items-center gap-1.5 text-sm font-bold"><Columns3 className="h-4 w-4 text-brand-600" /> Mapping des colonnes {!isShopify && <Badge tone="warn">à vérifier</Badge>}</span>
+                <ChevronDown className={`h-4 w-4 text-[var(--text-muted)] transition ${mapOpen ? "rotate-180" : ""}`} />
+              </button>
+              <p className="mt-1 text-xs text-[var(--text-muted)]">Dites à Orkestra quelle colonne de votre CSV correspond à quoi. {isShopify ? "Détecté automatiquement — ajustez si besoin." : "Votre CSV n'est pas un export Shopify : vérifiez le mapping ci-dessous."}</p>
+              {mapOpen && (
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {MAP_TARGETS.map((t) => (
+                    <div key={t.field}>
+                      <div className="mb-1 flex items-center gap-1 text-[11px] font-medium">{t.label}{t.required && <span className="text-red-500">*</span>}{mapping[t.field] !== undefined && <Check className="h-3 w-3 text-emerald-500" />}</div>
+                      <select value={mapping[t.field] ?? -1} onChange={(e) => setMap(t.field, e.target.value === "-1" ? null : Number(e.target.value))} className={`input h-9 py-0 text-xs ${t.required && mapping[t.field] === undefined ? "border-red-300" : ""}`}>
+                        <option value={-1}>— (ignorer)</option>
+                        {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Colonne ${i + 1}`}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[var(--border)] pt-3">
+                <span className="text-[11px] font-medium text-[var(--text-muted)]">Colonnes utilisées :</span>
+                {stats.used.map((u) => <Badge key={u.field} tone="neutral">{u.label} ← {u.header || "?"}</Badge>)}
+              </div>
+              {stats.ignored.length > 0 && <div className="mt-1.5 text-[11px] text-[var(--text-muted)]"><span className="font-medium">Ignorées :</span> {stats.ignored.slice(0, 12).join(", ")}{stats.ignored.length > 12 ? "…" : ""}</div>}
+              {stats.warnings.length > 0 && (
+                <div className="mt-3 space-y-1.5">
+                  {stats.warnings.map((w, i) => <div key={i} className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {w}</div>)}
+                </div>
+              )}
             </Card>
 
             {/* Reprendre les règles du dernier import */}
@@ -385,8 +443,8 @@ export default function ImportFactoryPage() {
             {/* Transformer */}
             {phase === "configure" && (
               <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
-                <p className="text-xs text-[var(--text-muted)]">{Math.min(groups.length, MAX_PRODUCTS)} produit(s) seront transformés via OpenAI. Vous validez l&apos;aperçu avant l&apos;export.</p>
-                <Button size="lg" onClick={transform} icon={<Wand2 className="h-4 w-4" />}>Transformer le catalogue</Button>
+                <p className="text-xs text-[var(--text-muted)]">{stats.hasTitle ? `${Math.min(groups.length, MAX_PRODUCTS)} produit(s) seront transformés via OpenAI. Vous validez l'aperçu avant l'export.` : "Mappez d'abord la colonne « Titre produit » pour activer la transformation."}</p>
+                <Button size="lg" onClick={transform} disabled={!stats.hasTitle} icon={<Wand2 className="h-4 w-4" />}>Transformer le catalogue</Button>
               </div>
             )}
 
@@ -416,16 +474,21 @@ export default function ImportFactoryPage() {
               <Button variant="ghost" size="sm" onClick={reset} icon={<Upload className="h-3.5 w-3.5" />}>Nouvel import</Button>
             </div>
 
+            <BatchRules onApply={applyBatchRule} matchCount={batchMatchCount} />
+
             <div className="ork-stagger space-y-3">
               {results.map((r) => {
                 const g = groups.find((x) => x.handle === r.handle);
                 const isVal = validated.includes(r.handle);
+                const ed = edits[r.handle] || {};
+                const collections = ed.collections ?? r.collections;
+                const productType = ed.productType ?? r.productType;
                 return (
                   <Card key={r.handle} className={`ork-rise ${isVal ? "border-emerald-200 dark:border-emerald-900/60" : ""}`}>
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <div className="text-[11px] text-[var(--text-muted)] line-through">{g?.title || r.handle}</div>
-                        <input value={edits[r.handle] ?? r.title} onChange={(e) => setEdits((prev) => ({ ...prev, [r.handle]: e.target.value }))} className="mt-0.5 w-full rounded-lg border border-transparent bg-transparent text-sm font-semibold outline-none transition focus:border-brand-300 focus:bg-[var(--bg)] focus:px-2 focus:py-1" />
+                        <input value={ed.title ?? r.title} onChange={(e) => setEdits((prev) => ({ ...prev, [r.handle]: { ...prev[r.handle], title: e.target.value } }))} className="mt-0.5 w-full rounded-lg border border-transparent bg-transparent text-sm font-semibold outline-none transition focus:border-brand-300 focus:bg-[var(--bg)] focus:px-2 focus:py-1" />
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
                         <Badge tone={r.status === "review" ? "warn" : "good"}>{r.status === "review" ? "À vérifier" : "Validé IA"}</Badge>
@@ -433,9 +496,9 @@ export default function ImportFactoryPage() {
                     </div>
                     <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
                       <Mini label="Meta title" value={r.metaTitle} />
-                      <Mini label="product_type" value={r.productType} />
+                      <Mini label="product_type" value={productType} />
                       <Mini label="Meta description" value={r.metaDescription} full />
-                      {r.collections.length > 0 && <Mini label="Collections" value={r.collections.join(", ")} />}
+                      {collections.length > 0 && <Mini label="Collections" value={collections.join(", ")} />}
                       {r.tags && <Mini label="Tags" value={r.tags} />}
                     </div>
                     {r.imageAlts.length > 0 && (
@@ -458,6 +521,26 @@ export default function ImportFactoryPage() {
 }
 
 // ── Sous-composants ─────────────────────────────────────────────────────────
+function BatchRules({ onApply, matchCount }: { onApply: (kw: string, field: "collections" | "productType", value: string) => number; matchCount: (kw: string) => number }) {
+  const [kw, setKw] = useState("");
+  const [field, setField] = useState<"collections" | "productType">("collections");
+  const [value, setValue] = useState("");
+  const [done, setDone] = useState<string | null>(null);
+  const n = matchCount(kw);
+  return (
+    <Card>
+      <div className="mb-1 flex items-center gap-1.5 text-sm font-bold"><ListFilter className="h-4 w-4 text-brand-600" /> Règles de lot</div>
+      <p className="mb-3 text-xs text-[var(--text-muted)]">Corrigez une catégorie d&apos;un coup. Ex : tous les produits contenant « chandelier » → collection « Lustres ».</p>
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto_1fr_auto] sm:items-end">
+        <div><div className="mb-1 text-[11px] font-medium">Produits contenant</div><input className="input h-9 py-0 text-xs" value={kw} onChange={(e) => { setKw(e.target.value); setDone(null); }} placeholder="chandelier" /></div>
+        <div><div className="mb-1 text-[11px] font-medium">Affecter à</div><select className="input h-9 py-0 text-xs" value={field} onChange={(e) => setField(e.target.value as "collections" | "productType")}><option value="collections">Collection</option><option value="productType">product_type</option></select></div>
+        <div><div className="mb-1 text-[11px] font-medium">Valeur</div><input className="input h-9 py-0 text-xs" value={value} onChange={(e) => setValue(e.target.value)} placeholder={field === "collections" ? "Lustres" : "Lustre"} /></div>
+        <Button size="sm" disabled={!kw.trim() || !value.trim() || n === 0} onClick={() => { const c = onApply(kw, field, value); setDone(`${c} produit(s) modifié(s)`); }}>Appliquer{kw.trim() ? ` (${n})` : ""}</Button>
+      </div>
+      {done && <p className="mt-2 flex items-center gap-1 text-[11px] text-emerald-600"><Check className="h-3 w-3" /> {done}</p>}
+    </Card>
+  );
+}
 function Stat({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: number }) {
   return (
     <div className="flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3">
