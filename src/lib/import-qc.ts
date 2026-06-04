@@ -68,9 +68,11 @@ function enforceMeta(md: string, suffix?: string): { md: string; changed: boolea
   // Retire TOUTES les occurrences finales du suffixe (exactes, doublées ou mal écrites).
   const core = escapeRe(suffix.replace(/[.!]+$/, "").replace(/^[\s✓✔•·\-–—]+/, "").trim()).replace(/ /g, "\\s+");
   const tailRe = new RegExp(`[\\s✓✔•·\\-–—]*${core}\\s*[.!]*\\s*$`, "i");
+  const marker = (suffix.match(/^[✓✔•·]/) || [])[0]; // ex : « ✓ »
   let body = s;
   let count = 0;
   let exactLast = false;
+  let truncatedFrag = false;
   while (body) {
     const m = body.match(tailRe);
     if (!m) break;
@@ -78,13 +80,19 @@ function enforceMeta(md: string, suffix?: string): { md: string; changed: boolea
     count++;
     body = body.slice(0, body.length - m[0].length).replace(/\s+$/, ""); // garde la ponctuation de fin de phrase
   }
+  // Retire un suffixe TRONQUÉ en fin (ex : « ✓ Livraiso ») : tout depuis le dernier marqueur proche de la fin.
+  if (marker) {
+    const mi = body.lastIndexOf(marker);
+    if (mi >= 0 && body.length - mi <= suffix.length + 4) { body = body.slice(0, mi).replace(/\s+$/, ""); truncatedFrag = true; }
+  }
   // Tronque le corps pour laisser la place au suffixe (≤ 160).
   let truncated = false;
   const room = Math.max(0, 160 - suffix.length - 1);
   if (body.length > room) { body = body.slice(0, room).replace(/\s+\S*$/, "").trim(); truncated = true; }
   const out = body ? `${body} ${suffix}` : suffix;
   let issue: string | undefined;
-  if (count === 0) issue = "Suffixe meta ajouté";
+  if (truncatedFrag) issue = "Suffixe meta tronqué corrigé";
+  else if (count === 0) issue = "Suffixe meta ajouté";
   else if (count > 1) issue = "Suffixe meta doublé corrigé";
   else if (!exactLast) issue = "Suffixe meta normalisé (casse / espace)";
   if (truncated) issue = "Meta description ajustée (≤ 160 + suffixe)";
@@ -127,13 +135,14 @@ const EN_FIX: Record<string, string> = {
 const EN_FLAG = ["raindrop", "ceiling", "pendant", "chandelier", "lamp", "light", "glass", "crystal", "indoor", "outdoor", "bedroom", "kitchen", "luxury", "premium", "minimalist", "nordic", "vintage", "modern", "contemporary", "round", "square", "gold", "black", "white"];
 // Collections : anglais/incorrect → français naturel (clé = nom normalisé).
 const COLLECTION_FIX: Record<string, string> = {
-  foyer: "Entrée", entrance: "Entrée", hallway: "Couloir",
+  foyer: "Entrée", entrance: "Entrée", entryway: "Entrée", hallway: "Couloir", staircase: "Escalier",
+  luminairefoyer: "Luminaire entrée", luminairesfoyer: "Luminaires entrée", eclairagefoyer: "Éclairage entrée",
   livingroom: "Salon", diningroom: "Salle à manger", kitchen: "Cuisine", bedroom: "Chambre",
-  bathroom: "Salle de bain", office: "Bureau",
+  bathroom: "Salle de bain", office: "Bureau", outdoor: "Extérieur", indoor: "Intérieur",
   ceilinglights: "Plafonniers", ceilinglight: "Plafonnier", pendantlights: "Suspensions", pendantlight: "Suspension",
-  pendants: "Suspensions", chandeliers: "Lustres", chandelier: "Lustres",
-  walllights: "Appliques", walllight: "Applique", tablelamps: "Lampes à poser", tablelamp: "Lampe à poser",
-  floorlamps: "Lampadaires", floorlamp: "Lampadaire",
+  pendants: "Suspensions", pendant: "Suspensions", chandeliers: "Lustres", chandelier: "Lustres",
+  walllights: "Appliques murales", walllight: "Applique murale", tablelamps: "Lampes à poser", tablelamp: "Lampe à poser",
+  bedsidelamps: "Lampes de chevet", bedsidelamp: "Lampe de chevet", floorlamps: "Lampadaires", floorlamp: "Lampadaire",
 };
 
 function preserveCase(orig: string, repl: string): string {
@@ -284,7 +293,15 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     else ctx.usedHandle.add(h);
   }
 
-  // Tags trop pauvres.
+  // Titre : naturel, pas télégraphique (suite de noms sans connecteur).
+  {
+    const words = fixed.title.split(/\s+/).filter(Boolean);
+    const hasConnector = words.some((w) => FR_LOWER.has(w.toLowerCase().replace(/[^a-zàâäéèêëîïôöûüç]/g, "")));
+    if (words.length >= 5 && !hasConnector) { issues.push("Titre télégraphique (ajouter un connecteur « en / à » pour plus de naturel)"); bump("warning"); }
+    if (/[\s,;:–—-]+$|\b(et|ou|en|de|à|du|des|avec|pour)$/i.test(fixed.title)) { issues.push("Titre finissant par un connecteur"); bump("warning"); }
+  }
+
+  // Tags : richesse + longue traîne + type produit + anglais.
   if (ctx.tagsType) {
     const tagList = fixed.tags.split(",").map((t) => t.trim()).filter(Boolean);
     if (tagList.length < 4) { issues.push(`Tags trop pauvres (${tagList.length})`); bump("warning"); }
@@ -294,6 +311,16 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
       if (longTail === 0) { issues.push("Tags sans longue traîne (ajouter « type + pièce / matière », ex. « luminaire salon »)"); bump("warning"); }
       else if (generic > tagList.length / 2) { issues.push("Tags trop génériques"); bump("warning"); }
     }
+    if (fixed.productType) {
+      const pt = normName(fixed.productType.split(/\s+/)[0]);
+      if (pt && pt.length > 2 && !tagList.some((t) => normName(t).includes(pt))) { issues.push("Type de produit absent des tags"); bump("warning"); }
+    }
+    if (fr) { const enTag = tagList.find((t) => EN_FLAG.some((w) => new RegExp(`\\b${escapeRe(w)}\\b`, "i").test(t))); if (enTag) { issues.push(`Tag en anglais : ${enTag}`); bump("warning"); } }
+  }
+
+  // Description : structure attendue en mode Poussé / Ultra.
+  if (ctx.level === "poussé" || ctx.level === "ultra complet") {
+    if (!/<h[23]\b/i.test(fixed.bodyHtml)) { issues.push("Description sans structure H2/H3 (mode avancé)"); bump("warning"); }
   }
 
   // Collections : français naturel (Foyer → Entrée, Living Room → Salon…) + accents + anglais.
@@ -310,11 +337,10 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     if (enCol) { issues.push(`Collection en anglais : ${enCol}`); bump("warning"); }
   }
 
-  // Description trop courte en mode poussé / ultra.
+  // Description trop courte selon le niveau (Poussé ≥ 120 mots, Ultra ≥ 300 mots).
   const words = stripHtml(fixed.bodyHtml).split(/\s+/).filter(Boolean).length;
-  if ((ctx.level === "poussé" || ctx.level === "ultra complet") && words < 120) {
-    issues.push(`Description courte (${words} mots)`); bump("warning");
-  }
+  const minWords = ctx.level === "ultra complet" ? 300 : ctx.level === "poussé" ? 120 : 0;
+  if (minWords && words < minWords) { issues.push(`Description courte pour le mode ${ctx.level} (${words} mots)`); bump("warning"); }
 
   // Doute IA signalé.
   if (r.status === "review") { if (r.notes?.length) issues.push(...r.notes); bump("warning"); }

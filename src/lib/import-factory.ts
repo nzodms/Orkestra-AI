@@ -422,12 +422,12 @@ export function toProductInput(g: ProductGroup): ImportProductInput {
 // ── Prompts OpenAI ──────────────────────────────────────────────────────────
 
 const TRANSFORM_LABEL: Record<TransformMode, string> = {
-  translate: "Traduire uniquement (corriger la langue, conserver noms et structure)",
-  clean_translate: "Nettoyer + traduire (corriger textes, unités, descriptions)",
-  rename_optimize: "Renommer + optimiser (titres, descriptions, meta, alt, tags)",
-  recreate: "Recréer complètement le contenu produit (à partir des données réelles)",
-  migration: "Migration Shopify propre (nettoyer titres, meta, handles, conserver les données)",
-  supplier_to_brand: "Import fournisseur → boutique de marque (transformer le contenu fournisseur)",
+  translate: "Traduire uniquement : traduire les textes visibles sans réécrire les fiches ; pas de réécriture marketing, ne pas changer la structure produit, conserver le style source.",
+  clean_translate: "Nettoyer le CSV : corriger fautes, accents, anglais résiduel, titres bruts, handles sales, tags fournisseur, vendor, product_type ; garder les infos existantes, supprimer le bruit fournisseur, PAS de grosse réécriture.",
+  rename_optimize: "Optimiser les fiches : améliorer titres, descriptions HTML, meta, alt, tags, product_type et collections — fiches prêtes à publier, vendeuses mais sobres, Merchant-friendly.",
+  recreate: "Recréer les contenus : réécrire ENTIÈREMENT à partir des données fiables, contrôle qualité strict, contenu original, zéro copie, sans inventer de donnée technique.",
+  migration: "Migration Shopify : mode PRUDENT — nettoyer descriptions/meta/alt/tags/product_type, CONSERVER au maximum handles, variantes, images, SKU, prix et collections existantes ; signaler tout handle modifié.",
+  supplier_to_brand: "Fournisseur → marque : supprimer l'aspect fournisseur (noms, anciens domaines, tags inutiles), recréer un catalogue cohérent avec la marque et son ton, textes originaux, garde-fous anti-copie.",
 };
 const TITLE_LABEL: Record<TitleStyle, string> = {
   keep: "Garder les titres existants (corrigés/traduits)",
@@ -663,6 +663,17 @@ export function applyTransform(
     if (rules.altText) g.images.forEach((img, k) => { rows[img.rowIndex][idx.ImageAlt] = t.imageAlts[k] || t.title; });
   }
 
+  // ── Options / variantes en français + pouces → cm (libellés uniquement) ──
+  const french = /fran[çc]ais/i.test(rules.language);
+  if (french || rules.convertUnits) {
+    const nameCols = (["Option1Name", "Option2Name", "Option3Name"] as ShopifyField[]).map((f) => map[f]).filter((i): i is number => i !== undefined);
+    const valCols = (["Option1Value", "Option2Value", "Option3Value"] as ShopifyField[]).map((f) => map[f]).filter((i): i is number => i !== undefined);
+    for (const r of rows) {
+      for (const ci of nameCols) { const v = cell(r, ci); if (v) r[ci] = cleanOptionName(v, french); }
+      for (const ci of valCols) { const v = cell(r, ci); if (v) r[ci] = cleanOptionValue(v, french, rules.convertUnits); }
+    }
+  }
+
   // ── Nettoyages de sécurité déterministes ──
   let altCleared = 0, catCleared = 0;
   for (const r of rows) {
@@ -703,6 +714,19 @@ export function applyTransform(
   }
   if (optNoName) flag("warning", "Valeur d'option sans nom d'option", `${optNoName}`);
 
+  // Options/variantes : anglais résiduel ou pouces non convertis (langue française).
+  if (french) {
+    const nameColsQc = (["Option1Name", "Option2Name", "Option3Name"] as ShopifyField[]).map((f) => map[f]).filter((i): i is number => i !== undefined);
+    const valColsQc = (["Option1Value", "Option2Value", "Option3Value"] as ShopifyField[]).map((f) => map[f]).filter((i): i is number => i !== undefined);
+    let enOpt = 0, inchOpt = 0;
+    for (const r of rows) {
+      for (const ci of nameColsQc) if (ENGLISH_OPTION_RE.test(cell(r, ci))) enOpt++;
+      for (const ci of valColsQc) { const v = cell(r, ci); if (/["”]|\binch(es)?\b|\bpouces?\b/i.test(v)) inchOpt++; else if (ENGLISH_OPTION_RE.test(v)) enOpt++; }
+    }
+    if (enOpt) flag("risk", "Options/variantes encore en anglais", `${enOpt} valeur(s)`);
+    if (rules.convertUnits && inchOpt) flag("risk", "Dimensions de variantes encore en pouces", `${inchOpt} valeur(s)`);
+  }
+
   const skus = rows.map((r) => cell(r, idx.VariantSKU)).filter(Boolean);
   const dupSku = Array.from(new Set(skus.filter((s, i) => skus.indexOf(s) !== i)));
   if (dupSku.length) flag("warning", "SKU dupliqué", dupSku.slice(0, 5).join(", "));
@@ -739,6 +763,55 @@ function guessOptionName(header: string): string {
   if (/(couleur|color|colour)/.test(k)) return "Couleur";
   if (/(materiau|material|matiere)/.test(k)) return "Matériau";
   return "Modèle";
+}
+
+// ── Options / variantes : traduction FR + conversion pouces → cm (libellés) ──
+const OPTION_NAME_FR: Record<string, string> = {
+  size: "Taille", color: "Couleur", colour: "Couleur", style: "Style", combination: "Configuration",
+  "plug type": "Type de prise", "emitting color": "Couleur d'éclairage", "emitting colour": "Couleur d'éclairage",
+  "lampshade color": "Couleur de l'abat-jour", "body color": "Couleur du corps", finish: "Finition",
+  material: "Matériau", diameter: "Diamètre", height: "Hauteur", width: "Largeur", length: "Longueur",
+  wattage: "Puissance", power: "Puissance", quantity: "Quantité", pack: "Lot", voltage: "Voltage", shape: "Forme", model: "Modèle",
+};
+const OPTION_VALUE_FR: Record<string, string> = {
+  single: "Unité", "set of 2": "Lot de 2", "set of 3": "Lot de 3", "set of 4": "Lot de 4",
+  "set (2 pcs)": "Lot de 2", "set (3 pcs)": "Lot de 3", "2 pcs": "Lot de 2", "3 pcs": "Lot de 3",
+  "warm white": "Blanc chaud", "cold white": "Blanc froid", "cool white": "Blanc froid", "neutral white": "Blanc neutre",
+  dimmable: "Intensité variable", "remote control": "Télécommande", "with remote": "Avec télécommande", "without remote": "Sans télécommande",
+  gold: "Doré", black: "Noir", white: "Blanc", silver: "Argenté", chrome: "Chromé", "rose gold": "Doré rose",
+  round: "Rond", square: "Carré", small: "Petit", medium: "Moyen", large: "Grand",
+};
+const ENGLISH_OPTION_RE = /\b(size|color|colour|style|combination|plug|emitting|lampshade|finish|material|diameter|height|width|length|single|set of|pcs|warm white|cold white|cool white|neutral white|dimmable|remote|gold|black|white|silver|round|square|small|medium|large)\b/i;
+function escapeReg(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function convertInchesToCm(s: string): string {
+  return s.replace(/(\d+(?:[.,]\d+)?)\s*(?:["”'']|inches?|inch|in\b|pouces?|po\b)/gi, (_m, num: string) => {
+    const v = parseFloat(num.replace(",", "."));
+    if (!isFinite(v)) return _m;
+    const cm = v * 2.54;
+    // Arrondi à l'entier pour les tailles produit usuelles (6.2"→16, 11.8"→30…) ;
+    // une décimale seulement pour les très petites dimensions.
+    const r = cm < 2 ? cm.toFixed(1).replace(".", ",") : String(Math.round(cm));
+    return `${r} cm`;
+  });
+}
+function frenchifyDimAbbrev(s: string): string {
+  return s.replace(/\bW\b/g, "L").replace(/\bD\b/g, "P").replace(/\bDia\.?/gi, "Diam.");
+}
+function cleanOptionName(name: string, french: boolean): string {
+  if (!french || !name) return name;
+  return OPTION_NAME_FR[name.toLowerCase().trim()] || name;
+}
+function cleanOptionValue(value: string, french: boolean, convert: boolean): string {
+  if (!value) return value;
+  let out = value;
+  if (convert) out = convertInchesToCm(out);
+  if (french) {
+    out = frenchifyDimAbbrev(out);
+    const exact = OPTION_VALUE_FR[out.toLowerCase().trim()];
+    if (exact) out = exact;
+    else for (const [bad, good] of Object.entries(OPTION_VALUE_FR)) out = out.replace(new RegExp(`\\b${escapeReg(bad)}\\b`, "gi"), good);
+  }
+  return out;
 }
 
 function slugify(s: string): string {

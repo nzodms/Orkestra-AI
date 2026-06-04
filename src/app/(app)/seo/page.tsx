@@ -47,11 +47,23 @@ const BATCH = 3;
 const LANGS = ["Français", "Anglais", "Espagnol", "Allemand", "Italien"];
 const COUNTRIES = ["France", "Belgique", "Suisse", "Canada", "USA", "Autre"];
 const TONES = ["naturel", "premium discret", "expert", "direct", "chaleureux"];
-const TRANSFORMS: { v: TransformMode; l: string }[] = [
-  { v: "translate", l: "Traduire" }, { v: "clean_translate", l: "Nettoyer + traduire" },
-  { v: "rename_optimize", l: "Renommer + optimiser" }, { v: "recreate", l: "Recréer le contenu" },
-  { v: "migration", l: "Migration Shopify" }, { v: "supplier_to_brand", l: "Fournisseur → marque" },
+const TRANSFORMS: { v: TransformMode; l: string; sub: string }[] = [
+  { v: "translate", l: "Traduire uniquement", sub: "Traduit les textes visibles sans réécrire entièrement les fiches." },
+  { v: "clean_translate", l: "Nettoyer le CSV", sub: "Corrige textes sales, fautes, restes fournisseur, champs Shopify et handles." },
+  { v: "rename_optimize", l: "Optimiser les fiches produits", sub: "Améliore titres, descriptions, meta, alt, tags et product_type — prêtes à publier." },
+  { v: "recreate", l: "Recréer les contenus produit", sub: "Réécrit entièrement à partir des données fiables, sans casser variantes/prix/SKU/images." },
+  { v: "migration", l: "Préparer une migration Shopify", sub: "Nettoie un export Shopify sans casser handles, variantes, images ou associations." },
+  { v: "supplier_to_brand", l: "Transformer fournisseur → marque", sub: "Supprime l'aspect fournisseur et recrée un catalogue cohérent avec votre marque." },
 ];
+const MODE_MODIFIES: Record<TransformMode, string[]> = {
+  translate: ["Titres si nécessaire", "Descriptions", "Options", "Tags (si activé)", "Alt text (si activé)"],
+  clean_translate: ["Fautes & accents", "Anglais résiduel", "Titres bruts", "Handles sales", "Tags fournisseur", "product_type", "Meta (si activé)"],
+  rename_optimize: ["Titres", "Descriptions HTML", "Meta", "Alt text", "Tags", "product_type", "Collections recommandées"],
+  recreate: ["Titres", "Descriptions", "Meta", "Tags", "Alt text", "product_type", "Maillage (si activé)", "Collections"],
+  migration: ["Descriptions", "Meta", "Alt text", "Tags", "product_type", "Textes anglais", "Vendor (si activé)"],
+  supplier_to_brand: ["Titres fournisseur", "Descriptions", "Tags inutiles", "Anciens noms / domaines", "Meta", "Alt text", "product_type", "Handles", "Ton de marque"],
+};
+const MODE_PRESERVES = ["Prix", "SKU", "Images", "Variantes", "Stock", "URLs images", "Variant Image", "Image Position"];
 const TITLES: { v: TitleStyle; l: string }[] = [
   { v: "keep", l: "Garder" }, { v: "rewrite_seo", l: "Réécrire pour Google" }, { v: "short", l: "Courts (3–6 mots)" }, { v: "descriptive_long", l: "Descriptifs longs" },
 ];
@@ -104,6 +116,7 @@ export default function ImportFactoryPage() {
   const [rejected, setRejected] = useState<string[]>([]);
   const [locked, setLocked] = useState<string[]>([]);
   const [confirmExport, setConfirmExport] = useState(false);
+  const [approvePanel, setApprovePanel] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [showExample, setShowExample] = useState(false);
@@ -226,7 +239,7 @@ export default function ImportFactoryPage() {
     const { fixed, reports } = runQc(acc);
     setResults(fixed);
     setQcReports(reports);
-    setValidated([]); setRejected([]); setLocked([]);
+    setValidated([]); setRejected([]); setLocked([]); setApprovePanel(false);
     rememberImportFor(selectedProfileId, {
       brandNames: fixed.map((r) => r.brandName).filter(Boolean) as string[],
       titles: fixed.map((r) => r.title).filter(Boolean),
@@ -309,10 +322,40 @@ export default function ImportFactoryPage() {
     downloadCsv(`orkestra-a-verifier-${Date.now()}.csv`, buildIssueReportCsv(groups, qcReports));
   }
   function toggle(set: string[], setter: (v: string[]) => void, h: string) { setter(set.includes(h) ? set.filter((x) => x !== h) : [...set, h]); }
-  function approveAll() { setValidated((results || []).map((r) => r.handle)); setRejected([]); }
+  const statusOf = (h: string): QCStatus => qcReports[h]?.status ?? "ok";
+  // §12 — Approbation intelligente : les produits « bloqués » (failed) ne sont
+  // jamais approuvés en masse. `includeWarnings` ajoute warning + risk aux OK.
+  function approveByStatus(includeWarnings: boolean) {
+    const next = (results || [])
+      .filter((r) => (includeWarnings ? statusOf(r.handle) !== "failed" : statusOf(r.handle) === "ok"))
+      .map((r) => r.handle);
+    setValidated(next);
+    setRejected((x) => x.filter((h) => !next.includes(h)));
+    setApprovePanel(false);
+  }
+  function onApproveAllClick() {
+    // Tout est OK → on approuve directement ; sinon on demande quoi faire.
+    if (qcCounts.warning + qcCounts.risk + qcCounts.failed === 0) approveByStatus(true);
+    else setApprovePanel((v) => !v);
+  }
+  function scrollToFirstIssue() {
+    setApprovePanel(false);
+    const first = (results || []).find((r) => statusOf(r.handle) !== "ok");
+    if (first) setTimeout(() => document.getElementById(`qc-${first.handle}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 60);
+  }
+  // §13 — Re-applique le contrôle qualité déterministe (français, accents, casse,
+  // suffixe meta, doublons) sur le contenu courant, en incluant les éditions
+  // manuelles. Corrige automatiquement ce qui est corrigeable sans OpenAI.
+  function autoFixWarnings() {
+    if (!results) return;
+    const { fixed, reports } = runQc(finalResults());
+    setResults(fixed);
+    setQcReports(reports);
+    setEdits({});
+  }
   function reset() {
     setParsed(null); setMapping({}); setMapOpen(false); setFileInfo(null); setResults(null);
-    setQcReports({}); setEdits({}); setValidated([]); setRejected([]); setLocked([]); setConfirmExport(false); setError(null); setParseError(null); setPhase("idle");
+    setQcReports({}); setEdits({}); setValidated([]); setRejected([]); setLocked([]); setConfirmExport(false); setApprovePanel(false); setError(null); setParseError(null); setPhase("idle");
   }
   // Construit une fiche produit synthétique (mêmes headers/mapping qu'un CSV Shopify).
   function buildManualParsed(): { headers: string[]; rows: string[][] } | null {
@@ -348,7 +391,7 @@ export default function ImportFactoryPage() {
     setParsed(built);
     setMapping({ ...MANUAL_MAP });
     setMapOpen(false);
-    setResults(null); setQcReports({}); setEdits({}); setValidated([]); setRejected([]); setLocked([]); setConfirmExport(false);
+    setResults(null); setQcReports({}); setEdits({}); setValidated([]); setRejected([]); setLocked([]); setConfirmExport(false); setApprovePanel(false);
     setFileInfo({ name: `Produit manuel — ${manual.title.trim()}`, sizeKb: 1 });
     setError(null);
     setPhase("configure");
@@ -579,7 +622,31 @@ export default function ImportFactoryPage() {
                   <Field label="Pays cible"><Seg value={rules.country} options={COUNTRIES} onChange={(v) => updateRule({ country: v })} /></Field>
                   <Field label="Ton"><Seg value={rules.tone} options={TONES} onChange={(v) => updateRule({ tone: v })} /></Field>
                 </div>
-                <Field label="Type de transformation"><Seg value={rules.transform} options={TRANSFORMS.map((t) => t.l)} onChange={(l) => updateRule({ transform: TRANSFORMS.find((t) => t.l === l)!.v })} valueLabel={TRANSFORMS.find((t) => t.v === rules.transform)?.l} /></Field>
+                <div>
+                  <div className="mb-1 text-sm font-semibold">Que voulez-vous faire avec ce catalogue ?</div>
+                  <p className="mb-2 text-xs text-[var(--text-muted)]">Choisissez le niveau de modification. Orkestra conserve les données sensibles (variantes, prix, SKU, stocks, images).</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {TRANSFORMS.map((t) => {
+                      const on = rules.transform === t.v;
+                      return (
+                        <button key={t.v} onClick={() => updateRule({ transform: t.v })} className={`ork-interactive flex flex-col rounded-xl border p-3 text-left hover:border-brand-300 ${on ? "border-brand-500 bg-brand-50 dark:bg-brand-950" : "border-[var(--border)]"}`}>
+                          <div className="flex items-center justify-between gap-1"><span className="text-xs font-semibold">{t.l}</span>{on && <Check className="h-3.5 w-3.5 shrink-0 text-brand-600" />}</div>
+                          <p className="mt-1 text-[10px] leading-tight text-[var(--text-muted)]">{t.sub}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3">
+                      <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-brand-700 dark:text-brand-300"><Wand2 className="h-3.5 w-3.5" /> Ce mode va modifier</div>
+                      <div className="flex flex-wrap gap-1">{MODE_MODIFIES[rules.transform].map((m) => <span key={m} className="rounded-md bg-brand-50 px-1.5 py-0.5 text-[10px] text-brand-700 dark:bg-brand-950 dark:text-brand-300">{m}</span>)}</div>
+                    </div>
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 dark:border-emerald-900/60 dark:bg-emerald-950/20">
+                      <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"><ShieldCheck className="h-3.5 w-3.5" /> Ne touchera jamais</div>
+                      <div className="flex flex-wrap gap-1">{MODE_PRESERVES.map((m) => <span key={m} className="rounded-md bg-emerald-100/70 px-1.5 py-0.5 text-[10px] text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">{m}</span>)}</div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <Section title="Titres & noms brandés" icon={TypeIcon} defaultOpen>
@@ -642,12 +709,12 @@ export default function ImportFactoryPage() {
             <Card className="flex flex-col gap-3 border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="flex items-center gap-1.5 text-base font-bold"><CheckCircle2 className="h-5 w-5 text-emerald-600" /> Catalogue transformé</h2>
-                <p className="mt-0.5 text-sm text-[var(--text-muted)]">{results.length} produit(s) · variantes, prix, SKU et images préservés. Contrôle qualité appliqué.</p>
+                <p className="mt-0.5 text-sm text-[var(--text-muted)]">{results.length} produit(s) transformé(s) · {applied?.stats.variants ?? 0} variante(s) conservée(s) · {applied?.stats.images ?? 0} image(s) préservée(s){qcCounts.warning + qcCounts.risk + qcCounts.failed > 0 ? ` · ${qcCounts.warning + qcCounts.risk + qcCounts.failed} à vérifier avant export` : " · prêt à exporter"}.</p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   <Badge tone="good">{qcCounts.ok} OK</Badge>
-                  {qcCounts.warning > 0 && <Badge tone="warn">{qcCounts.warning} warning</Badge>}
-                  {qcCounts.risk > 0 && <Badge tone="bad">{qcCounts.risk} risk</Badge>}
-                  {qcCounts.failed > 0 && <Badge tone="bad">{qcCounts.failed} failed</Badge>}
+                  {qcCounts.warning > 0 && <Badge tone="warn">{qcCounts.warning} à améliorer</Badge>}
+                  {qcCounts.risk > 0 && <Badge tone="bad">{qcCounts.risk} à risque</Badge>}
+                  {qcCounts.failed > 0 && <Badge tone="bad">{qcCounts.failed} bloqué(s)</Badge>}
                   {validated.length > 0 && <Badge tone="brand">{validated.length} approuvé(s)</Badge>}
                 </div>
               </div>
@@ -703,10 +770,38 @@ export default function ImportFactoryPage() {
             <div className="flex flex-wrap items-center gap-2">
               <BatchRules onApply={applyBatchRule} matchCount={batchMatchCount} />
             </div>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="flex items-center gap-1.5 text-sm font-bold"><ListChecks className="h-4 w-4 text-brand-600" /> Diff avant / après ({results.length})</span>
-              <Button variant="outline" size="sm" icon={<CheckCheck className="h-3.5 w-3.5" />} onClick={approveAll}>Tout approuver</Button>
+              <div className="flex flex-wrap items-center gap-2">
+                {qcCounts.warning + qcCounts.risk > 0 && (
+                  <Button variant="ghost" size="sm" icon={<Wand2 className="h-3.5 w-3.5" />} onClick={autoFixWarnings}>Corriger automatiquement</Button>
+                )}
+                <Button variant="outline" size="sm" icon={<CheckCheck className="h-3.5 w-3.5" />} onClick={onApproveAllClick}>Tout approuver</Button>
+              </div>
             </div>
+
+            {approvePanel && (
+              <div className="ork-rise rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5 text-sm">
+                <div className="font-semibold">Comment voulez-vous approuver ?</div>
+                <p className="mt-1 text-[var(--text-muted)]">
+                  {qcCounts.ok} produit(s) prêt(s) à publier
+                  {qcCounts.warning > 0 && ` · ${qcCounts.warning} à améliorer`}
+                  {qcCounts.risk > 0 && ` · ${qcCounts.risk} à risque`}
+                  {qcCounts.failed > 0 && ` · ${qcCounts.failed} bloqué(s) (non approuvables)`}.
+                </p>
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  <Button size="sm" icon={<Check className="h-3.5 w-3.5" />} onClick={() => approveByStatus(false)} disabled={qcCounts.ok === 0}>Approuver uniquement les OK ({qcCounts.ok})</Button>
+                  {qcCounts.warning + qcCounts.risk > 0 && (
+                    <Button size="sm" variant="outline" icon={<CheckCheck className="h-3.5 w-3.5" />} onClick={() => approveByStatus(true)}>Tout approuver avec warnings ({qcCounts.ok + qcCounts.warning + qcCounts.risk})</Button>
+                  )}
+                  {qcCounts.warning + qcCounts.risk + qcCounts.failed > 0 && (
+                    <Button size="sm" variant="ghost" icon={<AlertTriangle className="h-3.5 w-3.5" />} onClick={scrollToFirstIssue}>Voir les problèmes</Button>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => setApprovePanel(false)}>Annuler</Button>
+                </div>
+                {qcCounts.failed > 0 && <p className="mt-2 text-[11px] text-[var(--text-muted)]">Les produits bloqués ne sont jamais approuvés automatiquement : corrigez-les (régénérer / éditer) ou utilisez « Exporter quand même » en bas.</p>}
+              </div>
+            )}
 
             <div className="ork-stagger space-y-3">
               {results.map((r) => {
@@ -721,7 +816,7 @@ export default function ImportFactoryPage() {
                 const productType = ed.productType ?? r.productType;
                 const newHandle = r.newHandle || g?.handle || "";
                 return (
-                  <Card key={r.handle} className={`ork-rise ${isVal ? "border-emerald-200 dark:border-emerald-900/60" : isRej ? "border-red-200 opacity-70 dark:border-red-900/60" : ""}`}>
+                  <Card key={r.handle} id={`qc-${r.handle}`} className={`ork-rise scroll-mt-24 ${isVal ? "border-emerald-200 dark:border-emerald-900/60" : isRej ? "border-red-200 opacity-70 dark:border-red-900/60" : ""}`}>
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <div className="text-[11px] text-[var(--text-muted)] line-through">{g?.title || r.handle}</div>
