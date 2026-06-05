@@ -146,6 +146,21 @@ function replaceFoyer(s: string): { out: string; changed: boolean } {
   return { out, changed };
 }
 
+/** Corrige l'accord / la préposition autour de « entrée » (souvent issu de
+ *  « foyer » → « entrée » : « un entrée » → « une entrée », « du/au entrée »…). */
+function fixEntreeGrammar(input: string): { out: string; changed: boolean } {
+  if (!input || !/entrées?\b/i.test(input)) return { out: input, changed: false };
+  let out = input, changed = false;
+  const sub = (re: RegExp, repl: string) => { const n = out.replace(re, repl); if (n !== out) { changed = true; out = n; } };
+  sub(/\bun\s+(entrées?)\b/gi, "une $1");           // un entrée → une entrée
+  sub(/\bdu\s+(entrées?)\b/gi, "de l'$1");          // du entrée → de l'entrée
+  sub(/\bau\s+(entrées?)\b/gi, "à l'$1");           // au entrée → à l'entrée
+  sub(/\b([Ll]e)\s+(entrées?)\b/g, "l'$2");         // le entrée → l'entrée
+  sub(/\bce\s+(entrées?)\b/gi, "cette $1");         // ce entrée → cette entrée
+  sub(/\b(entrées?)\s+(ou|et)\s+(escalier)\b/gi, "$1 $2 un $3"); // entrée ou escalier → entrée ou un escalier
+  return { out, changed };
+}
+
 // ── Anti-invention : affirmations souvent hallucinées (vérifiées vs source) ──
 interface ClaimDef { re: RegExp; label: string; src: RegExp; remove: boolean }
 const CLAIM_DEFS: ClaimDef[] = [
@@ -155,11 +170,15 @@ const CLAIM_DEFS: ClaimDef[] = [
   { re: /ampoules?\b[^.<>]{0,30}\b(?:inclus\w*|fournies?|comprises?|livr[ée]\w*)/i, label: "ampoules incluses", src: /ampoule|bulb/i, remove: true },
   { re: /dur[ée]e\s+de\s+vie\s+(?:de\s+)?\d+|>?\s?\d{2,}\s*0{3}\s*h(?:eures?)?\b/i, label: "durée de vie", src: /dur[ée]e\s+de\s+vie|lifespan|\bh(?:eures?)?\s+de\s+vie/i, remove: true },
   { re: /\b(?:non[\s-]?)?dimmable\b|intensit[ée]\s+variable|variateur|gradable/i, label: "dimmable / intensité variable", src: /dimmable|intensit[ée]\s+variable|variateur|gradable/i, remove: false },
-  { re: /\bled[s]?\s+int[ée]gr[ée]e?s?\b/i, label: "LED intégrées", src: /\bled\b/i, remove: false },
-  { re: /\bcertifi[ée]\w*\b|\bcertification\b|\bnorme\s+[A-Za-z]|\bIP\s?\d{2}\b/i, label: "certification / norme", src: /certifi|certification|\bnorme\b|\bIP\s?\d{2}\b|\bCE\b/i, remove: false },
-  { re: /\b(?:GU\s?10|E\s?27|E\s?14|E\s?26|B\s?22|MR\s?16)\b/i, label: "compatibilité d'ampoule (culot)", src: /\b(?:GU\s?10|E\s?27|E\s?14|E\s?26|B\s?22|MR\s?16|culot)\b/i, remove: false },
+  { re: /\bled[s]?\s+int[ée]gr[ée]e?s?/i, label: "LED intégrées", src: /\bled\b/i, remove: false },
+  { re: /\bcertifi[ée]\w*|\bcertification\b|\bnorme\s+[A-Za-z]|\bIP\s?\d{2}\b/i, label: "certification / norme", src: /certifi|certification|\bnorme\b|\bIP\s?\d{2}\b|\bCE\b/i, remove: false },
+  { re: /\b(?:GU\s?10|E\s?27|E\s?26|E\s?14|E\s?12|B\s?22|MR\s?16)\b/i, label: "compatibilité d'ampoule (culot)", src: /\b(?:GU\s?10|E\s?27|E\s?26|E\s?14|E\s?12|B\s?22|MR\s?16|culot)\b/i, remove: false },
   { re: /\bcristal\s+k9\b/i, label: "cristal K9", src: /cristal\s+k9|\bk9\b/i, remove: false },
-  { re: /\bacier\s+(?:inoxydable|inox|poli|bross[ée])\b|\blaiton\s+massif\b/i, label: "matériau précis (acier / laiton)", src: /acier|inox|laiton|steel|brass/i, remove: false },
+  { re: /\bacier\s+(?:inoxydable|inox|poli|bross[ée]e?s?)|\blaiton\s+massif/i, label: "matériau précis (acier / laiton)", src: /acier|inox|laiton|steel|brass/i, remove: false },
+  { re: /\bfer\s+dor[ée]e?s?/i, label: "matériau précis (fer doré)", src: /fer\s+dor|\bfer\b|iron/i, remove: false },
+  { re: /\bverre\s+souffl[ée]e?s?/i, label: "matériau précis (verre soufflé)", src: /verre\s+souffl|blown\s+glass/i, remove: false },
+  { re: /\bpoids\s+(?:de\s+)?\d|\b\d+([.,]\d+)?\s?(?:kg|kilos?|grammes?)\b/i, label: "poids", src: /poids|\bkg\b|kilo|gramme|weight/i, remove: false },
+  { re: /\b\d{1,4}\s?watts?\b|\b\d{1,4}\s?W\b(?!\s*[x×])|puissance\s*:?\s*\d/i, label: "puissance", src: /puissance|watt|\bW\b|wattage/i, remove: false },
 ];
 
 /** Retire d'un HTML les phrases contenant une affirmation, sans casser les balises. */
@@ -343,13 +362,16 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     // Anglais résiduel non corrigé dans titre / meta title → RISK.
     const remain = EN_FLAG.filter((w) => new RegExp(`\\b${escapeRe(w)}\\b`, "i").test(`${fixed.title} ${fixed.metaTitle}`));
     if (remain.length) { issues.push(`Mot anglais résiduel : ${Array.from(new Set(remain)).slice(0, 4).join(", ")}`); bump("risk"); }
-    // « foyer » (anglicisme pièce) → entrée / hall / escalier.
-    let foyerHit = false;
+    // « foyer » (anglicisme pièce) → entrée / hall / escalier, puis accord FR.
+    let foyerHit = false, grammarHit = false;
     for (const k of ["title", "metaTitle", "metaDescription", "tags", "bodyHtml"] as const) {
       const f = replaceFoyer(fixed[k] || "");
       if (f.changed) { fixed[k] = f.out; foyerHit = true; }
+      const gr = fixEntreeGrammar(fixed[k] || "");
+      if (gr.changed) { fixed[k] = gr.out; grammarHit = true; }
     }
     if (foyerHit) { issues.push("« foyer » remplacé (entrée / hall / escalier)"); bump("warning"); }
+    if (grammarHit) { issues.push("Accord / préposition corrigé autour de « entrée »"); bump("warning"); }
   }
 
   // ── Casse marque / vendor dans titre + meta title + meta description ──

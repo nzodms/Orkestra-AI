@@ -13,6 +13,7 @@ import {
 import { PROFILES, CUSTOM_PROFILE, profileById, profileRuleOverrides, profileContext, effectiveProfile, type ProfileConfig } from "@/lib/import-profiles";
 import { emptyProfileMemory } from "@/lib/store";
 import { qualityControl, buildIssueReportCsv, buildExportReport, type QCReport, type QCStatus } from "@/lib/import-qc";
+import { planImportModels } from "@/lib/ai/import-models";
 import { PageHeader, Card, Badge } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import {
@@ -212,7 +213,10 @@ export default function ImportFactoryPage() {
     const all = groups.slice(0, MAX_PRODUCTS);
     setPhase("working");
     setProgress({ done: 0, total: all.length });
-    const batches = chunk(all, BATCH);
+    // Lot adaptatif : en Ultra, 1 produit/appel pour donner tout le budget de
+    // tokens à une description longue ; modes avancés 2 ; sinon 3.
+    const batchSize = rules.level === "ultra complet" ? 1 : rules.level === "poussé" || rules.transform === "recreate" || rules.transform === "supplier_to_brand" ? 2 : BATCH;
+    const batches = chunk(all, batchSize);
     const acc: TransformedProduct[] = [];
     const brandAcc = [...mem.brandNames];
     const anchorAcc = [...mem.anchors];
@@ -225,7 +229,7 @@ export default function ImportFactoryPage() {
           body: JSON.stringify({
             products: inputs, rules, memory: { brandNames: brandAcc, anchors: anchorAcc },
             context: { ...profileContext(eff), brandName: eff.brand || brand.storeName || undefined, niche: eff.niche || brand.niche || undefined, positioning: brand.positioning },
-            keyRefs: { openai: connections.openai?.keyId },
+            keyRefs: { openai: connections.openai?.keyId, claude: connections.anthropic?.keyId },
           }),
         });
         data = await res.json();
@@ -235,7 +239,7 @@ export default function ImportFactoryPage() {
       if (!data.ok || !data.results) { setError(data.error || "Échec de la transformation."); setPhase("configure"); return; }
       acc.push(...data.results);
       for (const r of data.results) if (r.brandName) brandAcc.push(r.brandName);
-      setProgress({ done: Math.min(all.length, (b + 1) * BATCH), total: all.length });
+      setProgress({ done: Math.min(all.length, (b + 1) * batchSize), total: all.length });
     }
     // Contrôle qualité déterministe + corrections.
     const { fixed, reports } = runQc(acc);
@@ -406,6 +410,9 @@ export default function ImportFactoryPage() {
   })();
 
   const tooMany = groups.length > MAX_PRODUCTS;
+  // Routing multi-modèle : Orkestra choisit les modèles selon le niveau ;
+  // l'utilisateur ne choisit que le niveau. Claude n'intervient que s'il est connecté.
+  const modelPlan = planImportModels(rules, { claudeAvailable: !!connections.anthropic?.connected });
 
   return (
     <>
@@ -691,7 +698,14 @@ export default function ImportFactoryPage() {
             {/* Transformer */}
             {phase === "configure" && (
               <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
-                <p className="text-xs text-[var(--text-muted)]">{!openaiConnected ? "Connectez OpenAI pour lancer la transformation IA." : stats.hasTitle ? `${Math.min(groups.length, MAX_PRODUCTS)} produit(s) seront transformés via OpenAI. Vous validez l'aperçu avant l'export.` : "Mappez d'abord la colonne « Titre produit » pour activer la transformation."}</p>
+                <div className="space-y-1.5">
+                  <p className="text-xs text-[var(--text-muted)]">{!openaiConnected ? "Connectez OpenAI pour lancer la transformation IA." : stats.hasTitle ? `${Math.min(groups.length, MAX_PRODUCTS)} produit(s) seront transformés via OpenAI. Vous validez l'aperçu avant l'export.` : "Mappez d'abord la colonne « Titre produit » pour activer la transformation."}</p>
+                  {openaiConnected && stats.hasTitle && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-[var(--bg)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-muted)]" title="Orkestra choisit les modèles selon le niveau. Claude n'intervient que s'il est connecté.">
+                      <Sparkles className="h-3 w-3 text-brand-500" /> {modelPlan.badge}{modelPlan.wantsEditorial && !modelPlan.editorial ? " (Claude bientôt)" : ""}
+                    </span>
+                  )}
+                </div>
                 {openaiConnected ? (
                   <Button size="lg" onClick={() => transform()} disabled={!stats.hasTitle} icon={<Wand2 className="h-4 w-4" />}>{source === "manual" ? "Transformer ce produit" : "Transformer le catalogue"}</Button>
                 ) : (

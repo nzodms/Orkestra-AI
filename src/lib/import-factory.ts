@@ -551,7 +551,7 @@ export function buildTransformPrompt(products: ImportProductInput[], rules: Impo
   const richDesc = rules.description === "html_rich" || rules.level === "poussé" || rules.level === "ultra complet";
   const ultra = rules.level === "ultra complet";
   const lengthGoal = ultra
-    ? " LONGUEUR CIBLE : une VRAIE fiche premium de 3000 à 4000 caractères de texte (proche d'une fiche optimisée à la main), PAS une description standard. Développe chaque section avec des détails concrets et utiles. Si — et seulement si — les données source sont trop pauvres pour atteindre 3000 caractères SANS inventer, reste plus court mais ajoute une note « Données source insuffisantes pour une description Ultra complète » et mets status 'review'. N'invente JAMAIS pour rallonger."
+    ? " LONGUEUR CIBLE : une VRAIE fiche premium de 3000 à 4000 caractères de texte (proche d'une fiche optimisée à la main), PAS une description standard. Développe CHAQUE section (2 à 4 phrases par paragraphe, explications concrètes), traite toutes les sections du squelette. Avant de finir, vérifie mentalement que le corps atteint bien ~3000 caractères. Si — et seulement si — les données source sont trop pauvres pour atteindre 3000 caractères SANS inventer, reste plus court mais ajoute une note « Données source insuffisantes pour une description Ultra complète » et mets status 'review'. N'invente JAMAIS pour rallonger."
     : rules.level === "poussé"
     ? " LONGUEUR CIBLE : 1800 à 2800 caractères de texte si les données le permettent."
     : rules.level === "standard"
