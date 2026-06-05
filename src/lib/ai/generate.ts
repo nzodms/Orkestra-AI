@@ -8,8 +8,9 @@ import {
   type ProductSeoInput,
   type SectionInput,
 } from "./engine";
-import type { CouncilMode, AIProviderId, CouncilResult, ProductSeoResult, SectionResult, GenMeta } from "../types";
-import { chatComplete } from "./openai";
+import type { CouncilMode, AIProviderId, CouncilResult, CouncilProviderAnswer, ProductSeoResult, SectionResult, GenMeta } from "../types";
+import { chatComplete, type ChatOk } from "./openai";
+import { claudeComplete } from "./claude";
 import { getPreset } from "../niche";
 import { routeSection, PROVIDER_NAME, type SectionMode } from "./sectionModelRouter";
 import { getEncrypted } from "../server/keyStore";
@@ -27,6 +28,7 @@ const REVIEW_ORIENTED: SectionMode[] = ["review", "fix", "mobile", "nojs", "sett
 
 export interface KeyRefs {
   openai?: string | null;
+  claude?: string | null;
 }
 
 export function liveEnabled(): boolean {
@@ -43,6 +45,37 @@ async function resolveOpenAIKey(refs?: KeyRefs): Promise<{ apiKey: string; model
   } catch {
     return null;
   }
+}
+
+async function resolveClaudeKey(refs?: KeyRefs): Promise<{ apiKey: string; model: string } | null> {
+  if (!refs?.claude) return null;
+  const stored = await getEncrypted(refs.claude);
+  if (!stored) return null;
+  try {
+    return { apiKey: decryptSecret(stored.encrypted), model: stored.meta.model || "claude-sonnet-4-6" };
+  } catch {
+    return null;
+  }
+}
+
+// Modes AI Council qui bénéficient d'une fusion OpenAI + Claude (demandes
+// complexes / éditoriales). Les modes structurés/rapides restent OpenAI seul.
+const FUSION_MODES = new Set<CouncilMode>(["code", "strategy", "competitive", "free", "email", "quote"]);
+
+const FUSION_SYSTEM =
+  "Tu es Orkestra, l'arbitre qui FUSIONNE les réponses de plusieurs IA en UNE réponse finale supérieure, en français, markdown structuré.\n" +
+  "Tu reçois : la demande utilisateur, la Réponse A (OpenAI) et la Réponse B (Claude).\n" +
+  "Produis la MEILLEURE réponse finale : reprends le meilleur des deux, SUPPRIME les doublons, garde le plus actionnable et précis, signale BRIÈVEMENT les contradictions importantes, termine par une recommandation/action concrète.\n" +
+  "RÈGLES : ne fais PAS la somme des deux et ne rallonge pas inutilement ; reste précis sur la DERNIÈRE question ; si la demande est ciblée, reste ciblé (PAS de ré-audit complet) ; si une réponse invente une information non sourcée, ignore-la ; ne mentionne pas « Réponse A / Réponse B » dans le texte final.";
+
+function fusionPrompt(question: string, a: string, b: string, targeted: boolean): string {
+  return (
+    `=== Demande de l'utilisateur ===\n${question}\n\n` +
+    `=== Réponse A (OpenAI — structure & données) ===\n${a}\n\n` +
+    `=== Réponse B (Claude — formulation & relecture) ===\n${b}\n\n` +
+    (targeted ? "La demande est CIBLÉE : garde un format court et ciblé, ne refais pas d'audit.\n\n" : "") +
+    "Rédige la réponse finale Orkestra fusionnée (la meilleure des deux, sans doublon)."
+  );
 }
 
 function nowIso() {
@@ -181,8 +214,9 @@ export async function runCouncil(
     return { result: scaffold, meta: { live: false, generatedAt: nowIso(), fallbackReason: "Mode démo (ORKESTRA_MOCK_MODE)" } };
   }
   const key = await resolveOpenAIKey(refs);
-  if (!key) {
-    return { result: scaffold, meta: { live: false, generatedAt: nowIso(), fallbackReason: "Aucune clé OpenAI connectée" } };
+  const claudeKey = await resolveClaudeKey(refs);
+  if (!key && !claudeKey) {
+    return { result: scaffold, meta: { live: false, generatedAt: nowIso(), fallbackReason: "Aucune clé IA connectée" } };
   }
 
   const system =
@@ -236,25 +270,70 @@ export async function runCouncil(
   // Mode Code Shopify : Claude recommandé (sections longues), OpenAI en repli live.
   const codeRouting = mode === "code" ? routeSection({ type: question, complexity: "avancé", action: null, connected: providers }) : null;
   const codeMeta = codeRouting ? { recommendedProvider: PROVIDER_NAME[codeRouting.recommendedProvider], routingNote: codeRouting.note } : {};
+  const maxTok = mode === "seo" ? 4096 : mode === "code" ? 3600 : 2400;
 
-  const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.4, maxTokens: mode === "seo" ? 4096 : mode === "code" ? 3600 : 2400 });
+  const claudeReady = !!claudeKey && providers.includes("anthropic");
+  const wantFusion = !!key && claudeReady && FUSION_MODES.has(mode);
+
+  // Réponse individuelle → CouncilProviderAnswer.
+  const openaiPA = (answer: string, model: string): CouncilProviderAnswer => ({ provider: "openai", model, specialty: "Génération structurée & données", answer, qualityScore: 90, strengths: ["Structure claire", "Appui sur les données du scan", "Format actionnable"], limits: ["Style parfois mécanique"] });
+  const claudePA = (answer: string, model: string): CouncilProviderAnswer => ({ provider: "anthropic", model, specialty: "Relecture premium & formulation", answer, qualityScore: 92, strengths: ["Formulation naturelle", "Relecture éditoriale", "Cohérence du ton"], limits: ["Moins orienté JSON/structure brute"] });
+
+  // ── Fusion OpenAI + Claude (modes complexes, les deux connectés) ──
+  if (wantFusion) {
+    const [oa, ca] = await Promise.all([
+      chatComplete({ apiKey: key!.apiKey, model: key!.model, system, prompt, temperature: 0.4, maxTokens: maxTok }),
+      claudeComplete({ apiKey: claudeKey!.apiKey, model: claudeKey!.model, system, prompt, temperature: 0.5, maxTokens: maxTok }),
+    ]);
+    // Les deux échouent → fallback mock.
+    if (!oa.ok && !ca.ok) return { result: scaffold, meta: { live: false, generatedAt: nowIso(), fallbackReason: oa.message, ...codeMeta } };
+    // Exactement une a réussi → on garde celle-ci (§8, dégradation gracieuse).
+    if (!oa.ok || !ca.ok) {
+      const isOpenai = oa.ok;
+      const good = (oa.ok ? oa : ca) as ChatOk;
+      const pa = isOpenai ? openaiPA(good.text, good.model) : claudePA(good.text, good.model);
+      const result: CouncilResult = { ...scaffold, finalAnswer: good.text, providerAnswers: [pa], modelsUsed: [isOpenai ? "openai" : "anthropic"], synthesisReasons: [isOpenai ? "Claude indisponible — réponse OpenAI conservée." : "OpenAI indisponible — réponse Claude conservée."] };
+      return { result, meta: { live: true, provider: isOpenai ? "openai" : "anthropic", model: good.model, tokens: good.tokens, generatedAt: nowIso(), fallbackReason: isOpenai ? "Claude indisponible, réponse OpenAI conservée" : undefined, ...codeMeta } };
+    }
+    // Les deux OK → synthèse Orkestra (arbitre = OpenAI, structuré).
+    const synth = await chatComplete({ apiKey: key!.apiKey, model: key!.model, system: FUSION_SYSTEM, prompt: fusionPrompt(question, oa.text, ca.text, targeted), temperature: 0.3, maxTokens: maxTok });
+    const finalAnswer = synth.ok ? synth.text : oa.text;
+    const result: CouncilResult = {
+      ...scaffold,
+      finalAnswer,
+      providerAnswers: [openaiPA(oa.text, oa.model), claudePA(ca.text, ca.model)],
+      modelsUsed: ["openai", "anthropic"],
+      synthesisReasons: [
+        "OpenAI : structure, données du scan et format actionnable.",
+        "Claude : formulation naturelle et relecture éditoriale.",
+        "Orkestra : doublons retirés, contradictions arbitrées, recommandation finale priorisée.",
+      ],
+    };
+    const tokens = (oa.tokens || 0) + (ca.tokens || 0) + (synth.ok ? synth.tokens || 0 : 0);
+    return { result, meta: { live: true, fusion: true, provider: "openai+anthropic", models: `${oa.model} + ${ca.model}`, model: oa.model, tokens, generatedAt: nowIso(), ...codeMeta } };
+  }
+
+  // ── Claude seul (pas de clé OpenAI) ──
+  if (!key && claudeKey) {
+    const ca = await claudeComplete({ apiKey: claudeKey.apiKey, model: claudeKey.model, system, prompt, temperature: 0.5, maxTokens: maxTok });
+    if (!ca.ok) return { result: scaffold, meta: { live: false, generatedAt: nowIso(), fallbackReason: ca.message, ...codeMeta } };
+    const result: CouncilResult = { ...scaffold, finalAnswer: ca.text, providerAnswers: [claudePA(ca.text, ca.model)], modelsUsed: ["anthropic"] };
+    return { result, meta: { live: true, provider: "anthropic", model: ca.model, tokens: ca.tokens, generatedAt: nowIso(), ...codeMeta } };
+  }
+
+  // ── OpenAI seul (comportement historique) ──
+  const r = await chatComplete({ apiKey: key!.apiKey, model: key!.model, system, prompt, temperature: 0.4, maxTokens: maxTok });
   if (!r.ok) {
     return { result: scaffold, meta: { live: false, generatedAt: nowIso(), fallbackReason: r.message, ...codeMeta } };
   }
-
-  // On remplace la synthèse + la réponse OpenAI par le texte réel.
   const result: CouncilResult = { ...scaffold, finalAnswer: r.text };
   result.providerAnswers = scaffold.providerAnswers.map((p) =>
     p.provider === "openai" ? { ...p, answer: r.text } : p
   );
   if (!result.providerAnswers.some((p) => p.provider === "openai")) {
-    result.providerAnswers = [
-      { provider: "openai", model: r.model, specialty: "Réponse live OpenAI", answer: r.text, qualityScore: 90, strengths: ["Réponse réelle générée par votre clé OpenAI"], limits: [] },
-      ...result.providerAnswers,
-    ];
+    result.providerAnswers = [openaiPA(r.text, r.model), ...result.providerAnswers];
   }
   result.modelsUsed = [...new Set(["openai" as AIProviderId, ...result.modelsUsed])];
-
   return { result, meta: { live: true, provider: "openai", model: r.model, tokens: r.tokens, generatedAt: nowIso(), ...codeMeta } };
 }
 

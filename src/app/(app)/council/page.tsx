@@ -26,6 +26,9 @@ const MODES: { id: CouncilMode; label: string; icon: React.ElementType }[] = [
   { id: "free", label: "Question libre", icon: MessageCircle },
 ];
 
+// Modes qui bénéficient d'une synthèse multi-IA (OpenAI + Claude).
+const FUSION_MODES_UI = new Set<CouncilMode>(["code", "strategy", "competitive", "free", "email", "quote"]);
+
 type Directive = "improve" | "shorten" | "premium" | "html";
 const ACTIONS: { label: string; icon: React.ElementType; directive: Directive | null }[] = [
   { label: "Améliorer", icon: Wand2, directive: "improve" },
@@ -57,6 +60,8 @@ function followUps(mode: CouncilMode): Follow[] {
 export default function CouncilPage() {
   const { connections, brand, analysis, addGeneration, councilMessages, addCouncilTurn, clearCouncil } = useOrkestra();
   const providers = connectedProviders(connections);
+  const openaiConnected = !!connections.openai?.connected;
+  const claudeConnected = !!connections.anthropic?.connected;
   const [mode, setMode] = useState<CouncilMode>("seo");
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
@@ -112,7 +117,7 @@ export default function CouncilPage() {
         mode: useMode,
         question: q,
         providers,
-        keyRefs: { openai: connections.openai?.keyId },
+        keyRefs: { openai: connections.openai?.keyId, claude: connections.anthropic?.keyId },
         context: {
           brandName: brand.storeName || undefined,
           niche: brand.niche || undefined,
@@ -237,6 +242,9 @@ export default function CouncilPage() {
                   ))
                 ) : (
                   <Badge tone="warn">Mode simulé — connectez vos IA</Badge>
+                )}
+                {openaiConnected && !claudeConnected && FUSION_MODES_UI.has(mode) && (
+                  <Link href="/connect" className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700 transition hover:underline dark:bg-brand-950/40 dark:text-brand-300"><Sparkles className="h-3 w-3" /> Connectez Claude pour une synthèse multi-IA</Link>
                 )}
               </div>
               <span className="hidden shrink-0 text-xs text-[var(--text-muted)] sm:block">Mode {MODES.find((m) => m.id === mode)?.label}</span>
@@ -385,9 +393,11 @@ function UserBubble({ turn }: { turn: CouncilTurn }) {
 
 // ── Carte d'un tour de réponse (synthèse finale + onglets IA) ───────────────
 function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: CouncilResult; meta?: GenMeta; mode: CouncilMode; onAction: (d: Directive) => void; onFollow: (q: string) => void }) {
-  const [tab, setTab] = useState<"final" | string>("final");
+  const [tab, setTab] = useState<"final" | "why" | string>("final");
   const current = result.providerAnswers.find((p) => p.provider === tab);
   const time = meta ? new Date(meta.generatedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "";
+  const fusion = !!meta?.fusion;
+  const hasWhy = result.synthesisReasons && result.synthesisReasons.length > 0;
 
   return (
     <div className="ork-rise min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-card">
@@ -397,8 +407,10 @@ function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: C
           <div className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white">
             <Sparkles className="h-4 w-4" />
           </div>
-          <span className="text-sm font-bold">Réponse finale recommandée</span>
-          {meta?.live ? <Badge tone="good">OpenAI live</Badge> : <Badge tone="neutral">Mode démo</Badge>}
+          <span className="text-sm font-bold">Réponse finale Orkestra</span>
+          {!meta?.live ? <Badge tone="neutral">Mode démo</Badge>
+            : fusion ? <Badge tone="brand"><Sparkles className="h-3 w-3" /> OpenAI + Claude · Synthèse</Badge>
+            : <Badge tone="good">{result.modelsUsed.map((m) => PROVIDERS[m].name).join(" · ")} live</Badge>}
         </div>
         <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
           <Badge tone="good">Qualité {result.qualityScore}</Badge>
@@ -408,8 +420,11 @@ function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: C
       {/* Bandeau méta : réel vs démo */}
       <div className="border-b border-[var(--border)] bg-[var(--bg)] px-4 py-1.5 text-[11px] text-[var(--text-muted)]">
         {meta?.live
-          ? `Réponse générée avec OpenAI · ${meta.model}${meta.tokens ? ` · ${meta.tokens} tokens` : ""} · ${time}`
+          ? fusion
+            ? `Synthèse Orkestra fusionnée · ${meta.models || meta.model}${meta.tokens ? ` · ${meta.tokens} tokens` : ""} · ${time}`
+            : `Réponse générée avec ${result.modelsUsed.map((m) => PROVIDERS[m].name).join(" · ")} · ${meta.model}${meta.tokens ? ` · ${meta.tokens} tokens` : ""} · ${time}`
           : `Réponse simulée (template contextualisé)${meta?.fallbackReason ? ` · ${meta.fallbackReason}` : ""}`}
+        {meta?.fallbackReason && meta?.live ? ` · ${meta.fallbackReason}` : ""}
         {meta?.routingNote ? ` · ${meta.routingNote}` : ""}
       </div>
 
@@ -424,10 +439,25 @@ function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: C
             {PROVIDERS[p.provider].name}
           </button>
         ))}
+        {hasWhy && (
+          <button onClick={() => setTab("why")} className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${tab === "why" ? "bg-ink-900 text-white dark:bg-ink-100 dark:text-ink-900" : "text-[var(--text-muted)] hover:bg-ink-100 dark:hover:bg-ink-900"}`}>
+            Pourquoi cette synthèse&nbsp;?
+          </button>
+        )}
       </div>
 
       <div className="min-w-0 p-4 sm:p-5">
-        {tab === "final" ? (
+        {tab === "why" ? (
+          <div className="min-w-0">
+            <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><Layers className="h-4 w-4 text-brand-600" /> Comment Orkestra a fusionné les réponses</div>
+            <ul className="space-y-2">
+              {result.synthesisReasons.map((s, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-[var(--text-muted)]"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" /> {s}</li>
+              ))}
+            </ul>
+            <p className="mt-3 text-[11px] text-[var(--text-muted)]">La synthèse garde le meilleur de chaque IA, retire les doublons et tranche les contradictions. Le contrôle qualité reste l&apos;arbitre final.</p>
+          </div>
+        ) : tab === "final" ? (
           <>
             <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
               <span className="inline-flex items-center gap-1"><Layers className="h-3.5 w-3.5" /> {result.modelsUsed.map((m) => PROVIDERS[m].name).join(" · ")}</span>

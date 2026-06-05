@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/Button";
 import {
   Upload, FileSpreadsheet, Sparkles, Wand2, Languages, Tag, ImageIcon, Link2, Download, Check,
   CheckCircle2, AlertTriangle, RefreshCw, ChevronDown, Globe, FileText, ArrowRight, Plug, Eye,
-  ListChecks, ShieldCheck, Layers, Boxes, Type as TypeIcon, X, Columns3, ListFilter, Store, Lock, Plus, CheckCheck, Database, Ban, Star,
+  ListChecks, ShieldCheck, Layers, Boxes, Type as TypeIcon, X, Columns3, ListFilter, Store, Lock, Plus, CheckCheck, Database, Ban, Star, MessagesSquare,
 } from "lucide-react";
 import { relativeDate } from "@/lib/utils";
 
@@ -461,6 +461,18 @@ export default function ImportFactoryPage() {
         setEdits((e) => { const n = { ...e }; delete n[handle]; return n; });
       }
     } catch { /* silencieux */ }
+  }
+
+  // §6 — Lien ciblé vers AI Council : résumé QC, sans ré-audit complet.
+  function councilReviewLink(): string {
+    const q =
+      `Contexte : import « ${fileInfo?.name ?? "catalogue"} » · ${results?.length ?? 0} produit(s) transformé(s) · ` +
+      `${qcCounts.warning} à améliorer · ${qcCounts.risk} à risque · ${qcCounts.failed} bloqué(s) · ` +
+      `mode ${rules.transform} / niveau ${rules.level}${activePreset.name ? ` · preset « ${activePreset.name} »` : ""}.\n` +
+      `Question : d'après ce résumé de contrôle qualité, qu'est-ce qui est vraiment bloquant avant l'export Shopify, ` +
+      `qu'est-ce qui est acceptable, quelles fiches relancer, et le CSV semble-t-il prêt à importer ? ` +
+      `Réponds de façon ciblée, sans refaire un audit complet du site.`;
+    return councilLink("free", q);
   }
 
   function finalResults(): TransformedProduct[] {
@@ -995,6 +1007,7 @@ export default function ImportFactoryPage() {
                   <Button onClick={() => exportCsv()} icon={<Download className="h-4 w-4" />}>Télécharger le CSV Shopify</Button>
                   <Button variant="outline" onClick={exportReport} icon={<FileText className="h-4 w-4" />}>Rapport</Button>
                   <Button variant="ghost" onClick={exportIssues} icon={<AlertTriangle className="h-4 w-4" />}>À vérifier</Button>
+                  <Link href={councilReviewLink()}><Button variant="ghost" icon={<MessagesSquare className="h-4 w-4" />}>Faire vérifier par AI Council</Button></Link>
                 </div>
                 {claudeConnected ? (
                   <Button variant="outline" size="sm" onClick={perfectWithClaude} disabled={perfecting} icon={perfecting ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600" /> : <Sparkles className="h-3.5 w-3.5" />}>{perfecting ? "Relecture premium…" : "Perfectionner avec Claude"}</Button>

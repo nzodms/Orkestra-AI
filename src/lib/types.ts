@@ -373,6 +373,10 @@ export interface GenMeta {
   routingNote?: string;
   /** Modèle de relecture appliqué (futur agent de code). */
   reviewer?: string;
+  /** Synthèse multi-IA (OpenAI + Claude fusionnés). */
+  fusion?: boolean;
+  /** Liste lisible des modèles réellement utilisés (ex. « gpt-4o + claude-sonnet-4-6 »). */
+  models?: string;
 }
 
 export interface CouncilResult {
