@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
+import { useState, useRef, useMemo, useEffect, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
 import { useOrkestra } from "@/lib/store";
 import { assistantLink, councilLink } from "@/lib/shopify";
 import {
   parseCsv, detectColumns, autoMapColumns, groupProducts, mappingStats, MAP_TARGETS, toProductInput,
   presetRules, applyTransform, serializeCsv, chunk, downloadCsv, normName, PRESETS,
-  type ImportRules, type ShopifyField, type TransformedProduct,
+  type ImportRules, type ShopifyField, type TransformedProduct, type ProductGroup,
   type TransformMode, type TitleStyle, type DescriptionLevel, type HandleMode, type Level,
 } from "@/lib/import-factory";
 import { PROFILES, CUSTOM_PROFILE, profileById, profileRuleOverrides, profileContext, effectiveProfile, type ProfileConfig } from "@/lib/import-profiles";
@@ -44,8 +44,37 @@ const MANUAL_MAP: Partial<Record<ShopifyField, number>> = { Handle: 0, Title: 1,
 type ManualState = { title: string; description: string; features: string; dimensions: string; materials: string; colors: string; price: string; sku: string; images: string; sourceUrl: string; notes: string; collection: string; productType: string; tags: string };
 type ManualVariant = { value: string; price: string; sku: string; image: string; stock: string };
 
-const MAX_PRODUCTS = 24;
-const BATCH = 3;
+const MAX_PRODUCTS = 50;
+const BATCH = 4;
+
+// Lot adaptatif selon le mode/niveau (cf. §3) : Ultra = 1 produit/appel pour
+// garder tout le budget de tokens ; modes simples = lots plus larges (rapidité).
+function batchSizeFor(rules: ImportRules): number {
+  if (rules.level === "ultra complet") return 1;
+  if (rules.level === "poussé" || rules.transform === "recreate" || rules.transform === "supplier_to_brand") return 2;
+  if (rules.transform === "translate" || rules.transform === "clean_translate") return 8;
+  if (rules.transform === "migration") return 5;
+  return BATCH;
+}
+function stepLabelFor(rules: ImportRules, claude: boolean): string {
+  const base = rules.level === "ultra complet" ? "Génération des descriptions Ultra (produit par produit)"
+    : rules.level === "poussé" ? "Génération des descriptions"
+    : rules.transform === "translate" || rules.transform === "clean_translate" ? "Traduction et nettoyage"
+    : "Optimisation des fiches";
+  return claude ? `${base} + relecture premium` : base;
+}
+// Statut par produit pendant le traitement (§10).
+type ProductStatus = "wait" | "processing" | "claude" | "done" | "qc" | "review" | "error";
+const PSTATUS: Record<ProductStatus, { label: string; tone: string; icon: "wait" | "spin" | "check" | "warn" | "error" | "claude" }> = {
+  wait: { label: "En attente", tone: "text-[var(--text-muted)]", icon: "wait" },
+  processing: { label: "En cours", tone: "text-brand-600", icon: "spin" },
+  claude: { label: "Relu par Claude", tone: "text-brand-600", icon: "claude" },
+  done: { label: "Transformé", tone: "text-emerald-600", icon: "check" },
+  qc: { label: "Contrôle qualité OK", tone: "text-emerald-600", icon: "check" },
+  review: { label: "À vérifier", tone: "text-amber-600", icon: "warn" },
+  error: { label: "Erreur", tone: "text-red-600", icon: "error" },
+};
+function fmtTime(s: number): string { const m = Math.floor(s / 60); const sec = s % 60; return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`; }
 
 const LANGS = ["Français", "Anglais", "Espagnol", "Allemand", "Italien"];
 const COUNTRIES = ["France", "Belgique", "Suisse", "Canada", "USA", "Autre"];
@@ -89,7 +118,6 @@ const VALUE = [
   { icon: Sparkles, t: "Optimiser pour Shopify", d: "Descriptions HTML, meta, alt text, tags, product_type et collections." },
   { icon: Layers, t: "Éviter les doublons", d: "Mémoire des noms, brand names, ancres et produits déjà traités." },
 ];
-const WORK_STEPS = ["Analyse du CSV", "Détection des produits", "Lecture des variantes", "Application des règles", "Génération titres & descriptions", "Génération meta & alt text", "Vérification des doublons", "Préparation de l'export"];
 
 export default function ImportFactoryPage() {
   const { connections, brand, importProfiles, rememberImportFor, setProfileConfig, addForbidden, resetProfileMemory, selectedProfileId, setImportProfile, importPresets, recentImports, addImportPreset, addRecentImport } = useOrkestra();
@@ -112,6 +140,14 @@ export default function ImportFactoryPage() {
   const [collectionsText, setCollectionsText] = useState(() => colsToText(effOf(selectedProfileId).collections));
   const [phase, setPhase] = useState<"idle" | "configure" | "working" | "preview">("idle");
   const [progress, setProgress] = useState({ done: 0, total: 0 });
+  // Traitement : minuteur, étape, statut par produit, sélection (>50).
+  const [procStart, setProcStart] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [procStep, setProcStep] = useState("");
+  const [productStatus, setProductStatus] = useState<Record<string, ProductStatus>>({});
+  const [workingList, setWorkingList] = useState<{ handle: string; title: string }[]>([]);
+  const [selectedHandles, setSelectedHandles] = useState<string[] | null>(null);
+  const [selectOpen, setSelectOpen] = useState(false);
   const [results, setResults] = useState<TransformedProduct[] | null>(null);
   const [qcReports, setQcReports] = useState<Record<string, QCReport>>({});
   const [edits, setEdits] = useState<Record<string, Partial<TransformedProduct>>>({});
@@ -147,6 +183,22 @@ export default function ImportFactoryPage() {
     const fr = results.map((r) => ({ ...r, ...(edits[r.handle] || {}) }));
     return applyTransform(parsed.headers, parsed.rows, mapping, groups, fr, rules);
   }, [parsed, results, edits, mapping, groups, rules]);
+
+  // Minuteur de traitement (temps écoulé) pendant la phase « working ».
+  useEffect(() => {
+    if (phase !== "working" || !procStart) return;
+    const id = setInterval(() => setElapsed(Math.max(0, Math.round((Date.now() - procStart) / 1000))), 250);
+    return () => clearInterval(id);
+  }, [phase, procStart]);
+
+  // Produits à transformer : sélection explicite (>50) ou les 50 premiers.
+  function selectedForTransform(): ProductGroup[] {
+    if (selectedHandles && selectedHandles.length) {
+      const set = new Set(selectedHandles);
+      return groups.filter((g) => set.has(g.handle)).slice(0, MAX_PRODUCTS);
+    }
+    return groups.slice(0, MAX_PRODUCTS);
+  }
 
   function updateRule(patch: Partial<ImportRules>) { setRules((r) => ({ ...r, ...patch })); }
   function applyPreset(id: string) {
@@ -235,67 +287,123 @@ export default function ImportFactoryPage() {
     setTimeout(() => configRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
 
-  async function transform() {
-    if (!parsed || !stats?.hasTitle) return;
+  // Fusionne de nouveaux résultats (relance) dans les existants, par handle.
+  function mergeResults(prev: TransformedProduct[], next: TransformedProduct[]): TransformedProduct[] {
+    const byHandle = new Map(next.map((r) => [r.handle, r]));
+    const merged = prev.map((r) => byHandle.get(r.handle) ?? r);
+    for (const r of next) if (!prev.some((p) => p.handle === r.handle)) merged.push(r);
+    return merged;
+  }
+  function toggleSelected(h: string) {
+    setSelectedHandles((cur) => {
+      const list = cur ?? groups.slice(0, MAX_PRODUCTS).map((g) => g.handle);
+      if (list.includes(h)) return list.filter((x) => x !== h);
+      if (list.length >= MAX_PRODUCTS) return list;
+      return [...list, h];
+    });
+  }
+  function transform() { runTransform(selectedForTransform(), false); }
+  function retryErrors() {
+    const errs = groups.filter((g) => productStatus[g.handle] === "error");
+    if (errs.length) runTransform(errs, true);
+  }
+
+  // Cœur du moteur : traite `target` par lots adaptatifs, avec sauvegarde
+  // progressive (§10). `append` = relance des produits en erreur uniquement.
+  async function runTransform(target: ProductGroup[], append: boolean) {
+    if (!parsed || !stats?.hasTitle || !target.length) return;
     if (!openaiConnected) { setError("Connectez OpenAI pour lancer la transformation."); return; }
     setError(null);
-    const all = groups.slice(0, MAX_PRODUCTS);
+    const claudeOn = !!connections.anthropic?.connected;
+    const ps: Record<string, ProductStatus> = append ? { ...productStatus } : {};
+    for (const g of target) ps[g.handle] = "wait";
+    setProductStatus({ ...ps });
+    setWorkingList(target.map((g) => ({ handle: g.handle, title: g.title || g.handle })));
     setPhase("working");
-    setProgress({ done: 0, total: all.length });
-    // Lot adaptatif : en Ultra, 1 produit/appel pour donner tout le budget de
-    // tokens à une description longue ; modes avancés 2 ; sinon 3.
-    const batchSize = rules.level === "ultra complet" ? 1 : rules.level === "poussé" || rules.transform === "recreate" || rules.transform === "supplier_to_brand" ? 2 : BATCH;
-    const batches = chunk(all, batchSize);
+    setProcStart(Date.now()); setElapsed(0); setProcStep(stepLabelFor(rules, claudeOn));
+    setProgress({ done: 0, total: target.length });
+
+    const batchSize = batchSizeFor(rules);
+    const batches = chunk(target, batchSize);
     const acc: TransformedProduct[] = [];
+    const errored: ProductGroup[] = [];
     const brandAcc = [...mem.brandNames];
     const anchorAcc = [...mem.anchors];
+    let processed = 0;
     for (let b = 0; b < batches.length; b++) {
-      const inputs = batches[b].map(toProductInput);
-      let data: { ok: boolean; results?: TransformedProduct[]; error?: string };
+      const batch = batches[b];
+      for (const g of batch) ps[g.handle] = "processing";
+      setProductStatus({ ...ps });
+      const inputs = batch.map(toProductInput);
+      let data: { ok: boolean; results?: TransformedProduct[]; error?: string; editorial?: boolean };
       try {
         const res = await fetch("/api/import", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            products: inputs, rules, memory: { brandNames: brandAcc, anchors: anchorAcc },
+            products: inputs, rules, memory: { brandNames: brandAcc, anchors: anchorAcc, handles: mem.handles, titles: mem.titles },
             context: { ...profileContext(eff), brandName: eff.brand || brand.storeName || undefined, niche: eff.niche || brand.niche || undefined, positioning: brand.positioning },
             keyRefs: { openai: connections.openai?.keyId, claude: connections.anthropic?.keyId },
           }),
         });
         data = await res.json();
       } catch {
-        data = { ok: false, error: "Connexion interrompue. Réessayez." };
+        data = { ok: false, error: "Connexion interrompue." };
       }
-      if (!data.ok || !data.results) { setError(data.error || "Échec de la transformation."); setPhase("configure"); return; }
-      acc.push(...data.results);
-      for (const r of data.results) if (r.brandName) brandAcc.push(r.brandName);
-      setProgress({ done: Math.min(all.length, (b + 1) * batchSize), total: all.length });
+      processed += batch.length;
+      if (!data.ok || !data.results) {
+        for (const g of batch) { ps[g.handle] = "error"; errored.push(g); } // §10 : on garde les autres
+        setProductStatus({ ...ps });
+      } else {
+        acc.push(...data.results);
+        for (const r of data.results) if (r.brandName) brandAcc.push(r.brandName);
+        for (const g of batch) ps[g.handle] = data.editorial ? "claude" : "done";
+        setProductStatus({ ...ps });
+      }
+      setProgress({ done: processed, total: target.length });
     }
-    // Contrôle qualité déterministe + corrections.
+
+    if (!acc.length) {
+      setError(append ? "La relance a échoué. Réessayez." : "Échec de la transformation. Vérifiez votre clé OpenAI et réessayez.");
+      setPhase(append ? "preview" : "configure");
+      return;
+    }
+
+    // Contrôle qualité déterministe (arbitre final) sur les produits réussis.
+    setProcStep("Contrôle qualité");
     const { fixed, reports } = runQc(acc);
-    setResults(fixed);
-    setQcReports(reports);
-    setValidated([]); setRejected([]); setLocked([]); setApprovePanel(false);
+    for (const r of fixed) { const st = reports[r.handle]?.status; ps[r.handle] = st === "failed" || st === "risk" ? "review" : "qc"; }
+    setProductStatus({ ...ps });
+
+    // Fusion (append) ou remplacement des résultats.
+    const merged = append ? mergeResults(results ?? [], fixed) : fixed;
+    const mergedReports = append ? { ...qcReports, ...reports } : reports;
+    setResults(merged);
+    setQcReports(mergedReports);
+    if (!append) { setValidated([]); setRejected([]); setLocked([]); setApprovePanel(false); }
+
     rememberImportFor(selectedProfileId, {
       brandNames: fixed.map((r) => r.brandName).filter(Boolean) as string[],
       titles: fixed.map((r) => r.title).filter(Boolean),
       handles: fixed.map((r) => r.newHandle).filter(Boolean) as string[],
-      anchors: rules.collections,
-      collections: rules.collections,
+      anchors: rules.collections, collections: rules.collections,
       productTypes: fixed.map((r) => r.productType).filter(Boolean),
       tags: fixed.flatMap((r) => r.tags.split(",").map((t) => t.trim())).filter(Boolean),
-      rules,
-      count: fixed.length,
+      rules, count: fixed.length,
     });
-    // Enregistre l'import pour réutilisation rapide (Derniers imports).
-    const agg = { warning: 0, risk: 0, failed: 0 };
-    for (const h of Object.keys(reports)) { const st = reports[h].status; if (st === "warning" || st === "risk" || st === "failed") agg[st]++; }
-    const overall: RecentImport["status"] = agg.failed ? "failed" : agg.risk ? "risk" : agg.warning ? "warning" : "ok";
-    addRecentImport({
-      id: `imp_${Date.now().toString(36)}`, date: new Date().toISOString(), fileName: fileInfo?.name ?? "Catalogue",
-      products: all.length, variants: all.reduce((a, g) => a + g.variants.length, 0), images: all.reduce((a, g) => a + g.images.length, 0),
-      presetId: activePreset.id, presetName: activePreset.name ?? PRESETS.find((p) => p.id === presetId)?.label,
-      profileId: selectedProfileId, status: overall, warnings: agg.warning, risks: agg.risk, failed: agg.failed, rules, collectionsText,
-    });
+
+    // Enregistre l'import (uniquement lors d'un import complet, pas d'une relance).
+    if (!append) {
+      const agg = { warning: 0, risk: 0, failed: 0 };
+      for (const h of Object.keys(reports)) { const st = reports[h].status; if (st === "warning" || st === "risk" || st === "failed") agg[st]++; }
+      const overall: RecentImport["status"] = errored.length || agg.failed ? "failed" : agg.risk ? "risk" : agg.warning ? "warning" : "ok";
+      addRecentImport({
+        id: `imp_${Date.now().toString(36)}`, date: new Date().toISOString(), fileName: fileInfo?.name ?? "Catalogue",
+        products: target.length, variants: target.reduce((a, g) => a + g.variants.length, 0), images: target.reduce((a, g) => a + g.images.length, 0),
+        presetId: activePreset.id, presetName: activePreset.name ?? PRESETS.find((p) => p.id === presetId)?.label,
+        profileId: selectedProfileId, status: overall, warnings: agg.warning, risks: agg.risk, failed: agg.failed, rules, collectionsText,
+      });
+    }
+    if (errored.length) setError(`${errored.length} produit(s) en erreur. Les autres sont prêts — vous pouvez relancer les produits en erreur.`);
     setPhase("preview");
     setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
@@ -325,11 +433,19 @@ export default function ImportFactoryPage() {
   function finalResults(): TransformedProduct[] {
     return (results || []).map((r) => ({ ...r, ...(edits[r.handle] || {}) }));
   }
-  function exportCsv() {
+  function exportCsv(treatedOnly = false) {
     if (!applied) return;
-    if (applied.status === "failed" && !confirmExport) { setConfirmExport(true); return; }
-    downloadCsv(`orkestra-import-${Date.now()}.csv`, serializeCsv(applied.headers, applied.rows));
+    if (!treatedOnly && applied.status === "failed" && !confirmExport) { setConfirmExport(true); return; }
+    let rows = applied.rows;
+    if (treatedOnly && results) {
+      // §11 : n'exporter que les lignes des produits réellement transformés.
+      const treated = new Set(results.map((r) => r.handle));
+      const idxSet = new Set(groups.filter((g) => treated.has(g.handle)).flatMap((g) => g.rowIndices));
+      rows = applied.rows.filter((_, i) => idxSet.has(i));
+    }
+    downloadCsv(`orkestra-import-${Date.now()}.csv`, serializeCsv(applied.headers, rows));
   }
+  const erroredHandles = groups.filter((g) => productStatus[g.handle] === "error");
   function exportReport() {
     if (!applied || !results) return;
     downloadCsv(`orkestra-rapport-${Date.now()}.csv`, buildExportReport(groups, finalResults(), applied, qcReports));
@@ -401,6 +517,7 @@ export default function ImportFactoryPage() {
   function reset() {
     setParsed(null); setMapping({}); setMapOpen(false); setFileInfo(null); setResults(null);
     setQcReports({}); setEdits({}); setValidated([]); setRejected([]); setLocked([]); setConfirmExport(false); setApprovePanel(false); setError(null); setParseError(null); setPhase("idle");
+    setProductStatus({}); setProcStart(null); setElapsed(0); setProcStep(""); setSelectedHandles(null); setSelectOpen(false);
   }
   // Construit une fiche produit synthétique (mêmes headers/mapping qu'un CSV Shopify).
   function buildManualParsed(): { headers: string[]; rows: string[][] } | null {
@@ -567,7 +684,6 @@ export default function ImportFactoryPage() {
                 <Stat icon={ImageIcon} label="Images" value={stats.images} />
                 <Stat icon={FileText} label="Colonnes" value={parsed.headers.length} />
               </div>
-              {tooMany && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">Catalogue volumineux : cette V1 transforme les <strong>{MAX_PRODUCTS} premiers produits</strong> par lot. Relancez pour traiter les suivants.</p>}
             </Card>
 
             {/* Mapping des colonnes */}
@@ -742,20 +858,58 @@ export default function ImportFactoryPage() {
             {error && <Card className="flex items-start gap-2 border-red-200 text-sm text-red-600 dark:border-red-900/60"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {error}</Card>}
 
             {/* Transformer */}
+            {/* §1 — Limite 50 produits : message + sélection */}
+            {phase === "configure" && tooMany && (
+              <Card className="border-amber-200 bg-amber-50/60 dark:border-amber-900/60 dark:bg-amber-950/20">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-amber-500 text-white"><ListFilter className="h-[18px] w-[18px]" /></span>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-semibold">Votre fichier contient {groups.length} produits</h3>
+                    <p className="mt-0.5 text-xs text-[var(--text-muted)]">Pour garantir une qualité optimale, Import Factory traite jusqu&apos;à <strong>{MAX_PRODUCTS} produits par import</strong> en V1. Sélectionnez les produits à traiter ou découpez votre catalogue en plusieurs imports.</p>
+                    <div className="mt-2.5 flex flex-wrap gap-2">
+                      <Button size="sm" variant={!selectedHandles ? "secondary" : "outline"} onClick={() => { setSelectedHandles(null); setSelectOpen(false); }}>Traiter les {MAX_PRODUCTS} premiers</Button>
+                      <Button size="sm" variant="outline" icon={<ListChecks className="h-3.5 w-3.5" />} onClick={() => { if (!selectedHandles) setSelectedHandles(groups.slice(0, MAX_PRODUCTS).map((g) => g.handle)); setSelectOpen((v) => !v); }}>Sélectionner les produits</Button>
+                      <Button size="sm" variant="ghost" onClick={reset}>Annuler</Button>
+                    </div>
+                    {selectOpen && (
+                      <div className="mt-3">
+                        <div className="mb-1.5 text-[11px] font-semibold text-amber-800 dark:text-amber-200">{selectedHandles?.length ?? 0} / {MAX_PRODUCTS} sélectionné(s)</div>
+                        <div className="max-h-64 space-y-0.5 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--card)] p-2">
+                          {groups.map((g) => {
+                            const checked = selectedHandles?.includes(g.handle) ?? false;
+                            const full = (selectedHandles?.length ?? 0) >= MAX_PRODUCTS;
+                            return (
+                              <label key={g.handle} className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs ${checked ? "bg-brand-50 dark:bg-brand-950/30" : ""} ${!checked && full ? "opacity-40" : ""}`}>
+                                <input type="checkbox" checked={checked} disabled={!checked && full} onChange={() => toggleSelected(g.handle)} className="accent-brand-600" />
+                                <span className="truncate">{g.title || g.handle}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            )}
+
             {phase === "configure" && (
               <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
                 <div className="space-y-1.5">
-                  <p className="text-xs text-[var(--text-muted)]">{!openaiConnected ? "Connectez OpenAI pour lancer la transformation IA." : stats.hasTitle ? `${Math.min(groups.length, MAX_PRODUCTS)} produit(s) seront transformés via OpenAI. Vous validez l'aperçu avant l'export.` : "Mappez d'abord la colonne « Titre produit » pour activer la transformation."}</p>
+                  <p className="text-xs text-[var(--text-muted)]">{!openaiConnected ? "Connectez OpenAI pour lancer la transformation IA." : stats.hasTitle ? `${selectedForTransform().length} produit(s) seront transformés via OpenAI. Vous validez l'aperçu avant l'export.` : "Mappez d'abord la colonne « Titre produit » pour activer la transformation."}</p>
                   {openaiConnected && stats.hasTitle && (
                     <span className="inline-flex items-center gap-1 rounded-md bg-[var(--bg)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-muted)]" title="Orkestra choisit les modèles selon le niveau. Claude n'intervient que s'il est connecté.">
                       <Sparkles className="h-3 w-3 text-brand-500" /> {modelPlan.badge}{modelPlan.wantsEditorial && !modelPlan.editorial ? " (Claude bientôt)" : ""}
                     </span>
                   )}
+                  {openaiConnected && stats.hasTitle && rules.level === "ultra complet" && !modelPlan.editorial && (
+                    <p className="text-[11px] text-[var(--text-muted)]">Claude peut améliorer la relecture premium des descriptions Ultra.</p>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button variant="outline" size="sm" onClick={() => setSavePresetOpen(true)} icon={<Star className="h-3.5 w-3.5" />}>Sauvegarder ces réglages</Button>
                   {openaiConnected ? (
-                    <Button size="lg" onClick={() => transform()} disabled={!stats.hasTitle} icon={<Wand2 className="h-4 w-4" />}>{source === "manual" ? "Transformer ce produit" : "Transformer le catalogue"}</Button>
+                    <Button size="lg" onClick={() => transform()} disabled={!stats.hasTitle} icon={<Wand2 className="h-4 w-4" />}>{source === "manual" ? "Transformer ce produit" : `Transformer ${selectedForTransform().length} produit(s)`}</Button>
                   ) : (
                     <Link href="/connect"><Button size="lg" icon={<Plug className="h-4 w-4" />}>Connecter OpenAI pour transformer</Button></Link>
                   )}
@@ -764,13 +918,28 @@ export default function ImportFactoryPage() {
             )}
 
             {/* Working */}
-            {phase === "working" && <Working progress={progress} />}
+            {phase === "working" && <Working list={workingList} status={productStatus} elapsed={elapsed} step={procStep} badge={modelPlan.badge} ultra={rules.level === "ultra complet"} />}
           </div>
         )}
 
         {/* ── Aperçu avant export ── */}
         {phase === "preview" && results && (
           <div ref={previewRef} className="space-y-5">
+            {erroredHandles.length > 0 && (
+              <Card className="flex flex-col gap-3 border-red-200 bg-red-50/60 dark:border-red-900/60 dark:bg-red-950/20 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-red-500 text-white"><AlertTriangle className="h-[18px] w-[18px]" /></span>
+                  <div>
+                    <h3 className="text-sm font-semibold">{erroredHandles.length} produit(s) en erreur</h3>
+                    <p className="mt-0.5 text-xs text-[var(--text-muted)]">Les autres produits sont prêts. Relancez uniquement les produits en erreur — les résultats déjà générés sont conservés.</p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button size="sm" onClick={retryErrors} icon={<RefreshCw className="h-3.5 w-3.5" />}>Relancer les produits en erreur</Button>
+                  <Button size="sm" variant="outline" onClick={() => exportCsv(true)} icon={<Download className="h-3.5 w-3.5" />}>Exporter les produits traités</Button>
+                </div>
+              </Card>
+            )}
             <Card className="flex flex-col gap-3 border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="flex items-center gap-1.5 text-base font-bold"><CheckCircle2 className="h-5 w-5 text-emerald-600" /> Catalogue transformé</h2>
@@ -784,7 +953,7 @@ export default function ImportFactoryPage() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button onClick={exportCsv} icon={<Download className="h-4 w-4" />}>Télécharger le CSV Shopify</Button>
+                <Button onClick={() => exportCsv()} icon={<Download className="h-4 w-4" />}>Télécharger le CSV Shopify</Button>
                 <Button variant="outline" onClick={exportReport} icon={<FileText className="h-4 w-4" />}>Rapport</Button>
                 <Button variant="ghost" onClick={exportIssues} icon={<AlertTriangle className="h-4 w-4" />}>À vérifier</Button>
               </div>
@@ -1080,22 +1249,43 @@ function Mini({ label, value, full }: { label: string; value: string; full?: boo
     </div>
   );
 }
-function Working({ progress }: { progress: { done: number; total: number } }) {
-  const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
-  const active = Math.min(WORK_STEPS.length - 1, Math.floor((pct / 100) * WORK_STEPS.length));
+function ProcIcon({ kind }: { kind: ProductStatus }) {
+  const i = PSTATUS[kind].icon;
+  if (i === "check") return <Check className="h-3.5 w-3.5 text-emerald-500" />;
+  if (i === "spin") return <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600" />;
+  if (i === "claude") return <Sparkles className="h-3.5 w-3.5 text-brand-500" />;
+  if (i === "warn") return <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />;
+  if (i === "error") return <X className="h-3.5 w-3.5 text-red-500" />;
+  return <span className="h-3.5 w-3.5 rounded-full border border-[var(--border)]" />;
+}
+function Working({ list, status, elapsed, step, badge, ultra }: { list: { handle: string; title: string }[]; status: Record<string, ProductStatus>; elapsed: number; step: string; badge: string; ultra: boolean }) {
+  const total = list.length || 1;
+  const done = list.filter((x) => ["done", "claude", "qc", "review", "error"].includes(status[x.handle])).length;
+  const pct = Math.round((done / total) * 100);
+  const eta = done > 0 && elapsed > 0 ? Math.round((elapsed / done) * (total - done)) : null;
   return (
     <Card className="ork-rise">
-      <div className="mb-2 flex items-center justify-between text-sm font-semibold"><span className="flex items-center gap-1.5"><Wand2 className="h-4 w-4 animate-pulse text-brand-600" /> Transformation en cours…</span><span className="text-xs text-[var(--text-muted)]">{progress.done}/{progress.total} produits</span></div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-ink-100 dark:bg-ink-900"><div className="h-full rounded-full bg-brand-600 transition-all duration-500" style={{ width: `${Math.max(6, pct)}%` }} /></div>
-      <div className="mt-3 grid gap-1.5 sm:grid-cols-2">
-        {WORK_STEPS.map((s, i) => (
-          <div key={s} className="flex items-center gap-2 text-xs">
-            {i < active ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : i === active ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600" /> : <span className="h-3.5 w-3.5 rounded-full border border-[var(--border)]" />}
-            <span className={i <= active ? "text-[var(--text)]" : "text-[var(--text-muted)]"}>{s}</span>
-          </div>
-        ))}
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm font-semibold">
+        <span className="flex items-center gap-1.5"><Wand2 className="h-4 w-4 animate-pulse text-brand-600" /> Transformation en cours…</span>
+        <span className="text-xs text-[var(--text-muted)]">Produit {Math.min(total, done + 1)} / {total}</span>
       </div>
-      <p className="mt-3 text-[11px] text-[var(--text-muted)]">Orkestra conserve vos variantes, tailles, prix, SKU et images. Aucune donnée n&apos;est inventée — les points incertains seront marqués « à vérifier ».</p>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-ink-100 dark:bg-ink-900"><div className="h-full rounded-full bg-brand-600 transition-all duration-500" style={{ width: `${Math.max(4, pct)}%` }} /></div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[var(--text-muted)]">
+        <span>Temps écoulé : <strong className="font-mono text-[var(--text)]">{fmtTime(elapsed)}</strong></span>
+        {eta !== null && <span>Temps estimé restant : <strong className="font-mono text-[var(--text)]">~{fmtTime(eta)}</strong></span>}
+        <span className="inline-flex items-center gap-1"><Sparkles className="h-3 w-3 text-brand-500" /> {badge}</span>
+      </div>
+      {step && <div className="mt-2 flex items-center gap-2 text-xs font-medium text-brand-700 dark:text-brand-300"><span className="h-3 w-3 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600" /> {step}</div>}
+      <div className="mt-3 max-h-64 space-y-1 overflow-auto rounded-lg border border-[var(--border)] p-2">
+        {list.map((x) => { const st = status[x.handle] ?? "wait"; return (
+          <div key={x.handle} className="flex items-center gap-2 text-xs">
+            <ProcIcon kind={st} />
+            <span className={`truncate ${st === "wait" ? "text-[var(--text-muted)]" : "text-[var(--text)]"}`}>{x.title}</span>
+            <span className={`ml-auto shrink-0 text-[10px] ${PSTATUS[st].tone}`}>{PSTATUS[st].label}</span>
+          </div>
+        ); })}
+      </div>
+      <p className="mt-3 text-[11px] text-[var(--text-muted)]">{ultra ? "Le mode Ultra privilégie la qualité : Orkestra travaille produit par produit, le traitement peut prendre plus longtemps. " : ""}Orkestra conserve vos variantes, tailles, prix, SKU et images. Aucune donnée n&apos;est inventée — les points incertains seront marqués « à vérifier ».</p>
     </Card>
   );
 }

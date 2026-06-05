@@ -90,7 +90,7 @@ export async function runImportTransform(
   let tokens = r.tokens;
   if (plan.editorial === "claude" && claudeKey) {
     try {
-      const ref = await refineEditorialWithClaude(results, products, rules, ctx, claudeKey);
+      const ref = await refineEditorialWithClaude(results, products, rules, ctx, claudeKey, mem);
       results = ref.results;
       editorial = ref.used;
       tokens += ref.tokens;

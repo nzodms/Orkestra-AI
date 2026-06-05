@@ -411,6 +411,9 @@ export interface ImportContext {
 export interface ImportMemory {
   brandNames: string[];
   anchors: string[];
+  /** Handles / titres déjà utilisés (anti-doublon, relecture Claude). */
+  handles?: string[];
+  titles?: string[];
 }
 
 export function toProductInput(g: ProductGroup): ImportProductInput {

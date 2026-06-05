@@ -1,5 +1,5 @@
 import { claudeComplete } from "./claude";
-import { stripHtml, type ImportProductInput, type ImportRules, type ImportContext, type TransformedProduct } from "../import-factory";
+import { stripHtml, type ImportProductInput, type ImportRules, type ImportContext, type ImportMemory, type TransformedProduct } from "../import-factory";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Import Factory — relecture éditoriale PREMIUM via Claude (champs texte only).
@@ -39,9 +39,14 @@ export function buildEditorialSystem(rules: ImportRules): string {
   );
 }
 
-export function buildEditorialPrompt(results: TransformedProduct[], sources: ImportProductInput[], rules: ImportRules, ctx: ImportContext): string {
+export function buildEditorialPrompt(results: TransformedProduct[], sources: ImportProductInput[], rules: ImportRules, ctx: ImportContext, mem?: ImportMemory): string {
   const srcByHandle = new Map(sources.map((s) => [s.handle, s]));
   const suffix = ctx.metaSuffix || rules.metaSuffix;
+  const usedBrands = (mem?.brandNames ?? []).slice(0, 60);
+  const usedTitles = (mem?.titles ?? []).slice(0, 40);
+  const dedupLine = (usedBrands.length || usedTitles.length)
+    ? `\n=== Déjà utilisés (À NE PAS réutiliser, même approchant) ===\nNoms brandés : ${usedBrands.join(", ") || "(aucun)"}\nTitres : ${usedTitles.join(" · ") || "(aucun)"}\n`
+    : "";
   const blocks = results.map((r, i) => {
     const s = srcByHandle.get(r.handle) || sources[i];
     const facts = s
@@ -57,8 +62,9 @@ export function buildEditorialPrompt(results: TransformedProduct[], sources: Imp
     );
   }).join("\n\n");
   return (
-    `=== Objectif ===\nAméliore l'éditorial (Body HTML surtout) au niveau d'une fiche optimisée à la main, sans rien inventer.${suffix ? ` Le suffixe meta « ${suffix} » doit rester EXACT en fin de metaDescription.` : ""}\n\n` +
-    `=== ${results.length} fiche(s) à améliorer ===\n${blocks}\n\n` +
+    `=== Objectif ===\nAméliore l'éditorial (Body HTML surtout) au niveau d'une fiche optimisée à la main, sans rien inventer.${suffix ? ` Le suffixe meta « ${suffix} » doit rester EXACT en fin de metaDescription.` : ""}\n` +
+    dedupLine +
+    `\n=== ${results.length} fiche(s) à améliorer ===\n${blocks}\n\n` +
     `Renvoie le JSON {"products":[...]} avec handle d'origine en clé, dans le même ordre. Ne renvoie QUE title, bodyHtml, metaDescription, tags.`
   );
 }
@@ -104,10 +110,11 @@ export async function refineEditorialWithClaude(
   sources: ImportProductInput[],
   rules: ImportRules,
   ctx: ImportContext,
-  key: { apiKey: string; model: string }
+  key: { apiKey: string; model: string },
+  mem?: ImportMemory
 ): Promise<{ results: TransformedProduct[]; used: boolean; tokens: number }> {
   const system = buildEditorialSystem(rules);
-  const prompt = buildEditorialPrompt(results, sources, rules, ctx);
+  const prompt = buildEditorialPrompt(results, sources, rules, ctx, mem);
   const maxTokens = rules.level === "ultra complet" ? 4096 : 3000;
   const r = await claudeComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.4, maxTokens, json: true });
   if (!r.ok) return { results, used: false, tokens: 0 };
