@@ -14,12 +14,14 @@ import { PROFILES, CUSTOM_PROFILE, profileById, profileRuleOverrides, profileCon
 import { emptyProfileMemory } from "@/lib/store";
 import { qualityControl, buildIssueReportCsv, buildExportReport, type QCReport, type QCStatus } from "@/lib/import-qc";
 import { planImportModels } from "@/lib/ai/import-models";
+import { ImportTabsNav, PresetsTab, RecentImportsTab, CreateProfileTab, ResumeLastImportCard, SavePresetModal, type ImportTab, type UsePresetPayload } from "./_tabs";
+import type { ImportPreset, RecentImport } from "@/lib/store";
 import { PageHeader, Card, Badge } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import {
   Upload, FileSpreadsheet, Sparkles, Wand2, Languages, Tag, ImageIcon, Link2, Download, Check,
   CheckCircle2, AlertTriangle, RefreshCw, ChevronDown, Globe, FileText, ArrowRight, Plug, Eye,
-  ListChecks, ShieldCheck, Layers, Boxes, Type as TypeIcon, X, Columns3, ListFilter, Store, Lock, Plus, CheckCheck, Database, Ban,
+  ListChecks, ShieldCheck, Layers, Boxes, Type as TypeIcon, X, Columns3, ListFilter, Store, Lock, Plus, CheckCheck, Database, Ban, Star,
 } from "lucide-react";
 import { relativeDate } from "@/lib/utils";
 
@@ -90,7 +92,7 @@ const VALUE = [
 const WORK_STEPS = ["Analyse du CSV", "Détection des produits", "Lecture des variantes", "Application des règles", "Génération titres & descriptions", "Génération meta & alt text", "Vérification des doublons", "Préparation de l'export"];
 
 export default function ImportFactoryPage() {
-  const { connections, brand, importProfiles, rememberImportFor, setProfileConfig, addForbidden, resetProfileMemory, selectedProfileId, setImportProfile } = useOrkestra();
+  const { connections, brand, importProfiles, rememberImportFor, setProfileConfig, addForbidden, resetProfileMemory, selectedProfileId, setImportProfile, importPresets, recentImports, addImportPreset, addRecentImport } = useOrkestra();
   const openaiConnected = !!connections.openai?.connected;
   const profile = profileById(selectedProfileId);
   const mem = importProfiles[selectedProfileId] ?? emptyProfileMemory();
@@ -127,6 +129,10 @@ export default function ImportFactoryPage() {
   const [manual, setManual] = useState({ title: "", description: "", features: "", dimensions: "", materials: "", colors: "", price: "", sku: "", images: "", sourceUrl: "", notes: "", collection: "", productType: "", tags: "" });
   const [optionName, setOptionName] = useState("");
   const [variants, setVariants] = useState<{ value: string; price: string; sku: string; image: string; stock: string }[]>([]);
+  // Navigation par onglets + presets/derniers imports.
+  const [tab, setTab] = useState<ImportTab>("import");
+  const [savePresetOpen, setSavePresetOpen] = useState(false);
+  const [activePreset, setActivePreset] = useState<{ id?: string; name?: string }>({});
 
   const fileRef = useRef<HTMLInputElement>(null);
   const configRef = useRef<HTMLDivElement>(null);
@@ -146,6 +152,29 @@ export default function ImportFactoryPage() {
   function applyPreset(id: string) {
     setPresetId(id);
     setRules((r) => ({ ...presetRules(id), collections: r.collections, ...profileRuleOverrides(eff) }));
+  }
+  function goToImport() { setTab("import"); setTimeout(() => fileRef.current?.focus?.(), 50); }
+  // Utiliser un preset recommandé → applique ses règles + bascule sur l'import.
+  function onUseBuiltin(id: string) {
+    applyPreset(id);
+    setActivePreset({ id, name: PRESETS.find((p) => p.id === id)?.label });
+    goToImport();
+  }
+  // Utiliser un preset privé / analysé → applique ses réglages complets.
+  function applySavedRules(rules: ImportRules, opts: { collectionsText?: string; profileId?: string; presetId?: string; presetName?: string }) {
+    if (opts.profileId) setImportProfile(opts.profileId);
+    setRules(rules);
+    if (opts.collectionsText !== undefined) setCollectionsText(opts.collectionsText);
+    setPresetId("custom");
+    setActivePreset({ id: opts.presetId, name: opts.presetName });
+    goToImport();
+  }
+  function onUsePreset(p: ImportPreset) { applySavedRules(p.rules, { collectionsText: p.collectionsText, profileId: p.profileId, presetId: p.id, presetName: p.name }); }
+  function onUseRules(payload: UsePresetPayload) { applySavedRules(payload.rules, { collectionsText: payload.collectionsText, profileId: payload.profileId, presetId: payload.presetId, presetName: payload.presetName }); }
+  function onReuse(r: RecentImport) { applySavedRules(r.rules, { collectionsText: r.collectionsText, profileId: r.profileId, presetId: r.presetId, presetName: r.presetName }); }
+  function saveCurrentAsPreset(name: string, description: string) {
+    addImportPreset({ id: `pr_${Date.now().toString(36)}`, name, description: description || undefined, origin: "user", profileId: selectedProfileId, isDefault: false, createdAt: new Date().toISOString(), rules, collectionsText });
+    setSavePresetOpen(false);
   }
   function selectProfile(id: string) {
     setImportProfile(id);
@@ -256,6 +285,16 @@ export default function ImportFactoryPage() {
       tags: fixed.flatMap((r) => r.tags.split(",").map((t) => t.trim())).filter(Boolean),
       rules,
       count: fixed.length,
+    });
+    // Enregistre l'import pour réutilisation rapide (Derniers imports).
+    const agg = { warning: 0, risk: 0, failed: 0 };
+    for (const h of Object.keys(reports)) { const st = reports[h].status; if (st === "warning" || st === "risk" || st === "failed") agg[st]++; }
+    const overall: RecentImport["status"] = agg.failed ? "failed" : agg.risk ? "risk" : agg.warning ? "warning" : "ok";
+    addRecentImport({
+      id: `imp_${Date.now().toString(36)}`, date: new Date().toISOString(), fileName: fileInfo?.name ?? "Catalogue",
+      products: all.length, variants: all.reduce((a, g) => a + g.variants.length, 0), images: all.reduce((a, g) => a + g.images.length, 0),
+      presetId: activePreset.id, presetName: activePreset.name ?? PRESETS.find((p) => p.id === presetId)?.label,
+      profileId: selectedProfileId, status: overall, warnings: agg.warning, risks: agg.risk, failed: agg.failed, rules, collectionsText,
     });
     setPhase("preview");
     setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
@@ -417,8 +456,8 @@ export default function ImportFactoryPage() {
   return (
     <>
       <PageHeader
-        title="Import Factory"
-        description="Importez un CSV produit, choisissez vos règles, et laissez Orkestra transformer le catalogue en fichier Shopify prêt à publier."
+        title="Transformez vos catalogues produits en CSV Shopify prêts à publier"
+        description="Importez un catalogue, appliquez un preset ou créez votre propre profil d'import à partir d'un fichier exemple."
         actions={openaiConnected ? <Badge tone="good"><ShieldCheck className="h-3 w-3" /> OpenAI connecté</Badge> : <Badge tone="warn"><Plug className="h-3 w-3" /> OpenAI requis pour transformer</Badge>}
       />
 
@@ -435,7 +474,14 @@ export default function ImportFactoryPage() {
         </Card>
       )}
 
+      <ImportTabsNav tab={tab} setTab={setTab} presetCount={importPresets.length} recentCount={recentImports.length} />
+
       <div className="ork-stagger space-y-5">
+        {tab === "import" && (
+          <>
+            {phase === "idle" && recentImports.length > 0 && (
+              <ResumeLastImportCard last={recentImports[0]} onResume={onReuse} setTab={setTab} />
+            )}
         {/* ── Hero ── */}
         {phase === "idle" && (
           <>
@@ -706,11 +752,14 @@ export default function ImportFactoryPage() {
                     </span>
                   )}
                 </div>
-                {openaiConnected ? (
-                  <Button size="lg" onClick={() => transform()} disabled={!stats.hasTitle} icon={<Wand2 className="h-4 w-4" />}>{source === "manual" ? "Transformer ce produit" : "Transformer le catalogue"}</Button>
-                ) : (
-                  <Link href="/connect"><Button size="lg" icon={<Plug className="h-4 w-4" />}>Connecter OpenAI pour transformer</Button></Link>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setSavePresetOpen(true)} icon={<Star className="h-3.5 w-3.5" />}>Sauvegarder ces réglages</Button>
+                  {openaiConnected ? (
+                    <Button size="lg" onClick={() => transform()} disabled={!stats.hasTitle} icon={<Wand2 className="h-4 w-4" />}>{source === "manual" ? "Transformer ce produit" : "Transformer le catalogue"}</Button>
+                  ) : (
+                    <Link href="/connect"><Button size="lg" icon={<Plug className="h-4 w-4" />}>Connecter OpenAI pour transformer</Button></Link>
+                  )}
+                </div>
               </div>
             )}
 
@@ -868,7 +917,15 @@ export default function ImportFactoryPage() {
             </div>
           </div>
         )}
+          </>
+        )}
+
+        {tab === "create" && <CreateProfileTab onSaved={() => setTab("presets")} onUseRules={onUseRules} profileId={selectedProfileId} />}
+        {tab === "presets" && <PresetsTab onUseBuiltin={onUseBuiltin} onUsePreset={onUsePreset} />}
+        {tab === "recent" && <RecentImportsTab onReuse={onReuse} setTab={setTab} />}
       </div>
+
+      <SavePresetModal open={savePresetOpen} onClose={() => setSavePresetOpen(false)} onSave={saveCurrentAsPreset} />
     </>
   );
 }

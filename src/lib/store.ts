@@ -16,6 +16,7 @@ import type {
 import type { CollectionSeoResult, MetaVariant, BlogOutlineResult, AltTextItem } from "./ai/engine";
 import type { FactoryStatus, FactoryOutput } from "./factory";
 import type { ImportRules, ProfileCollection } from "./import-factory";
+import type { ImportStyleAnalysis } from "./import-analyze";
 import type { ProfileConfig } from "./import-profiles";
 import { PROVIDER_ORDER } from "./providers";
 import { DEFAULT_BRAND_MEMORY } from "./mock-data";
@@ -83,6 +84,44 @@ export interface ProfileImportPatch {
   rules?: ImportRules; count?: number;
 }
 
+// Presets d'import sauvegardés par l'utilisateur (privés). Structure prête pour
+// une bascule en base de données. AUCUN preset privé n'est codé en dur dans l'UI.
+export interface ImportPreset {
+  id: string;
+  name: string;
+  description?: string;
+  /** user = créé depuis les réglages courants · analyzed = depuis un CSV exemple · duplicated = copié d'un preset recommandé */
+  origin: "user" | "analyzed" | "duplicated";
+  /** id du preset recommandé d'origine si dupliqué. */
+  builtinId?: string;
+  /** profil boutique associé (générique). */
+  profileId?: string;
+  isDefault?: boolean;
+  createdAt: string;
+  rules: ImportRules;
+  collectionsText?: string;
+  analysis?: ImportStyleAnalysis | null;
+}
+
+// Historique des imports (réutilisation rapide des réglages).
+export interface RecentImport {
+  id: string;
+  date: string;
+  fileName: string;
+  products: number;
+  variants: number;
+  images: number;
+  presetId?: string;
+  presetName?: string;
+  profileId: string;
+  status: "ok" | "warning" | "risk" | "failed";
+  warnings: number;
+  risks: number;
+  failed: number;
+  rules: ImportRules;
+  collectionsText?: string;
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Store client (zustand + persist localStorage).
 //
@@ -140,6 +179,10 @@ interface OrkestraState {
   importProfiles: Record<string, ProfileMemory>;
   /** Profil boutique cible sélectionné dans Import Factory. */
   selectedProfileId: string;
+  /** Presets d'import privés (sauvegardés / analysés / dupliqués). */
+  importPresets: ImportPreset[];
+  /** Derniers imports (réutilisation rapide). */
+  recentImports: RecentImport[];
 
   setOnboardingComplete: (v: boolean) => void;
   setGuideHidden: (v: boolean) => void;
@@ -168,6 +211,14 @@ interface OrkestraState {
   setProfileConfig: (profileId: string, config: ProfileConfig) => void;
   addForbidden: (profileId: string, v: { term?: string; domain?: string }) => void;
   resetProfileMemory: (profileId: string) => void;
+  // ── Presets & derniers imports ──
+  addImportPreset: (preset: ImportPreset) => void;
+  updateImportPreset: (id: string, patch: Partial<ImportPreset>) => void;
+  deleteImportPreset: (id: string) => void;
+  duplicateImportPreset: (id: string) => void;
+  setDefaultImportPreset: (id: string) => void;
+  addRecentImport: (rec: RecentImport) => void;
+  clearRecentImports: () => void;
 }
 
 export const useOrkestra = create<OrkestraState>()(
@@ -192,6 +243,8 @@ export const useOrkestra = create<OrkestraState>()(
       importMemory: EMPTY_IMPORT,
       importProfiles: {},
       selectedProfileId: "custom",
+      importPresets: [],
+      recentImports: [],
 
       setOnboardingComplete: (v) => set({ onboardingComplete: v }),
       setGuideHidden: (v) => set({ guideHidden: v }),
@@ -313,6 +366,24 @@ export const useOrkestra = create<OrkestraState>()(
           };
         }),
       resetProfileMemory: (profileId) => set((s) => ({ importProfiles: { ...s.importProfiles, [profileId]: emptyProfileMemory() } })),
+      addImportPreset: (preset) =>
+        set((s) => ({ importPresets: [preset, ...s.importPresets.filter((p) => p.id !== preset.id)] })),
+      updateImportPreset: (id, patch) =>
+        set((s) => ({ importPresets: s.importPresets.map((p) => (p.id === id ? { ...p, ...patch } : p)) })),
+      deleteImportPreset: (id) =>
+        set((s) => ({ importPresets: s.importPresets.filter((p) => p.id !== id) })),
+      duplicateImportPreset: (id) =>
+        set((s) => {
+          const src = s.importPresets.find((p) => p.id === id);
+          if (!src) return {} as Partial<OrkestraState>;
+          const copy: ImportPreset = { ...src, id: `pr_${Date.now().toString(36)}`, name: `${src.name} (copie)`, isDefault: false, createdAt: new Date().toISOString() };
+          return { importPresets: [copy, ...s.importPresets] };
+        }),
+      setDefaultImportPreset: (id) =>
+        set((s) => ({ importPresets: s.importPresets.map((p) => ({ ...p, isDefault: p.id === id })) })),
+      addRecentImport: (rec) =>
+        set((s) => ({ recentImports: [rec, ...s.recentImports].slice(0, 20) })),
+      clearRecentImports: () => set({ recentImports: [] }),
     }),
     {
       name: "orkestra-store",
@@ -320,7 +391,8 @@ export const useOrkestra = create<OrkestraState>()(
       // (string[] → AltTextItem[]) → on réinitialise le slice seo.
       // v4 : atelier Import Factory (statuts + sorties récentes).
       // v5 : Import Factory (mémoire d'import : noms brandés, handles, règles).
-      version: 5,
+      // v6 : presets d'import privés + derniers imports.
+      version: 6,
       migrate: (persisted: unknown, version: number) => {
         const state = (persisted ?? {}) as Partial<OrkestraState>;
         if (version < 2) {
@@ -345,7 +417,10 @@ export const useOrkestra = create<OrkestraState>()(
           return { ...state, factoryStatus: {}, factoryOutputs: [], importMemory: EMPTY_IMPORT } as OrkestraState;
         }
         if (version < 5) {
-          return { ...state, importMemory: EMPTY_IMPORT } as OrkestraState;
+          return { ...state, importMemory: EMPTY_IMPORT, importPresets: [], recentImports: [] } as OrkestraState;
+        }
+        if (version < 6) {
+          return { ...state, importPresets: [], recentImports: [] } as OrkestraState;
         }
         return state as OrkestraState;
       },
