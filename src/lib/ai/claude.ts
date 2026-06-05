@@ -12,6 +12,9 @@ const ANTHROPIC_BASE = "https://api.anthropic.com/v1";
 const ANTHROPIC_VERSION = "2023-06-01";
 const TIMEOUT = 45000;
 
+export interface ClaudeTestOk { ok: true; models: string[] }
+export type ClaudeTestResult = ClaudeTestOk | OpenAIError;
+
 function mapStatus(status: number, body?: string): OpenAIError {
   if (status === 401) return { ok: false, code: "invalid_key", message: "Clé API Claude invalide ou révoquée." };
   if (status === 429) {
@@ -28,6 +31,27 @@ async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT);
   try { return await fn(ctrl.signal); } finally { clearTimeout(t); }
+}
+
+/** Vrai ping Claude : valide la clé via GET /v1/models (léger, sans génération). */
+export async function testClaudeKey(apiKey: string): Promise<ClaudeTestResult> {
+  try {
+    return await withTimeout(async (signal) => {
+      const res = await fetch(`${ANTHROPIC_BASE}/models`, {
+        headers: { "x-api-key": apiKey, "anthropic-version": ANTHROPIC_VERSION },
+        signal,
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        return mapStatus(res.status, body);
+      }
+      const data = (await res.json()) as { data?: { id: string }[] };
+      const models = (data.data || []).map((m) => m.id).filter((id) => /^claude-/.test(id)).slice(0, 20);
+      return { ok: true, models };
+    });
+  } catch {
+    return { ok: false, code: "network", message: "Impossible de joindre Claude (réseau)." };
+  }
 }
 
 /** Complétion Claude (Anthropic Messages). `json:true` demande une sortie JSON pure. */

@@ -84,6 +84,23 @@ body {
 @keyframes ork-skeleton-sweep {
   100% { transform: translateX(100%); }
 }
+@keyframes ork-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Apparition douce (sous-textes, badges) */
+.ork-fade {
+  animation: ork-fade 0.2s ease-out both;
+}
+
+/* Micro-glow violet discret sur l'action principale (au survol) */
+.ork-glow {
+  transition: box-shadow 0.22s ease-out, transform 0.22s ease-out;
+}
+.ork-glow:hover {
+  box-shadow: 0 8px 22px -8px rgba(109, 94, 242, 0.5);
+}
 
 /* Entrée douce d'un élément */
 .ork-rise {

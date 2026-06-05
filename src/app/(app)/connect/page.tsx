@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 
 // Providers réellement branchés en live (les autres : bientôt).
-const AVAILABLE: AIProviderId[] = ["openai"];
+const AVAILABLE: AIProviderId[] = ["openai", "anthropic"];
 
 interface Health {
   status: string;

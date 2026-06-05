@@ -122,6 +122,7 @@ const VALUE = [
 export default function ImportFactoryPage() {
   const { connections, brand, importProfiles, rememberImportFor, setProfileConfig, addForbidden, resetProfileMemory, selectedProfileId, setImportProfile, importPresets, recentImports, addImportPreset, addRecentImport } = useOrkestra();
   const openaiConnected = !!connections.openai?.connected;
+  const claudeConnected = !!connections.anthropic?.connected;
   const profile = profileById(selectedProfileId);
   const mem = importProfiles[selectedProfileId] ?? emptyProfileMemory();
   function effOf(id: string) {
@@ -169,6 +170,7 @@ export default function ImportFactoryPage() {
   const [tab, setTab] = useState<ImportTab>("import");
   const [savePresetOpen, setSavePresetOpen] = useState(false);
   const [activePreset, setActivePreset] = useState<{ id?: string; name?: string }>({});
+  const [perfecting, setPerfecting] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const configRef = useRef<HTMLDivElement>(null);
@@ -408,6 +410,37 @@ export default function ImportFactoryPage() {
     setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
 
+  // §18 — « Perfectionner avec Claude » : relit les fiches faibles (WARNING/RISK)
+  // — champs éditoriaux uniquement — puis repasse le QC déterministe.
+  async function perfectWithClaude() {
+    if (!results || perfecting) return;
+    const weak = results.filter((r) => { const s = qcReports[r.handle]?.status; return s === "warning" || s === "risk" || s === "failed"; });
+    const list = weak.length ? weak : results;
+    const withEdits = list.map((r) => ({ ...r, ...(edits[r.handle] || {}) }));
+    const handleSet = new Set(list.map((r) => r.handle));
+    const sources = groups.filter((g) => handleSet.has(g.handle)).map(toProductInput);
+    setPerfecting(true); setError(null);
+    try {
+      const res = await fetch("/api/import/refine", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          products: withEdits, sources, rules,
+          context: { ...profileContext(eff), brandName: eff.brand || brand.storeName || undefined, niche: eff.niche || brand.niche || undefined, positioning: brand.positioning },
+          memory: { brandNames: mem.brandNames, anchors: mem.anchors, handles: mem.handles, titles: mem.titles },
+          keyRefs: { claude: connections.anthropic?.keyId },
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok || !data.results) { setError(data.error || "Relecture Claude impossible."); setPerfecting(false); return; }
+      const { fixed, reports } = runQc(data.results as TransformedProduct[]);
+      setResults((rs) => mergeResults(rs ?? [], fixed));
+      setQcReports((q) => ({ ...q, ...reports }));
+      setEdits((e) => { const n = { ...e }; for (const r of fixed) delete n[r.handle]; return n; });
+      setProductStatus((ps) => { const n = { ...ps }; for (const r of fixed) { const s = reports[r.handle]?.status; n[r.handle] = s === "risk" || s === "failed" ? "review" : "qc"; } return n; });
+    } catch { setError("Relecture Claude interrompue. Réessayez."); }
+    setPerfecting(false);
+  }
+
   async function regenerateOne(handle: string) {
     const g = groups.find((x) => x.handle === handle);
     if (!g || !results) return;
@@ -575,7 +608,10 @@ export default function ImportFactoryPage() {
       <PageHeader
         title="Transformez vos catalogues produits en CSV Shopify prêts à publier"
         description="Importez un catalogue, appliquez un preset ou créez votre propre profil d'import à partir d'un fichier exemple."
-        actions={openaiConnected ? <Badge tone="good"><ShieldCheck className="h-3 w-3" /> OpenAI connecté</Badge> : <Badge tone="warn"><Plug className="h-3 w-3" /> OpenAI requis pour transformer</Badge>}
+        actions={<span className="flex flex-wrap items-center gap-1.5">
+          {openaiConnected ? <Badge tone="good"><ShieldCheck className="h-3 w-3" /> OpenAI connecté</Badge> : <Badge tone="warn"><Plug className="h-3 w-3" /> OpenAI requis pour transformer</Badge>}
+          {claudeConnected && <Badge tone="brand"><Sparkles className="h-3 w-3" /> Claude — relecture premium</Badge>}
+        </span>}
       />
 
       {!openaiConnected && (
@@ -602,11 +638,12 @@ export default function ImportFactoryPage() {
         {/* ── Hero ── */}
         {phase === "idle" && (
           <>
-            <div className="flex flex-wrap gap-2">
-              <button onClick={() => setSource("csv")} className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-medium transition ${source === "csv" ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300" : "border-[var(--border)] text-[var(--text-muted)] hover:border-brand-300"}`}><FileSpreadsheet className="h-4 w-4" /> Importer un CSV</button>
-              <button onClick={() => setSource("manual")} className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-medium transition ${source === "manual" ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300" : "border-[var(--border)] text-[var(--text-muted)] hover:border-brand-300"}`}><Plus className="h-4 w-4" /> Ajouter un produit manuel</button>
-              <span className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-[var(--border)] px-3.5 py-2 text-sm font-medium text-[var(--text-muted)] opacity-70"><Link2 className="h-4 w-4" /> Depuis une URL <Badge tone="neutral">bientôt</Badge></span>
-              <span className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-[var(--border)] px-3.5 py-2 text-sm font-medium text-[var(--text-muted)] opacity-70"><FileSpreadsheet className="h-4 w-4" /> XLSX <Badge tone="neutral">bientôt</Badge></span>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex gap-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-1">
+                <button onClick={() => setSource("csv")} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200 ease-out ${source === "csv" ? "bg-[var(--card)] text-brand-700 shadow-sm dark:text-brand-300" : "text-[var(--text-muted)] hover:text-[var(--text)]"}`}><FileSpreadsheet className="h-4 w-4" /> Importer un CSV</button>
+                <button onClick={() => setSource("manual")} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200 ease-out ${source === "manual" ? "bg-[var(--card)] text-brand-700 shadow-sm dark:text-brand-300" : "text-[var(--text-muted)] hover:text-[var(--text)]"}`}><Plus className="h-4 w-4" /> Produit manuel</button>
+              </div>
+              <span className="text-[11px] text-[var(--text-muted)]">Bientôt : URL produit · XLSX</span>
             </div>
 
             <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = ""; }} />
@@ -618,12 +655,13 @@ export default function ImportFactoryPage() {
                     <div className="flex items-start gap-4">
                       <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-brand-600 text-white"><Boxes className="h-6 w-6" /></span>
                       <div>
-                        <h2 className="text-base font-bold">Transformez un catalogue entier en quelques minutes</h2>
-                        <p className="mt-1 max-w-xl text-sm text-[var(--text-muted)]">CSV fournisseur, ancienne boutique, concurrent ou export Shopify : Orkestra nettoie, traduit, renomme, optimise et prépare un fichier prêt à réimporter — sans casser vos variantes ni vos images.</p>
+                        <h2 className="text-base font-bold">Importez votre catalogue</h2>
+                        <p className="mt-1 max-w-xl text-sm text-[var(--text-muted)]">CSV fournisseur, ancienne boutique, concurrent ou export Shopify : Orkestra nettoie, traduit, optimise et prépare un fichier prêt à réimporter — sans casser vos variantes ni vos images.</p>
+                        <div className="mt-3"><Pipeline /></div>
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-col gap-2">
-                      <Button onClick={() => fileRef.current?.click()} icon={<Upload className="h-4 w-4" />}>Importer un CSV</Button>
+                      <Button className="ork-glow" onClick={() => fileRef.current?.click()} icon={<Upload className="h-4 w-4" />}>Importer un CSV</Button>
                       <Button variant="outline" size="sm" onClick={() => setShowExample((v) => !v)} icon={<Eye className="h-3.5 w-3.5" />}>Voir un exemple</Button>
                     </div>
                   </div>
@@ -909,7 +947,7 @@ export default function ImportFactoryPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Button variant="outline" size="sm" onClick={() => setSavePresetOpen(true)} icon={<Star className="h-3.5 w-3.5" />}>Sauvegarder ces réglages</Button>
                   {openaiConnected ? (
-                    <Button size="lg" onClick={() => transform()} disabled={!stats.hasTitle} icon={<Wand2 className="h-4 w-4" />}>{source === "manual" ? "Transformer ce produit" : `Transformer ${selectedForTransform().length} produit(s)`}</Button>
+                    <Button className="ork-glow" size="lg" onClick={() => transform()} disabled={!stats.hasTitle} icon={<Wand2 className="h-4 w-4" />}>{source === "manual" ? "Transformer ce produit" : `Transformer ${selectedForTransform().length} produit(s)`}</Button>
                   ) : (
                     <Link href="/connect"><Button size="lg" icon={<Plug className="h-4 w-4" />}>Connecter OpenAI pour transformer</Button></Link>
                   )}
@@ -952,10 +990,17 @@ export default function ImportFactoryPage() {
                   {validated.length > 0 && <Badge tone="brand">{validated.length} approuvé(s)</Badge>}
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => exportCsv()} icon={<Download className="h-4 w-4" />}>Télécharger le CSV Shopify</Button>
-                <Button variant="outline" onClick={exportReport} icon={<FileText className="h-4 w-4" />}>Rapport</Button>
-                <Button variant="ghost" onClick={exportIssues} icon={<AlertTriangle className="h-4 w-4" />}>À vérifier</Button>
+              <div className="flex flex-col items-stretch gap-2 sm:items-end">
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  <Button onClick={() => exportCsv()} icon={<Download className="h-4 w-4" />}>Télécharger le CSV Shopify</Button>
+                  <Button variant="outline" onClick={exportReport} icon={<FileText className="h-4 w-4" />}>Rapport</Button>
+                  <Button variant="ghost" onClick={exportIssues} icon={<AlertTriangle className="h-4 w-4" />}>À vérifier</Button>
+                </div>
+                {claudeConnected ? (
+                  <Button variant="outline" size="sm" onClick={perfectWithClaude} disabled={perfecting} icon={perfecting ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600" /> : <Sparkles className="h-3.5 w-3.5" />}>{perfecting ? "Relecture premium…" : "Perfectionner avec Claude"}</Button>
+                ) : (
+                  <span className="text-[11px] text-[var(--text-muted)]">Connectez Claude pour une relecture premium des fiches longues.</span>
+                )}
               </div>
             </Card>
 
@@ -1246,6 +1291,22 @@ function Mini({ label, value, full }: { label: string; value: string; full?: boo
     <div className={`rounded-lg bg-[var(--bg)] px-2.5 py-1.5 ${full ? "sm:col-span-2" : ""}`}>
       <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">{label}</div>
       <div className="mt-0.5 break-words text-[var(--text)]">{value || <span className="text-[var(--text-muted)]">—</span>}</div>
+    </div>
+  );
+}
+// Visualisation premium du pipeline : CSV → IA → QC → Shopify (§3).
+function Pipeline() {
+  const steps: { icon: typeof FileSpreadsheet; label: string }[] = [
+    { icon: FileSpreadsheet, label: "CSV" }, { icon: Wand2, label: "IA" }, { icon: ShieldCheck, label: "QC" }, { icon: Download, label: "Shopify" },
+  ];
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-[var(--text-muted)]">
+      {steps.map((s, i) => { const I = s.icon; return (
+        <span key={s.label} className="flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 rounded-lg bg-[var(--card)] px-2 py-1 ring-1 ring-[var(--border)]"><I className="h-3 w-3 text-brand-600" /> {s.label}</span>
+          {i < steps.length - 1 && <ArrowRight className="h-3 w-3 text-brand-400" />}
+        </span>
+      ); })}
     </div>
   );
 }

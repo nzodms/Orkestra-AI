@@ -17,15 +17,16 @@ export const PROVIDERS: Record<AIProviderId, AIProviderMeta> = {
   },
   anthropic: {
     id: "anthropic",
-    name: "Anthropic",
-    tagline: "Claude — rédaction premium et code Shopify",
+    name: "Claude",
+    tagline: "Claude — relecture premium et tâches longues",
     color: "#d97757",
     docsUrl: "https://console.anthropic.com/settings/keys",
     helpKey:
       "Connectez-vous à console.anthropic.com → Settings → API Keys. La clé commence par « sk-ant- ».",
     keyPrefix: "sk-ant-",
     defaultModel: "claude-sonnet-4-6",
-    bestFor: "Code Shopify, longues sections, correction Liquid",
+    bestFor: "Relecture premium, longues descriptions, code Shopify, analyse stratégique, contrôle qualité éditorial",
+    recommended: true,
   },
   gemini: {
     id: "gemini",

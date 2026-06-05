@@ -18,35 +18,42 @@ export type ImportTab = "import" | "create" | "presets" | "recent";
 
 export interface UsePresetPayload { rules: ImportRules; collectionsText?: string; profileId?: string; presetId?: string; presetName?: string }
 
-const TABS: { id: ImportTab; label: string; icon: typeof Upload }[] = [
-  { id: "import", label: "Importer un catalogue", icon: Upload },
-  { id: "create", label: "Créer un profil d'import", icon: Wand2 },
-  { id: "presets", label: "Mes presets", icon: Star },
-  { id: "recent", label: "Derniers imports", icon: Clock },
+const TABS: { id: ImportTab; label: string; short: string; sub: string; icon: typeof Upload }[] = [
+  { id: "import", label: "Importer", short: "Importer", sub: "Importez un CSV ou ajoutez un produit, puis transformez votre catalogue.", icon: Upload },
+  { id: "create", label: "Profil d'import", short: "Profil", sub: "Importez un fichier exemple : Orkestra en déduit un profil réutilisable.", icon: Wand2 },
+  { id: "presets", label: "Presets", short: "Presets", sub: "Réglages prêts à l'emploi, presets privés et profils créés depuis un exemple.", icon: Star },
+  { id: "recent", label: "Historique", short: "Historique", sub: "Vos derniers imports — réutilisez leurs réglages en un clic.", icon: Clock },
 ];
 
 const STATUS_TONE: Record<RecentImport["status"], "good" | "warn" | "bad" | "neutral"> = { ok: "good", warning: "warn", risk: "bad", failed: "bad" };
 const STATUS_LABEL: Record<RecentImport["status"], string> = { ok: "OK", warning: "À améliorer", risk: "À risque", failed: "Bloqué" };
 
-// ── Navigation par onglets ──────────────────────────────────────────────────
+// ── Navigation par onglets (segmented control premium, scrollable sur mobile) ──
 export function ImportTabsNav({ tab, setTab, presetCount, recentCount }: { tab: ImportTab; setTab: (t: ImportTab) => void; presetCount: number; recentCount: number }) {
+  const sub = TABS.find((t) => t.id === tab)?.sub;
   return (
-    <div className="mb-5 flex flex-wrap gap-2">
-      {TABS.map((t) => {
-        const I = t.icon;
-        const active = tab === t.id;
-        const count = t.id === "presets" ? presetCount : t.id === "recent" ? recentCount : 0;
-        return (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-medium transition ${active ? "border-brand-500 bg-brand-50 text-brand-700 shadow-sm dark:bg-brand-950 dark:text-brand-300" : "border-[var(--border)] text-[var(--text-muted)] hover:border-brand-300"}`}
-          >
-            <I className="h-4 w-4" /> {t.label}
-            {count > 0 && <span className={`rounded-full px-1.5 text-[10px] font-bold ${active ? "bg-brand-600 text-white" : "bg-[var(--bg)] text-[var(--text-muted)]"}`}>{count}</span>}
-          </button>
-        );
-      })}
+    <div className="mb-5">
+      <div className="ork-segment flex gap-1 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--bg)] p-1">
+        {TABS.map((t) => {
+          const I = t.icon;
+          const active = tab === t.id;
+          const count = t.id === "presets" ? presetCount : t.id === "recent" ? recentCount : 0;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              aria-current={active}
+              className={`relative flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 ease-out ${active ? "bg-[var(--card)] text-brand-700 shadow-sm dark:text-brand-300" : "text-[var(--text-muted)] hover:text-[var(--text)]"}`}
+            >
+              <I className="h-4 w-4 shrink-0" />
+              <span className="hidden sm:inline">{t.label}</span>
+              <span className="sm:hidden">{t.short}</span>
+              {count > 0 && <span className={`rounded-full px-1.5 text-[10px] font-bold ${active ? "bg-brand-600 text-white" : "bg-[var(--border)] text-[var(--text-muted)]"}`}>{count}</span>}
+            </button>
+          );
+        })}
+      </div>
+      {sub && <p className="ork-fade mt-2 px-1 text-xs text-[var(--text-muted)]">{sub}</p>}
     </div>
   );
 }

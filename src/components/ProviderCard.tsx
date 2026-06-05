@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 
 // Providers réellement branchés en live dans cette version.
-const AVAILABLE_PROVIDERS: AIProviderId[] = ["openai"];
+const AVAILABLE_PROVIDERS: AIProviderId[] = ["openai", "anthropic"];
 
 export function ProviderCard({ id }: { id: AIProviderId }) {
   const meta = PROVIDERS[id];

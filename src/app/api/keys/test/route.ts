@@ -3,13 +3,14 @@ import { encryptSecret, maskApiKey, hasMasterKey } from "@/lib/crypto";
 import { PROVIDERS } from "@/lib/providers";
 import { isMockMode } from "@/lib/ai/adapter";
 import { testOpenAIKey } from "@/lib/ai/openai";
+import { testClaudeKey } from "@/lib/ai/claude";
 import { saveKey, keyStoreBackend } from "@/lib/server/keyStore";
 import type { AIProviderId } from "@/lib/types";
 
 // ──────────────────────────────────────────────────────────────────────────
 // POST /api/keys/test
 //
-// OpenAI : vrai ping (GET /models) → stockage chiffré → keyId opaque renvoyé.
+// OpenAI / Claude : vrai ping (GET models) → stockage chiffré → keyId opaque.
 // Les autres providers ne sont pas encore branchés (à venir) → réponse claire.
 // AUCUNE clé en clair n'est jamais loggée ni renvoyée.
 // ──────────────────────────────────────────────────────────────────────────
@@ -17,7 +18,17 @@ import type { AIProviderId } from "@/lib/types";
 export const runtime = "nodejs";
 
 // Providers réellement branchés en live dans cette version.
-const AVAILABLE: AIProviderId[] = ["openai"];
+const AVAILABLE: AIProviderId[] = ["openai", "anthropic"];
+
+// Choisit un modèle par défaut sûr selon le provider et les modèles renvoyés.
+function pickModel(provider: AIProviderId, models: string[], fallback: string): string {
+  if (provider === "openai") return models.includes("gpt-4o") ? "gpt-4o" : models[0] || fallback;
+  if (provider === "anthropic") {
+    const sonnet = models.find((m) => /sonnet/.test(m));
+    return sonnet || models[0] || fallback;
+  }
+  return models[0] || fallback;
+}
 
 export async function POST(req: Request) {
   let provider: AIProviderId | undefined;
@@ -58,7 +69,7 @@ export async function POST(req: Request) {
   if (!AVAILABLE.includes(provider)) {
     return NextResponse.json({
       ok: false,
-      error: `${meta.name} : bientôt disponible. Seul OpenAI est branché en live dans cette version.`,
+      error: `${meta.name} : bientôt disponible dans cette version.`,
       code: "not_available",
     });
   }
@@ -74,16 +85,16 @@ export async function POST(req: Request) {
     });
   }
 
-  // 6) Vrai ping OpenAI (la validation principale, pas le préfixe).
+  // 6) Vrai ping du provider (la validation principale, pas le préfixe).
   let model = meta.defaultModel;
   try {
-    const test = await testOpenAIKey(key);
+    const test = provider === "anthropic" ? await testClaudeKey(key) : await testOpenAIKey(key);
     if (!test.ok) {
       return NextResponse.json({ ok: false, error: test.message, code: test.code });
     }
-    model = test.models.includes("gpt-4o") ? "gpt-4o" : test.models[0] || meta.defaultModel;
+    model = pickModel(provider, test.models, meta.defaultModel);
   } catch {
-    return NextResponse.json({ ok: false, error: "Impossible de joindre OpenAI (réseau).", code: "network" });
+    return NextResponse.json({ ok: false, error: `Impossible de joindre ${meta.name} (réseau).`, code: "network" });
   }
 
   // 7) Sauvegarde chiffrée — erreur distincte si elle échoue.
@@ -100,7 +111,7 @@ export async function POST(req: Request) {
     console.error("[Orkestra] Échec sauvegarde clé:", e?.code || e?.name || "unknown");
     return NextResponse.json({
       ok: false,
-      error: "Connexion OpenAI validée, mais sauvegarde impossible : vérifiez la table Prisma (lancez `prisma db push`) ou DATABASE_URL.",
+      error: `Connexion ${meta.name} validée, mais sauvegarde impossible : vérifiez la table Prisma (lancez \`prisma db push\`) ou DATABASE_URL.`,
       code: "save_failed",
     });
   }
