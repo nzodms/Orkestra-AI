@@ -157,6 +157,9 @@ const CLAIM_DEFS: ClaimDef[] = [
   { re: /\b(?:non[\s-]?)?dimmable\b|intensit[ée]\s+variable|variateur|gradable/i, label: "dimmable / intensité variable", src: /dimmable|intensit[ée]\s+variable|variateur|gradable/i, remove: false },
   { re: /\bled[s]?\s+int[ée]gr[ée]e?s?\b/i, label: "LED intégrées", src: /\bled\b/i, remove: false },
   { re: /\bcertifi[ée]\w*\b|\bcertification\b|\bnorme\s+[A-Za-z]|\bIP\s?\d{2}\b/i, label: "certification / norme", src: /certifi|certification|\bnorme\b|\bIP\s?\d{2}\b|\bCE\b/i, remove: false },
+  { re: /\b(?:GU\s?10|E\s?27|E\s?14|E\s?26|B\s?22|MR\s?16)\b/i, label: "compatibilité d'ampoule (culot)", src: /\b(?:GU\s?10|E\s?27|E\s?14|E\s?26|B\s?22|MR\s?16|culot)\b/i, remove: false },
+  { re: /\bcristal\s+k9\b/i, label: "cristal K9", src: /cristal\s+k9|\bk9\b/i, remove: false },
+  { re: /\bacier\s+(?:inoxydable|inox|poli|bross[ée])\b|\blaiton\s+massif\b/i, label: "matériau précis (acier / laiton)", src: /acier|inox|laiton|steel|brass/i, remove: false },
 ];
 
 /** Retire d'un HTML les phrases contenant une affirmation, sans casser les balises. */
@@ -251,6 +254,8 @@ function fixFrenchCaps(s: string): string {
 }
 // Tags trop génériques (à compléter par du type + longue traîne).
 const GENERIC_TAGS = new Set(["moderne", "interieur", "design", "elegant", "salon", "deco", "decoration", "contemporain", "chic", "tendance", "maison", "nouveau", "qualite", "luxe", "minimaliste"]);
+// Formules passe-partout à éviter dans la description (richesse éditoriale).
+const FILLER_PHRASES = ["touche moderne et élégante", "touche moderne et elegante", "ambiance chaleureuse", "style contemporain", "idéal pour votre intérieur", "ideal pour votre interieur", "touche d'élégance", "touche d'elegance", "alliant style et fonctionnalité", "apporte une touche", "élégance intemporelle"];
 
 /** Contrôle qualité + corrections déterministes d'un produit transformé. */
 export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport {
@@ -450,14 +455,32 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     if (enCol) { issues.push(`Collection en anglais : ${enCol}`); bump("warning"); }
   }
 
-  // Description : longueur cible par niveau, en CARACTÈRES de texte (Ultra 3000–4000, Poussé ≥ 1200).
+  // ── Longueur & richesse de description selon le niveau (en CARACTÈRES de texte) ──
   const bodyText = stripHtml(fixed.bodyHtml);
   const bodyChars = bodyText.length;
-  if (ctx.level === "ultra complet" && bodyChars < 3000) { issues.push(`Description courte pour le mode Ultra (${bodyChars} car., viser 3000–4000)`); bump("warning"); }
-  else if (ctx.level === "poussé" && bodyChars < 1200) { issues.push(`Description courte pour le mode Poussé (${bodyChars} car.)`); bump("warning"); }
+  const hasDims = /\b\d+([.,]\d+)?\s?(cm|mm|m)\b|dimension|\btaille\b|\bø\b/i.test(ctx.sourceText || "");
+  if (ctx.level === "ultra complet") {
+    const thinSource = (ctx.sourceText || "").replace(/\s+/g, " ").trim().length < 300;
+    if (bodyChars < 2000) {
+      if (thinSource) { issues.push("Données source insuffisantes pour une description Ultra complète"); bump("warning"); }
+      else { issues.push(`Description Ultra trop courte (${bodyChars} car. < 2000)`); bump("risk"); }
+    } else if (bodyChars < 3000) { issues.push(`Description courte pour le mode Ultra (${bodyChars} car., viser 3000–4000)`); bump("warning"); }
+    const faq = (fixed.bodyHtml.match(/<h4\b/gi) || []).length;
+    if (faq < 3) { issues.push(`FAQ insuffisante en mode Ultra (${faq}/3 minimum)`); bump("warning"); }
+    const bullets = (fixed.bodyHtml.match(/<li\b/gi) || []).length;
+    if (bullets < 4) { issues.push(`Trop peu de bénéfices/détails en mode Ultra (${bullets} puce(s))`); bump("warning"); }
+  } else if (ctx.level === "poussé" && bodyChars < 1500) {
+    issues.push(`Description courte pour le mode Poussé (${bodyChars} car., viser 1800–2800)`); bump("warning");
+  }
   // Section « Dimensions » absente alors que des tailles existent dans la source.
-  if ((ctx.level === "poussé" || ctx.level === "ultra complet") && /\b\d+([.,]\d+)?\s?cm\b|dimension|\btaille\b/i.test(ctx.sourceText || "") && !/dimension/i.test(bodyText)) {
+  if ((ctx.level === "poussé" || ctx.level === "ultra complet") && hasDims && !/dimension/i.test(bodyText)) {
     issues.push("Section « Dimensions » absente alors que des tailles existent"); bump("warning");
+  }
+  // Formules passe-partout (richesse éditoriale) en mode avancé.
+  if (ctx.level === "poussé" || ctx.level === "ultra complet") {
+    const low = bodyText.toLowerCase();
+    const fillerHits = FILLER_PHRASES.filter((f) => low.includes(f)).length;
+    if (fillerHits >= 2) { issues.push(`Description avec formules génériques (${fillerHits})`); bump("warning"); }
   }
 
   // Doute IA signalé.
