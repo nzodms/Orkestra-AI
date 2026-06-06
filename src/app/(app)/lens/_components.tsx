@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { Card, CardHeader, Badge, ScoreRing, EmptyState } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import { riskMeta } from "@/lib/supplier-score";
-import type { LensAnalysis, SupplierResult, SupplierSearchMethod, AssistedQuery } from "@/lib/lens-store";
+import type { LensAnalysis, SupplierResult, SupplierSearchMethod, SearchLink } from "@/lib/lens-store";
 import {
   Upload, Link2, ScanLine, ImageIcon, Sparkles, Star, Truck, Package, ExternalLink,
   Bookmark, GitCompare, ArrowRight, Check, Store, Info, Copy, ShoppingBag, Search,
@@ -82,7 +82,7 @@ export function LensUrlInput({ onImageUrl, onProductUrl, busy }: { onImageUrl: (
 export function LensClipperGuide({ origin }: { origin: string }) {
   const [copied, setCopied] = useState(false);
   const bookmarklet =
-    `javascript:(function(){if(window.__orkestraClipper){return;}var s=document.createElement('script');s.src='${origin}/clipper.js?v=3';s.onerror=function(){alert('Orkestra Clipper : chargement impossible.');};(document.body||document.documentElement).appendChild(s);})();`;
+    `javascript:(function(){if(window.__orkestraClipper){return;}window.__orkBase=${JSON.stringify(origin)};var s=document.createElement('script');s.src=${JSON.stringify(origin)}+'/clipper.js?v=4';s.onerror=function(){alert('Ce site bloque le clipper Orkestra (sécurité de la page). Essayez l\\'extension Orkestra, ou importez l\\'image manuellement dans Orkestra Lens.');};(document.body||document.documentElement).appendChild(s);})();`;
   const steps = [
     "La page passe en mode sélection (overlay sombre léger).",
     "Tracez un rectangle autour du produit (ou cliquez dessus).",
@@ -196,20 +196,29 @@ function SupplierCard({ r, selected, onToggle, onSend, onSave, saved }: {
   );
 }
 
-// ── 6a. Recherches préremplies (mode assisté) ───────────────────────────────
-export function AssistedQueries({ queries }: { queries: AssistedQuery[] }) {
-  if (!queries.length) return null;
+// ── 6a. Recherches fournisseur prêtes (toujours disponibles) ─────────────────
+export function SearchLinks({ links }: { links: SearchLink[] }) {
+  if (!links.length) return null;
   return (
-    <Card>
-      <CardHeader title="Ouvrir la recherche fournisseur" subtitle="Aucune recherche web automatique disponible — ouvrez ces recherches préremplies (vous verrez les vrais prix / MOQ sur la source)." icon={<Search className="h-5 w-5" />} />
-      <div className="flex flex-wrap gap-2">
-        {queries.map((q) => (
-          <a key={q.url} href={q.url} target="_blank" rel="noopener noreferrer" className="inline-flex h-9 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-medium text-[var(--text)] hover:bg-ink-50 dark:hover:bg-ink-900">
-            <Search className="h-3.5 w-3.5 text-brand-600" /> {q.source} <ExternalLink className="h-3 w-3 text-[var(--text-muted)]" />
-          </a>
+    <div>
+      <div className="mb-3 flex items-center gap-2">
+        <Search className="h-4 w-4 text-brand-600" />
+        <h3 className="text-sm font-semibold text-[var(--text)]">Recherches prêtes</h3>
+        <span className="text-xs text-[var(--text-muted)]">Vous verrez les vrais prix / MOQ directement sur la source</span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {links.map((l) => (
+          <Card key={l.source} className="flex flex-col gap-2 p-4">
+            <Badge tone="brand">{l.source}</Badge>
+            <p className="text-xs text-[var(--text)]"><span className="font-semibold text-emerald-600">＋</span> {l.advantage}</p>
+            <p className="text-xs text-[var(--text-muted)]"><span className="font-semibold text-amber-600">－</span> {l.limit}</p>
+            <a href={l.url} target="_blank" rel="noopener noreferrer" className="mt-auto block">
+              <Button size="sm" variant="outline" className="w-full" icon={<ExternalLink className="h-3.5 w-3.5" />}>Ouvrir {l.source}</Button>
+            </a>
+          </Card>
         ))}
       </div>
-    </Card>
+    </div>
   );
 }
 

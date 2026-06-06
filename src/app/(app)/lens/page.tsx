@@ -4,15 +4,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useOrkestra } from "@/lib/store";
-import { useLens, type LensAnalysis, type SupplierResult, type LensInputKind, type SupplierSearchProvider, type SupplierSearchMethod, type AssistedQuery } from "@/lib/lens-store";
-import { draftFromSupplier } from "@/lib/send-to-import-factory";
+import { useLens, type LensAnalysis, type SupplierResult, type LensInputKind, type SupplierSearchProvider, type SupplierSearchMethod } from "@/lib/lens-store";
+import { draftFromSupplier, draftFromAnalysis } from "@/lib/send-to-import-factory";
+import { buildSearchLinks } from "@/lib/lens-links";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
-import { LensUploader, LensUrlInput, LensClipperGuide, LensAnalysisCard, SupplierResults, SupplierComparison, AssistedQueries } from "./_components";
-import { ScanSearch, Loader2, RotateCcw, Plug, Bookmark, ArrowRight, RefreshCw, Pencil, Check, X, Sparkles } from "lucide-react";
+import { LensUploader, LensUrlInput, LensClipperGuide, LensAnalysisCard, SupplierResults, SupplierComparison, SearchLinks } from "./_components";
+import { ScanSearch, Loader2, RotateCcw, Plug, Bookmark, ArrowRight, RefreshCw, Pencil, X, Sparkles, Info } from "lucide-react";
 
 type Step = "input" | "analyzing" | "results";
-interface SearchMeta { method: SupplierSearchMethod; provider: SupplierSearchProvider; real: boolean; keywords: string[]; models?: string[]; assistedQueries?: AssistedQuery[]; error?: string }
+interface SearchMeta { method: SupplierSearchMethod; provider: SupplierSearchProvider; real: boolean; keywords: string[]; models?: string[]; error?: string }
 
 const METHOD_BADGE: Record<SupplierSearchMethod, { label: string; tone: "good" | "warn" | "brand" | "neutral" }> = {
   structured: { label: "Fournisseurs structurés", tone: "good" },
@@ -42,6 +43,8 @@ export default function OrkestraLensPage() {
 
   const savedIds = useMemo(() => new Set(lensSaved.map((s) => s.supplier.id)), [lensSaved]);
   const compareList = useMemo(() => results.filter((r) => selected.has(r.id)).slice(0, 4), [results, selected]);
+  // Liens de recherche INSTANTANÉS (dès l'analyse, sans attendre Gemini/Claude).
+  const searchLinks = useMemo(() => (analysis ? buildSearchLinks(analysis.productName || analysis.productType) : []), [analysis]);
 
   async function runSearch(a: LensAnalysis, opts: { provider?: SupplierSearchProvider; keywords?: string[] } = {}) {
     setSearching(true);
@@ -52,7 +55,7 @@ export default function OrkestraLensPage() {
       });
       const data = await res.json();
       setResults(data.results || []);
-      setMeta({ method: data.method || "simulated", provider: data.provider || "simulated", real: !!data.real, keywords: data.keywords || [], models: data.models, assistedQueries: data.assistedQueries, error: data.error });
+      setMeta({ method: data.method || "assisted", provider: data.provider || "simulated", real: !!data.real, keywords: data.keywords || [], models: data.models, error: data.error });
     } catch {
       setResults([]);
       setMeta({ method: "simulated", provider: "simulated", real: false, keywords: [], error: "Impossible de joindre la recherche fournisseurs. Réessayez." });
@@ -60,6 +63,7 @@ export default function OrkestraLensPage() {
   }
 
   async function analyze(input: { kind: LensInputKind; image?: string; url?: string; pageContext?: { title?: string; domain?: string; text?: string } }, previewSrc: string) {
+    console.log("[Lens]", { event: "lens-start", kind: input.kind });
     setStep("analyzing"); setError(""); setPreview(previewSrc); setSelected(new Set()); setMeta(null); setEditKw(false);
     try {
       const res = await fetch("/api/lens/analyze", {
@@ -69,14 +73,16 @@ export default function OrkestraLensPage() {
       const data = await res.json();
       if (!data.ok || !data.analysis) { setError(data.error || "Analyse impossible."); setStep("input"); return; }
       const a = data.analysis as LensAnalysis; a.preview = previewSrc;
+      console.log("[Lens]", { event: "product-detected", engine: a.engine, productName: a.productName });
       setAnalysis(a);
-      setKwText([...a.keywordsSupplier, ...a.keywordsEn].slice(0, 6).join(", "));
-      await runSearch(a);
-      setStep("results");
+      setKwText(a.productName || [...a.keywordsSupplier, ...a.keywordsEn].slice(0, 5).join(" "));
+      setStep("results"); // affichage RAPIDE : produit + liens, sans attendre l'IA web
+      runSearch(a);       // enrichissement web en arrière-plan
     } catch {
       setError("Impossible de joindre Orkestra Lens (réseau)."); setStep("input");
     }
   }
+  function sendAnalysis() { if (analysis) { setImportDraft(draftFromAnalysis(analysis)); router.push("/seo"); } }
 
   // Entrée via clipper / bookmarklet : ?imageUrl= / ?productUrl= (+ titre / texte proche)
   useEffect(() => {
@@ -187,50 +193,47 @@ export default function OrkestraLensPage() {
 
       {step === "results" && analysis && (
         <div className="space-y-5">
+          {/* Produit détecté + action principale */}
           <LensAnalysisCard analysis={analysis} preview={preview} />
-
-          {/* Bandeau source + mots-clés utilisés (modifiables) */}
-          <Card className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                {meta && <Badge tone={METHOD_BADGE[meta.method].tone}>{METHOD_BADGE[meta.method].label}{meta.method === "structured" && meta.provider ? ` · ${meta.provider}` : ""}</Badge>}
-                {meta?.models?.length ? <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]"><Sparkles className="h-3 w-3 text-brand-600" /> {meta.models.join(" + ")}</span> : null}
-                <span className="text-xs text-[var(--text-muted)]">{results.length} résultat(s)</span>
-              </div>
-              {!editKw && <Button size="sm" variant="ghost" onClick={() => setEditKw(true)} icon={<Pencil className="h-3.5 w-3.5" />}>Modifier les mots-clés</Button>}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={sendAnalysis} icon={<ArrowRight className="h-4 w-4" />}>Envoyer vers Import Factory</Button>
+            {!editKw && <Button variant="outline" size="sm" onClick={() => setEditKw(true)} icon={<Pencil className="h-3.5 w-3.5" />}>Modifier le nom produit</Button>}
+          </div>
+          {editKw && (
+            <div className="flex flex-wrap items-center gap-2">
+              <input className="input flex-1 min-w-[220px]" value={kwText} onChange={(e) => setKwText(e.target.value)} placeholder="nom produit pour la recherche (anglais conseillé)" onKeyDown={(e) => { if (e.key === "Enter") relaunchKeywords(); }} />
+              <Button size="sm" loading={searching} onClick={relaunchKeywords} icon={<RefreshCw className="h-3.5 w-3.5" />}>Relancer la recherche</Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditKw(false)} icon={<X className="h-3.5 w-3.5" />}>Annuler</Button>
             </div>
-            {editKw ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <input className="input flex-1 min-w-[220px]" value={kwText} onChange={(e) => setKwText(e.target.value)} placeholder="mots-clés séparés par des virgules" onKeyDown={(e) => { if (e.key === "Enter") relaunchKeywords(); }} />
-                <Button size="sm" loading={searching} onClick={relaunchKeywords} icon={<RefreshCw className="h-3.5 w-3.5" />}>Relancer</Button>
-                <Button size="sm" variant="ghost" onClick={() => setEditKw(false)} icon={<X className="h-3.5 w-3.5" />}>Annuler</Button>
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {(meta?.keywords || []).map((k, i) => <Badge key={i} tone="neutral">{k}</Badge>)}
-              </div>
-            )}
-            {meta?.error && (
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
-                <span className="flex-1">{meta.error}</span>
-                <Button size="sm" variant="outline" loading={searching} onClick={() => runSearch(analysis)} icon={<RefreshCw className="h-3.5 w-3.5" />}>Réessayer</Button>
-                <Button size="sm" variant="ghost" onClick={() => runSearch(analysis, { provider: "simulated" })}>Résultats simulés</Button>
-              </div>
-            )}
-          </Card>
+          )}
 
-          {meta?.assistedQueries?.length ? <AssistedQueries queries={meta.assistedQueries} /> : null}
+          {/* Recherches prêtes — INSTANTANÉES, toujours présentes */}
+          <SearchLinks links={searchLinks} />
 
-          {compareList.length >= 2 && <SupplierComparison results={compareList} onSend={send} />}
-
+          {/* Résultats trouvés par IA (web réel via Gemini, comparés par Claude) */}
           <div>
             <div className="mb-3 flex items-center gap-2">
               <ScanSearch className="h-4 w-4 text-brand-600" />
-              <h3 className="text-sm font-semibold text-[var(--text)]">Fournisseurs similaires</h3>
-              {selected.size > 0 && <span className="text-xs text-[var(--text-muted)]">· {selected.size} sélectionné(s) pour comparer (max 4)</span>}
-              {searching && <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-600" />}
+              <h3 className="text-sm font-semibold text-[var(--text)]">Résultats trouvés par IA</h3>
+              {meta && results.length > 0 && <Badge tone={METHOD_BADGE[meta.method].tone}>{METHOD_BADGE[meta.method].label}</Badge>}
+              {meta?.models?.length ? <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]"><Sparkles className="h-3 w-3 text-brand-600" /> {meta.models.join(" + ")}</span> : null}
+              {searching && <span className="inline-flex items-center gap-1 text-xs text-brand-600"><Loader2 className="h-3.5 w-3.5 animate-spin" /> recherche web…</span>}
             </div>
-            <SupplierResults results={results} selected={selected} onToggle={toggle} onSend={send} onSave={save} savedIds={savedIds} method={meta?.method || "simulated"} />
+
+            {searching ? (
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--text-muted)]">Gemini cherche des liens, Claude compare…</div>
+            ) : results.length > 0 ? (
+              <>
+                {compareList.length >= 2 && <div className="mb-4"><SupplierComparison results={compareList} onSend={send} /></div>}
+                <SupplierResults results={results} selected={selected} onToggle={toggle} onSend={send} onSave={save} savedIds={savedIds} method={meta?.method || "multi-ai-search"} />
+              </>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-5 text-sm text-[var(--text-muted)]">
+                <Info className="h-4 w-4 shrink-0 text-brand-600" />
+                <span className="flex-1">{meta?.error || "Les recherches prêtes sont disponibles ci-dessus. Ouvrez Alibaba, AliExpress ou Google pour vérifier les résultats."}</span>
+                {analysis && <Button size="sm" variant="outline" loading={searching} onClick={() => runSearch(analysis)} icon={<RefreshCw className="h-3.5 w-3.5" />}>Réessayer la recherche IA</Button>}
+              </div>
+            )}
           </div>
         </div>
       )}

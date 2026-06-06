@@ -14,9 +14,11 @@
   if (window.__orkestraClipper) return;
   window.__orkestraClipper = true;
 
-  // Origine Orkestra = origine du script injecté.
-  var BASE = "";
-  try { BASE = new URL(document.currentScript.src).origin; } catch (e) { BASE = ""; }
+  // Origine Orkestra : fournie par le bookmarklet (window.__orkBase) car
+  // document.currentScript est null pour un script injecté dynamiquement.
+  var BASE = window.__orkBase || "";
+  if (!BASE) { try { BASE = new URL((document.currentScript || {}).src || "").origin; } catch (e) { BASE = ""; } }
+  if (!BASE) { alert("Orkestra Clipper : origine introuvable. Relancez depuis Orkestra Lens."); window.__orkestraClipper = false; return; }
   var V = "#6d5ef2"; // violet Orkestra
 
   var prevOverflow = document.documentElement.style.overflow;

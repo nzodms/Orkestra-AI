@@ -12,10 +12,10 @@
 import { getEncrypted } from "./server/keyStore";
 import { decryptSecret } from "./crypto";
 import { geminiGroundedSearch } from "./ai/gemini";
-import { claudeWebSearch } from "./ai/claude";
+import { claudeWebSearch, claudeComplete } from "./ai/claude";
 import { scoreWebResult, riskFromScore } from "./supplier-score";
 import { pickKeywords } from "./supplier-search";
-import type { LensAnalysis, SupplierResult, AssistedQuery } from "./lens-types";
+import type { LensAnalysis, SupplierResult } from "./lens-types";
 
 export interface LensKeyRefs { openai?: string | null; claude?: string | null; gemini?: string | null }
 
@@ -60,16 +60,21 @@ function priceInText(s: string): string | undefined {
   return m ? m[0].trim() : undefined;
 }
 
-/** Requêtes préremplies (mode assisté) : l'utilisateur ouvre la marketplace lui-même. */
-export function buildAssistedQueries(analysis: LensAnalysis): AssistedQuery[] {
-  const kw = pickKeywords(analysis)[0] || analysis.productType;
-  const enc = encodeURIComponent(kw);
-  return [
-    { label: `Alibaba — ${kw}`, source: "Alibaba", url: `https://www.alibaba.com/trade/search?SearchText=${enc}` },
-    { label: `AliExpress — ${kw}`, source: "AliExpress", url: `https://www.aliexpress.com/wholesale?SearchText=${enc}` },
-    { label: `1688 — ${kw}`, source: "1688", url: `https://s.1688.com/selloffer/offer_search.htm?keywords=${enc}` },
-    { label: `Google — ${kw} supplier`, source: "Google", url: `https://www.google.com/search?q=${encodeURIComponent(kw + " wholesale supplier")}` },
-  ];
+// Claude COMPARE : juge la pertinence des liens (score 0-100 + raison + hors-sujet).
+async function claudeCompare(name: string, results: SupplierResult[], key: { apiKey: string; model: string }): Promise<Map<string, { score: number; reason: string; off: boolean }> | null> {
+  const list = results.slice(0, 12).map((r, i) => `${i + 1}. ${r.title} — ${r.productUrl}`).join("\n");
+  const prompt = `Produit recherché : "${name}".\nLiens trouvés :\n${list}\n\nPour CHAQUE lien, juge s'il correspond à ce produit chez un fournisseur. Réponds en JSON :\n{"items":[{"url":"...","score":0-100,"offTopic":true|false,"reason":"raison courte en français"}]}\nN'invente PAS de prix ni de note. Sois strict : un lien hors sujet a offTopic=true.`;
+  const r = await claudeComplete({ apiKey: key.apiKey, model: key.model || "claude-sonnet-4-6", system: "Tu compares des liens fournisseurs pour de l'e-commerce. Réponds en JSON valide uniquement.", prompt, json: true, maxTokens: 1200, temperature: 0.2 });
+  if (!r.ok) return null;
+  try {
+    const parsed = JSON.parse(r.text) as { items?: { url?: string; score?: number; offTopic?: boolean; reason?: string }[] };
+    const map = new Map<string, { score: number; reason: string; off: boolean }>();
+    for (const it of parsed.items || []) {
+      if (!it.url) continue;
+      map.set(it.url, { score: Math.max(0, Math.min(100, Math.round(it.score ?? 50))), reason: (it.reason || "").trim() || "évalué par Claude", off: !!it.offTopic });
+    }
+    return map.size ? map : null;
+  } catch { return null; }
 }
 
 function normalizeWeb(items: { url: string; title: string }[], analysis: LensAnalysis, keywords: string[], maxItems: number): SupplierResult[] {
@@ -109,40 +114,52 @@ function normalizeWeb(items: { url: string; title: string }[], analysis: LensAna
 
 export interface MultiAiResult { results: SupplierResult[]; models: string[]; queries: string[] }
 
-/** Recherche multi-IA : Gemini grounding + Claude web search (en parallèle). Null si rien. */
+/** Recherche multi-IA : Gemini grounding (web) → Claude compare/score. Null si rien. */
 export async function multiAiSearch(analysis: LensAnalysis, keyRefs: LensKeyRefs, maxItems = 8): Promise<MultiAiResult | null> {
-  const keywords = pickKeywords(analysis);
-  const query = `${keywords.join(" ")} ${analysis.productType} fournisseur grossiste wholesale supplier (Alibaba, AliExpress, 1688)`;
+  const name = (analysis.productName || pickKeywords(analysis)[0] || analysis.productType || "").trim();
+  const query = `${name} wholesale supplier manufacturer (alibaba aliexpress 1688)`;
   const log = (event: string, extra: Record<string, unknown> = {}) =>
     console.log("[Lens/search]", { event, gemini: !!keyRefs.gemini, claude: !!keyRefs.claude, ...extra });
   const models: string[] = [];
   const web: { url: string; title: string }[] = [];
 
-  log("multi-ai-start", { keywords });
   const geminiKey = await resolveKey(keyRefs.gemini, "GEMINI_API_KEY");
   const claudeKey = await resolveKey(keyRefs.claude, "ANTHROPIC_API_KEY");
-  const tasks: Promise<void>[] = [];
-  if (geminiKey) {
-    tasks.push((async () => {
-      const r = await geminiGroundedSearch(geminiKey.apiKey, geminiKey.model || "gemini-2.0-flash", query);
-      if ("ok" in r && r.ok) { if (r.web.length) { models.push("Gemini"); web.push(...r.web); } log("gemini-grounding-ok", { found: r.web.length }); }
-      else log("gemini-grounding-error", { code: (r as { code?: string }).code });
-    })());
-  }
-  if (claudeKey) {
-    tasks.push((async () => {
-      const r = await claudeWebSearch(claudeKey.apiKey, claudeKey.model || "claude-sonnet-4-6", query);
-      if ("ok" in r && r.ok) { if (r.web.length) { models.push("Claude"); web.push(...r.web); } log("claude-web-ok", { found: r.web.length }); }
-      else log("claude-web-error", { code: (r as { code?: string }).code });
-    })());
-  }
-  await Promise.allSettled(tasks);
 
-  if (!web.length) { log("multi-ai-empty", { fallback: "assisted" }); return null; }
-  const results = normalizeWeb(web, analysis, keywords, maxItems);
-  if (!results.length) { log("multi-ai-no-results", { fallback: "assisted" }); return null; }
+  // 1) Gemini : recherche web (grounding) — source principale.
+  if (geminiKey) {
+    log("gemini-search-start", { name });
+    const r = await geminiGroundedSearch(geminiKey.apiKey, geminiKey.model || "gemini-2.0-flash", query);
+    if ("ok" in r && r.ok) { if (r.web.length) { models.push("Gemini"); web.push(...r.web); } log("gemini-search-ok", { found: r.web.length }); }
+    else log("gemini-search-error", { code: (r as { code?: string }).code });
+  }
+  // 2) Claude web search en REPLI si Gemini n'a rien trouvé.
+  if (!web.length && claudeKey) {
+    const r = await claudeWebSearch(claudeKey.apiKey, claudeKey.model || "claude-sonnet-4-6", query);
+    if ("ok" in r && r.ok) { if (r.web.length) { models.push("Claude"); web.push(...r.web); } log("claude-web-ok", { found: r.web.length }); }
+    else log("claude-web-error", { code: (r as { code?: string }).code });
+  }
+
+  if (!web.length) { log("multi-ai-empty", { fallback: "links-only" }); return null; }
+  let results = normalizeWeb(web, analysis, [name], maxItems);
+
+  // 3) Claude COMPARE : reclasse / score / écarte les liens hors sujet.
+  if (claudeKey && results.length) {
+    log("claude-compare-start", { n: results.length });
+    const cmp = await claudeCompare(name, results, claudeKey).catch(() => null);
+    if (cmp) {
+      results = results
+        .filter((r) => !cmp.get(r.productUrl)?.off)
+        .map((r) => { const c = cmp.get(r.productUrl); return c ? { ...r, supplierScore: c.score, confidence: c.score, riskLevel: riskFromScore(c.score), reasons: [c.reason] } : r; })
+        .sort((a, b) => b.supplierScore - a.supplierScore);
+      if (!models.includes("Claude")) models.push("Claude");
+      log("claude-compare-ok", { kept: results.length });
+    }
+  }
+
+  if (!results.length) { log("multi-ai-no-results", { fallback: "links-only" }); return null; }
   log("multi-ai-ok", { models, results: results.length });
-  return { results, models, queries: keywords };
+  return { results, models, queries: [name] };
 }
 
 /** Une recherche web multi-IA est-elle envisageable (IA connectée BYOK ou env serveur) ? */

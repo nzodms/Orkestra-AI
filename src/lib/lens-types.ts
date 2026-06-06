@@ -12,12 +12,21 @@ export type SupplierSearchProvider = "simulated" | "alibaba" | "aliexpress" | "a
 /** Méthode RÉELLEMENT utilisée pour produire les résultats (badge honnête). */
 export type SupplierSearchMethod = "structured" | "multi-ai-search" | "assisted" | "simulated";
 
-/** Requête de recherche préremplie (mode assisté : l'utilisateur ouvre la source). */
-export interface AssistedQuery { label: string; url: string; source: "Alibaba" | "AliExpress" | "1688" | "Google" }
+/** Lien de recherche fournisseur prêt à ouvrir (toujours disponible, même sans IA). */
+export interface SearchLink {
+  source: "Alibaba" | "AliExpress" | "1688" | "Google";
+  url: string;
+  advantage: string;
+  limit: string;
+}
+/** Ancien alias conservé pour compatibilité de type. */
+export type AssistedQuery = SearchLink;
 
 /** Analyse produit d'une image / page (vision OpenAI ou simulation). */
 export interface LensAnalysis {
   productType: string;
+  /** Nom produit COURT en anglais (3-5 mots) pour la recherche fournisseur. */
+  productName: string;
   niche: string;
   form?: string;
   color?: string;
@@ -81,8 +90,8 @@ export interface SupplierSearchResponse {
   /** true = données réelles (structuré ou web multi-IA) ; false = simulé. */
   real: boolean;
   keywords: string[];
-  /** Recherches préremplies (mode assisté ou complément). */
-  assistedQueries?: AssistedQuery[];
+  /** Liens de recherche fournisseur prêts (toujours présents). */
+  searchLinks?: SearchLink[];
   /** IA utilisées pour la recherche multi-IA (ex. ["Gemini", "Claude"]). */
   models?: string[];
   error?: string;

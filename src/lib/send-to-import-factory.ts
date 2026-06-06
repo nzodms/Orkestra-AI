@@ -8,6 +8,26 @@
 import type { ImportDraft } from "./store";
 import type { LensAnalysis, SupplierResult } from "./lens-types";
 
+/** Brouillon depuis la seule analyse (sans fournisseur choisi) — titre = produit détecté. */
+export function draftFromAnalysis(analysis: LensAnalysis): ImportDraft {
+  const tags = Array.from(new Set([...analysis.keywordsFr, analysis.productType, analysis.niche]
+    .map((t) => (t || "").trim()).filter(Boolean))).slice(0, 10).join(", ");
+  const title = (analysis.productName || analysis.productType || "Produit").replace(/\b\w/g, (c) => c.toUpperCase());
+  return {
+    title,
+    description: [`${analysis.productType}${analysis.style ? `, style ${analysis.style}` : ""}${analysis.usage ? `, ${analysis.usage}` : ""}.`,
+      analysis.distinctive?.length ? `Éléments distinctifs : ${analysis.distinctive.join(", ")}` : ""].filter(Boolean).join("\n"),
+    materials: analysis.material || "",
+    colors: analysis.color || "",
+    images: analysis.preview && /^https?:\/\//i.test(analysis.preview) ? analysis.preview : "",
+    sourceUrl: analysis.sourceUrl || "",
+    notes: "Importé via Orkestra Lens (analyse image)",
+    productType: analysis.productType,
+    tags,
+    source: "Orkestra Lens",
+  };
+}
+
 /** Prix de référence : minPrice si dispo, sinon 1ʳᵉ valeur de la fourchette affichée. */
 function firstPrice(s: SupplierResult): string {
   if (typeof s.minPrice === "number") return String(s.minPrice);

@@ -39,7 +39,10 @@ async function resolveKey(ref: string | null | undefined, envVar: string, defaul
 
 const SYSTEM =
   "Tu es Orkestra Lens, expert en sourcing e-commerce. Tu analyses une image (ou une page) produit et tu renvoies UNIQUEMENT un JSON. " +
-  "Tu ne décris que ce qui est VISIBLE / certain ; tu n'inventes pas de matière ou de spec. Les mots-clés doivent être ceux qu'un acheteur taperait chez un fournisseur.";
+  "Tu ne décris que ce qui est VISIBLE / certain ; tu n'inventes pas de matière ou de spec. " +
+  "Le champ productName est un NOM PRODUIT COURT EN ANGLAIS de 3 à 5 mots, sans phrase, optimisé pour une recherche fournisseur " +
+  "(ex: \"pilates reformer machine\", \"glass pendant light\", \"portable bottle warmer\", \"wearable breast pump\"). " +
+  "Les mots-clés doivent être ceux qu'un acheteur taperait chez un fournisseur.";
 
 function buildPrompt(input: LensAnalyzeInput): string {
   const ctx = [
@@ -53,6 +56,7 @@ function buildPrompt(input: LensAnalyzeInput): string {
     (ctx ? ctx + "\n" : "") +
     "Renvoie ce JSON EXACT :\n" +
     "{\n" +
+    '  "productName": "nom produit COURT en anglais, 3 à 5 mots, sans phrase (ex. pilates reformer machine)",\n' +
     '  "productType": "type produit précis (ex. Reformer Pilates, Chauffe-Biberon, Suspension Verre)",\n' +
     '  "niche": "luminaire|bebe|beaute|mode|sport|cuisine|mobilier|electronique|animaux|maison|generaliste",\n' +
     '  "form": "forme générale", "color": "couleur dominante", "material": "matière APPARENTE si identifiable, sinon vide",\n' +
@@ -72,11 +76,19 @@ function arr(v: unknown, max = 8): string[] {
 }
 function str(v: unknown): string { return typeof v === "string" ? v.trim() : ""; }
 
+// Nettoie un nom produit en 3-5 mots EN (sans ponctuation, sans phrase).
+function cleanName(s: string, fallback: string): string {
+  const w = (s || "").replace(/[^A-Za-z0-9 ]/g, " ").split(/\s+/).filter(Boolean).slice(0, 5);
+  return (w.length >= 2 ? w.join(" ") : fallback).toLowerCase().trim();
+}
 function coerce(raw: unknown, live: boolean): LensAnalysis {
   const o = (raw || {}) as Record<string, unknown>;
   const niche = str(o.niche) || "generaliste";
+  const kwEn = arr(o.keywordsEn, 6);
+  const productType = str(o.productType) || "Produit";
   return {
-    productType: str(o.productType) || "Produit",
+    productType,
+    productName: cleanName(str(o.productName), kwEn[0] || productType),
     niche,
     form: str(o.form) || undefined,
     color: str(o.color) || undefined,
@@ -122,6 +134,7 @@ function mockAnalysis(input: LensAnalyzeInput): LensAnalysis {
   const guessed = words.slice(0, 3).join(" ").trim();
   return {
     productType: guessed ? guessed.replace(/\b\w/g, (c) => c.toUpperCase()) : d.type,
+    productName: cleanName(words.join(" ") || d.en[0] || d.type, d.en[0] || "product"),
     niche,
     style: undefined, usage: undefined, color: undefined, material: undefined, form: undefined,
     distinctive: [], variants: [],
@@ -144,18 +157,19 @@ export async function analyzeLens(input: LensAnalyzeInput, keyRefs?: LensKeyRefs
   };
 
   if (hasImage && liveEnabled()) {
+    log("image-received");
     // 1) Gemini PRIORITAIRE (multimodal) quand connecté (BYOK ou env fallback).
     const gem = await resolveKey(keyRefs?.gemini, "GEMINI_API_KEY", "gemini-2.0-flash");
     if (gem) {
       const r = await geminiVision(gem.apiKey, gem.model || "gemini-2.0-flash", SYSTEM, buildPrompt(input), input.image!, true);
-      if (r.ok) { const a = tryCoerce(r.text, "gemini"); if (a) { log("gemini-vision-ok"); return { ok: true, analysis: a, live: true }; } log("gemini-vision-bad-json"); }
+      if (r.ok) { const a = tryCoerce(r.text, "gemini"); if (a) { log("gemini-vision-product-name-ok", { productName: a.productName }); return { ok: true, analysis: a, live: true }; } log("gemini-vision-bad-json"); }
       else log("gemini-vision-error", { code: r.code });
     }
     // 2) Fallback OpenAI Vision.
     const openai = await resolveKey(keyRefs?.openai, "OPENAI_API_KEY", "gpt-4o");
     if (openai) {
       const r = await visionComplete({ apiKey: openai.apiKey, model: openai.model, system: SYSTEM, prompt: buildPrompt(input), imageUrl: input.image!, json: true, maxTokens: 900 });
-      if (r.ok) { const a = tryCoerce(r.text, "openai"); if (a) { log("openai-vision-ok", { fallbackFromGemini: !!gem }); return { ok: true, analysis: a, live: true }; } log("openai-vision-bad-json"); }
+      if (r.ok) { const a = tryCoerce(r.text, "openai"); if (a) { log("openai-vision-product-name-ok", { productName: a.productName, fallbackFromGemini: !!gem }); return { ok: true, analysis: a, live: true }; } log("openai-vision-bad-json"); }
       else log("openai-vision-error", { code: r.code });
     }
   }

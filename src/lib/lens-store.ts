@@ -13,6 +13,7 @@ export type {
   LensInputKind,
   SupplierSearchProvider,
   SupplierSearchMethod,
+  SearchLink,
   AssistedQuery,
   LensAnalysis,
   SupplierResult,
