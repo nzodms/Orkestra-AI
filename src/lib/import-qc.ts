@@ -1,4 +1,4 @@
-import { FORBIDDEN_JARGON, stripHtml, normName, serializeCsv, stripEmoji, hasEmoji, type TransformedProduct, type ProductGroup, type ApplyResult } from "./import-factory";
+import { FORBIDDEN_JARGON, stripHtml, normName, serializeCsv, stripEmoji, hasEmoji, extractPrimaryProductType, enforceProductType, type TransformedProduct, type ProductGroup, type ApplyResult } from "./import-factory";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Import Factory — contrôle qualité DÉTERMINISTE (côté code, pas seulement IA).
@@ -21,6 +21,9 @@ export interface QCContext {
   /** Texte source du produit (titre + description + tags + variantes) pour vérifier
    *  qu'une affirmation technique n'est pas inventée (anti-invention). */
   sourceText?: string;
+  /** Champs source STRUCTURÉS (ordre titre → type → tags → description) pour identifier
+   *  le vrai type produit avant de renommer (naming à la racine). */
+  source?: { title?: string; type?: string; tags?: string; body?: string; options?: string };
   /** Sets mutables partagés sur tout le lot (dédoublonnage / répétition). */
   usedBrand: Set<string>;
   usedHandle: Set<string>;
@@ -670,9 +673,17 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     else ctx.usedMetaOpenings.add(opening);
   }
 
-  // ── NAMING PASS (§1/§2/§3) : titre propre + nom brandé cohérent et unique ──
+  // ── NAMING PASS : type produit réel (racine) → titre propre → nom brandé unique ──
   {
-    const { product, brandFromTitle } = cleanProductTitle(fixed.title);
+    const { product: cleanedProduct, brandFromTitle } = cleanProductTitle(fixed.title);
+    // RACINE : on identifie le VRAI type produit dans la source (titre → type → tags →
+    // description) et on recadre si l'IA a dérivé vers un usage (« posture » ne change pas
+    // un Reformer en « Correcteur de posture »).
+    const primary = extractPrimaryProductType(ctx.source || { title: ctx.sourceText, type: fixed.productType });
+    const typed = enforceProductType(cleanedProduct, primary);
+    const product = typed.product;
+    if (typed.recadred) { issues.push("Titre recadré sur le vrai type produit (source)"); bump("warning"); }
+    if (typed.generic) { issues.push("Type produit imprécis — vérification recommandée"); bump("risk"); }
     // Un nom brandé ne doit jamais reprendre un mot du titre/type SOURCE (jamais l'invention
     // de l'IA, qui n'est pas dans la source) ni un terme produit/modèle (Cadillac, Reformer…).
     const forbidden = brandStopWords(ctx.sourceText || "", fixed.productType || "");

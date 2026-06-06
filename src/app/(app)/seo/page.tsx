@@ -290,9 +290,10 @@ export default function ImportFactoryPage() {
     const fixed = list.map((r) => {
       const g = groups.find((x) => x.handle === r.handle);
       const sourceText = g ? `${g.title} ${g.body} ${g.tags} ${g.type} ${g.variants.map((v) => v.option1).join(" ")}` : "";
+      const source = g ? { title: g.title, type: g.type, tags: g.tags, body: g.body, options: g.variants.map((v) => v.option1).join(" ") } : undefined;
       const rep = qualityControl(r, {
         metaSuffix: eff.metaSuffix || rules.metaSuffix, vendor: eff.vendor || rules.vendor, level: rules.level, oldTerms: eff.oldTerms,
-        brandNames: brandEnabled, language: rules.language, tagsType: rules.tagsType, sourceText,
+        brandNames: brandEnabled, language: rules.language, tagsType: rules.tagsType, sourceText, source,
         usedBrand, usedHandle, usedMetaOpenings, usedTitles,
       });
       reports[r.handle] = rep;
