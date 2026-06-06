@@ -26,12 +26,15 @@ export interface LensAnalyzeInput {
 }
 export interface LensAnalyzeResult { ok: boolean; analysis?: LensAnalysis; error?: string; live: boolean; }
 
-async function resolveKey(ref?: string | null): Promise<{ apiKey: string; model: string } | null> {
-  if (!ref) return null;
-  const stored = await getEncrypted(ref);
-  if (!stored) return null;
-  try { return { apiKey: decryptSecret(stored.encrypted), model: stored.meta.model || "gpt-4o" }; }
-  catch { return null; }
+// Clé BYOK (/connect) en priorité ; repli OPTIONNEL sur une variable d'env serveur.
+async function resolveKey(ref: string | null | undefined, envVar: string, defaultModel: string): Promise<{ apiKey: string; model: string } | null> {
+  if (ref) {
+    const stored = await getEncrypted(ref);
+    if (stored) { try { return { apiKey: decryptSecret(stored.encrypted), model: stored.meta.model || defaultModel }; } catch { /* clé illisible */ } }
+  }
+  const env = (process.env[envVar] || "").trim();
+  if (env) return { apiKey: env, model: defaultModel };
+  return null;
 }
 
 const SYSTEM =
@@ -132,21 +135,33 @@ function mockAnalysis(input: LensAnalyzeInput): LensAnalysis {
 
 export async function analyzeLens(input: LensAnalyzeInput, keyRefs?: LensKeyRefs): Promise<LensAnalyzeResult> {
   const hasImage = !!input.image && /^data:image\/|^https?:\/\//i.test(input.image);
-  // Analyse réelle (vision) : OpenAI en priorité, sinon Gemini multimodal.
+  // Log serveur SÛR (jamais la clé) pour le debug Gemini.
+  const log = (event: string, extra: Record<string, unknown> = {}) =>
+    console.log("[Lens/analyze]", { event, kind: input.kind, hasImage, gemini: !!keyRefs?.gemini, openai: !!keyRefs?.openai, ...extra });
+
+  const tryCoerce = (text: string, engine: "gemini" | "openai"): LensAnalysis | null => {
+    try { const a = coerce(JSON.parse(text), true); a.sourceUrl = input.url; a.engine = engine; return a; } catch { return null; }
+  };
+
   if (hasImage && liveEnabled()) {
-    const tryCoerce = (text: string): LensAnalysis | null => { try { const a = coerce(JSON.parse(text), true); a.sourceUrl = input.url; return a; } catch { return null; } };
-    const openai = await resolveKey(keyRefs?.openai);
-    if (openai) {
-      const r = await visionComplete({ apiKey: openai.apiKey, model: openai.model, system: SYSTEM, prompt: buildPrompt(input), imageUrl: input.image!, json: true, maxTokens: 900 });
-      if (r.ok) { const a = tryCoerce(r.text); if (a) return { ok: true, analysis: a, live: true }; }
-    }
-    const gem = await resolveKey(keyRefs?.gemini);
+    // 1) Gemini PRIORITAIRE (multimodal) quand connecté (BYOK ou env fallback).
+    const gem = await resolveKey(keyRefs?.gemini, "GEMINI_API_KEY", "gemini-2.0-flash");
     if (gem) {
       const r = await geminiVision(gem.apiKey, gem.model || "gemini-2.0-flash", SYSTEM, buildPrompt(input), input.image!, true);
-      if (r.ok) { const a = tryCoerce(r.text); if (a) return { ok: true, analysis: a, live: true }; }
+      if (r.ok) { const a = tryCoerce(r.text, "gemini"); if (a) { log("gemini-vision-ok"); return { ok: true, analysis: a, live: true }; } log("gemini-vision-bad-json"); }
+      else log("gemini-vision-error", { code: r.code });
+    }
+    // 2) Fallback OpenAI Vision.
+    const openai = await resolveKey(keyRefs?.openai, "OPENAI_API_KEY", "gpt-4o");
+    if (openai) {
+      const r = await visionComplete({ apiKey: openai.apiKey, model: openai.model, system: SYSTEM, prompt: buildPrompt(input), imageUrl: input.image!, json: true, maxTokens: 900 });
+      if (r.ok) { const a = tryCoerce(r.text, "openai"); if (a) { log("openai-vision-ok", { fallbackFromGemini: !!gem }); return { ok: true, analysis: a, live: true }; } log("openai-vision-bad-json"); }
+      else log("openai-vision-error", { code: r.code });
     }
   }
+  // 3) Repli simulé (pas d'image, pas de clé, ou échecs).
+  log("simulated", { reason: !hasImage ? "no-image" : !liveEnabled() ? "mock-mode" : "no-key-or-failed" });
   const a = mockAnalysis(input);
-  a.sourceUrl = input.url;
+  a.sourceUrl = input.url; a.engine = "simulated";
   return { ok: true, analysis: a, live: false };
 }

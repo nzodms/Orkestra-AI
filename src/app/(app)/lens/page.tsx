@@ -38,6 +38,7 @@ export default function OrkestraLensPage() {
   const [editKw, setEditKw] = useState(false);
   const [kwText, setKwText] = useState("");
   const started = useRef(false);
+  const clipSig = useRef("");
 
   const savedIds = useMemo(() => new Set(lensSaved.map((s) => s.supplier.id)), [lensSaved]);
   const compareList = useMemo(() => results.filter((r) => selected.has(r.id)).slice(0, 4), [results, selected]);
@@ -58,7 +59,7 @@ export default function OrkestraLensPage() {
     } finally { setSearching(false); }
   }
 
-  async function analyze(input: { kind: LensInputKind; image?: string; url?: string }, previewSrc: string) {
+  async function analyze(input: { kind: LensInputKind; image?: string; url?: string; pageContext?: { title?: string; domain?: string; text?: string } }, previewSrc: string) {
     setStep("analyzing"); setError(""); setPreview(previewSrc); setSelected(new Set()); setMeta(null); setEditKw(false);
     try {
       const res = await fetch("/api/lens/analyze", {
@@ -77,13 +78,35 @@ export default function OrkestraLensPage() {
     }
   }
 
-  // Entrée via clipper / bookmarklet : ?imageUrl= / ?productUrl=
+  // Entrée via clipper / bookmarklet : ?imageUrl= / ?productUrl= (+ titre / texte proche)
   useEffect(() => {
     if (started.current) return; started.current = true;
     const p = new URLSearchParams(window.location.search);
     const img = p.get("imageUrl"); const prod = p.get("productUrl");
-    if (img) analyze({ kind: "clipper", image: img, url: prod || undefined }, img);
-    else if (prod) analyze({ kind: "product_url", url: prod }, "");
+    const title = p.get("title") || undefined; const text = p.get("text") || undefined;
+    let domain: string | undefined; try { domain = prod ? new URL(prod).hostname : undefined; } catch { /* ignore */ }
+    const pageContext = (title || text || domain) ? { title, text, domain } : undefined;
+    if (img) analyze({ kind: "clipper", image: img, url: prod || undefined, pageContext }, img);
+    else if (prod) analyze({ kind: "product_url", url: prod, pageContext }, "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Entrée via EXTENSION locale (capture pixel) : window.postMessage (re-posté → dédupe).
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (e.source !== window) return; // l'extension poste sur la fenêtre courante
+      const d = e.data as { source?: string; imageData?: string; imageUrl?: string; productUrl?: string; title?: string } | undefined;
+      if (!d || d.source !== "orkestra-clipper") return;
+      const sig = (d.imageData || d.imageUrl || d.productUrl || "").slice(0, 80) + (d.imageData?.length || 0);
+      if (clipSig.current === sig) return; // ignore les re-posts
+      clipSig.current = sig;
+      const pageContext = d.title ? { title: d.title } : undefined;
+      if (d.imageData) analyze({ kind: "clipper", image: d.imageData, url: d.productUrl, pageContext }, d.imageData);
+      else if (d.imageUrl) analyze({ kind: "clipper", image: d.imageUrl, url: d.productUrl, pageContext }, d.imageUrl);
+      else if (d.productUrl) analyze({ kind: "product_url", url: d.productUrl, pageContext }, "");
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -32,6 +32,8 @@ export interface LensAnalysis {
   summary?: string;
   /** Analyse réelle (vision) ou simulée (pas de clé / mode démo). */
   live: boolean;
+  /** Moteur d'analyse réellement utilisé (badge honnête). */
+  engine?: "gemini" | "openai" | "simulated";
   /** Aperçu de l'entrée (data URL image, URL ou marqueur). */
   preview?: string;
   sourceUrl?: string;

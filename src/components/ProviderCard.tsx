@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 
 // Providers réellement branchés en live dans cette version.
-const AVAILABLE_PROVIDERS: AIProviderId[] = ["openai", "anthropic"];
+const AVAILABLE_PROVIDERS: AIProviderId[] = ["openai", "anthropic", "gemini"];
 
 export function ProviderCard({ id }: { id: AIProviderId }) {
   const meta = PROVIDERS[id];
@@ -123,7 +123,7 @@ export function ProviderCard({ id }: { id: AIProviderId }) {
 
       {!available ? (
         <div className="mt-4 rounded-xl border border-dashed border-[var(--border)] bg-[var(--bg)] px-3.5 py-3 text-xs text-[var(--text-muted)]">
-          Ce provider n&apos;est pas encore branché dans cette version. Le support {meta.name} arrive prochainement — pour l&apos;instant, seul <strong>OpenAI</strong> est disponible en live.
+          Ce provider n&apos;est pas encore branché dans cette version. Le support {meta.name} arrive prochainement — pour l&apos;instant, <strong>OpenAI</strong>, <strong>Claude</strong> et <strong>Gemini</strong> sont disponibles en live.
         </div>
       ) : conn.connected ? (
         <div className="ork-rise mt-4 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3.5 py-3">

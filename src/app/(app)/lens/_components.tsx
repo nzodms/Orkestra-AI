@@ -82,19 +82,19 @@ export function LensUrlInput({ onImageUrl, onProductUrl, busy }: { onImageUrl: (
 export function LensClipperGuide({ origin }: { origin: string }) {
   const [copied, setCopied] = useState(false);
   const bookmarklet =
-    `javascript:(function(){var i=document.querySelector('meta[property=\\'og:image\\']')||document.querySelector('img');var u=i?(i.content||i.src||''):'';window.open('${origin}/lens?productUrl='+encodeURIComponent(location.href)+(u?'&imageUrl='+encodeURIComponent(u):''),'_blank');})();`;
+    `javascript:(function(){if(window.__orkestraClipper){return;}var s=document.createElement('script');s.src='${origin}/clipper.js?v=3';s.onerror=function(){alert('Orkestra Clipper : chargement impossible.');};(document.body||document.documentElement).appendChild(s);})();`;
   const steps = [
-    "La page passe en mode sélection (overlay léger).",
-    "Vous tracez un rectangle autour du produit.",
-    "Vous ajustez puis « Analyser cette zone ».",
-    "Orkestra ouvre l'analyse et les fournisseurs.",
+    "La page passe en mode sélection (overlay sombre léger).",
+    "Tracez un rectangle autour du produit (ou cliquez dessus).",
+    "« Analyser cette zone » : Orkestra prend l'image de la zone.",
+    "Orkestra Lens s'ouvre et lance l'analyse multi-IA.",
   ];
   return (
     <Card>
-      <CardHeader title="Utiliser le clipper Orkestra" subtitle="Envoyez un produit depuis n'importe quelle page web" icon={<ScanLine className="h-5 w-5" />} action={<Badge tone="brand">Bêta</Badge>} />
+      <CardHeader title="Clipper Orkestra — sélection de zone" subtitle="Sélectionnez un produit sur n'importe quelle page web" icon={<ScanLine className="h-5 w-5" />} action={<Badge tone="brand">Bêta</Badge>} />
       <p className="text-sm text-[var(--text-muted)]">
-        V1 : glissez ce bouton dans votre barre de favoris, puis cliquez-le sur une page produit pour l'envoyer à Orkestra Lens (image + URL).
-        La sélection visuelle de zone (rectangle) arrive avec l'extension dédiée.
+        Glissez ce bouton dans votre barre de favoris, puis cliquez-le sur une page produit : un outil de sélection visuelle (type Alibaba Lens) s'ouvre pour entourer le produit et l'envoyer à Orkestra Lens.
+        Pour une capture pixel exacte de la zone, l'extension locale est disponible (dossier <code>/extension/orkestra-clipper</code>).
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
@@ -126,7 +126,7 @@ export function LensAnalysisCard({ analysis, preview }: { analysis: LensAnalysis
         title="Produit analysé"
         subtitle={analysis.summary || "Type, niche et mots-clés détectés"}
         icon={<Sparkles className="h-5 w-5" />}
-        action={analysis.live ? <Badge tone="good">Analyse IA</Badge> : <Badge tone="warn">Analyse simulée</Badge>}
+        action={analysis.engine === "gemini" ? <Badge tone="good">Analyse Gemini</Badge> : analysis.engine === "openai" ? <Badge tone="good">Analyse OpenAI</Badge> : <Badge tone="warn">Analyse simulée</Badge>}
       />
       <div className="flex flex-col gap-4 sm:flex-row">
         <div className="h-36 w-36 shrink-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-ink-50 dark:bg-ink-900">

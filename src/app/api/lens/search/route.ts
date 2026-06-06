@@ -49,6 +49,7 @@ export async function POST(req: Request) {
   }
 
   // ── AUTO : meilleure méthode disponible ──
+  console.log("[Lens/search]", { event: "auto", structured: availableRealProviders(), multiAi: multiAiAvailable(keyRefs) });
   if (availableRealProviders().length) {
     return NextResponse.json(await searchSuppliers(analysis));
   }

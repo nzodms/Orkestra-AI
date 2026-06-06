@@ -19,11 +19,15 @@ import type { LensAnalysis, SupplierResult, AssistedQuery } from "./lens-types";
 
 export interface LensKeyRefs { openai?: string | null; claude?: string | null; gemini?: string | null }
 
-async function resolveKey(ref?: string | null): Promise<{ apiKey: string; model: string } | null> {
-  if (!ref) return null;
-  const stored = await getEncrypted(ref);
-  if (!stored) return null;
-  try { return { apiKey: decryptSecret(stored.encrypted), model: stored.meta.model || "" }; } catch { return null; }
+// Clé BYOK (/connect) en priorité ; repli OPTIONNEL sur une variable d'env serveur.
+async function resolveKey(ref: string | null | undefined, envVar: string): Promise<{ apiKey: string; model: string } | null> {
+  if (ref) {
+    const stored = await getEncrypted(ref);
+    if (stored) { try { return { apiKey: decryptSecret(stored.encrypted), model: stored.meta.model || "" }; } catch { /* clé illisible */ } }
+  }
+  const env = (process.env[envVar] || "").trim();
+  if (env) return { apiKey: env, model: "" };
+  return null;
 }
 
 function hash(s: string): number { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
@@ -109,33 +113,39 @@ export interface MultiAiResult { results: SupplierResult[]; models: string[]; qu
 export async function multiAiSearch(analysis: LensAnalysis, keyRefs: LensKeyRefs, maxItems = 8): Promise<MultiAiResult | null> {
   const keywords = pickKeywords(analysis);
   const query = `${keywords.join(" ")} ${analysis.productType} fournisseur grossiste wholesale supplier (Alibaba, AliExpress, 1688)`;
+  const log = (event: string, extra: Record<string, unknown> = {}) =>
+    console.log("[Lens/search]", { event, gemini: !!keyRefs.gemini, claude: !!keyRefs.claude, ...extra });
   const models: string[] = [];
   const web: { url: string; title: string }[] = [];
 
+  log("multi-ai-start", { keywords });
+  const geminiKey = await resolveKey(keyRefs.gemini, "GEMINI_API_KEY");
+  const claudeKey = await resolveKey(keyRefs.claude, "ANTHROPIC_API_KEY");
   const tasks: Promise<void>[] = [];
-  if (keyRefs.gemini) {
+  if (geminiKey) {
     tasks.push((async () => {
-      const k = await resolveKey(keyRefs.gemini); if (!k) return;
-      const r = await geminiGroundedSearch(k.apiKey, k.model || "gemini-2.0-flash", query);
-      if ("ok" in r && r.ok && r.web.length) { models.push("Gemini"); web.push(...r.web); }
+      const r = await geminiGroundedSearch(geminiKey.apiKey, geminiKey.model || "gemini-2.0-flash", query);
+      if ("ok" in r && r.ok) { if (r.web.length) { models.push("Gemini"); web.push(...r.web); } log("gemini-grounding-ok", { found: r.web.length }); }
+      else log("gemini-grounding-error", { code: (r as { code?: string }).code });
     })());
   }
-  if (keyRefs.claude) {
+  if (claudeKey) {
     tasks.push((async () => {
-      const k = await resolveKey(keyRefs.claude); if (!k) return;
-      const r = await claudeWebSearch(k.apiKey, k.model || "claude-sonnet-4-6", query);
-      if ("ok" in r && r.ok && r.web.length) { models.push("Claude"); web.push(...r.web); }
+      const r = await claudeWebSearch(claudeKey.apiKey, claudeKey.model || "claude-sonnet-4-6", query);
+      if ("ok" in r && r.ok) { if (r.web.length) { models.push("Claude"); web.push(...r.web); } log("claude-web-ok", { found: r.web.length }); }
+      else log("claude-web-error", { code: (r as { code?: string }).code });
     })());
   }
   await Promise.allSettled(tasks);
 
-  if (!web.length) return null;
+  if (!web.length) { log("multi-ai-empty", { fallback: "assisted" }); return null; }
   const results = normalizeWeb(web, analysis, keywords, maxItems);
-  if (!results.length) return null;
+  if (!results.length) { log("multi-ai-no-results", { fallback: "assisted" }); return null; }
+  log("multi-ai-ok", { models, results: results.length });
   return { results, models, queries: keywords };
 }
 
-/** Une recherche web multi-IA est-elle envisageable (au moins une IA capable connectée) ? */
+/** Une recherche web multi-IA est-elle envisageable (IA connectée BYOK ou env serveur) ? */
 export function multiAiAvailable(keyRefs: LensKeyRefs): boolean {
-  return !!keyRefs.gemini || !!keyRefs.claude;
+  return !!keyRefs.gemini || !!keyRefs.claude || !!(process.env.GEMINI_API_KEY || "").trim() || !!(process.env.ANTHROPIC_API_KEY || "").trim();
 }
