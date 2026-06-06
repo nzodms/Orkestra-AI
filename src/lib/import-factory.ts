@@ -525,6 +525,40 @@ export function buildTransformSystem(rules: ImportRules): string {
   );
 }
 
+// ── Niche : détection + playbook de génération (Import Factory multi-niches) ──
+export type NicheKey = "luminaire" | "bebe" | "beaute" | "mode" | "sport" | "maison" | "cuisine" | "mobilier" | "electronique" | "animaux" | "generaliste";
+const NICHE_KEYWORDS: { key: NicheKey; re: RegExp }[] = [
+  { key: "luminaire", re: /luminaire|lustre|suspension|plafonnier|applique|lampe|lampadaire|ampoule|abat-jour|[ée]clairage/i },
+  { key: "bebe", re: /b[ée]b[ée]|pu[ée]riculture|biberon|allaitement|pouss?ette|lange|nourrisson|enfant|t[ée]tine|barri[èe]re de s[ée]curit[ée]/i },
+  { key: "beaute", re: /beaut[ée]|cosm[ée]tique|s[ée]rum|cr[èe]me|soin|maquillage|nettoyant|peau|cheveux|parfum|masque visage/i },
+  { key: "mode", re: /mode|v[êe]tement|robe|veste|pantalon|chemise|jupe|manteau|chaussure|sac à main|accessoire mode|pull/i },
+  { key: "sport", re: /sport|fitness|musculation|yoga|pilates|tapis|halt[èe]re|v[ée]lo|running|entra[îi]nement|reformer/i },
+  { key: "cuisine", re: /cuisine|ustensile|po[êe]le|casserole|couteau|vaisselle|robot culinaire|électroménager cuisine/i },
+  { key: "mobilier", re: /mobilier|meuble|canap[ée]|table|chaise|fauteuil|[ée]tag[èe]re|armoire|bureau|lit\b/i },
+  { key: "electronique", re: /[ée]lectronique|casque|[ée]couteur|chargeur|c[âa]ble|enceinte|montre connect[ée]e|gadget|accessoire t[ée]l[ée]phone/i },
+  { key: "animaux", re: /animal|animaux|chien|chat|gamelle|laisse|niche|jouet pour|aquarium|rongeur/i },
+  { key: "maison", re: /maison|d[ée]coration|d[ée]co|tapis|coussin|rideau|vase|miroir|cadre|bougie/i },
+];
+/** Détecte la niche depuis la niche configurée + titres/types/tags du catalogue. */
+export function detectNiche(text: string): NicheKey {
+  const t = (text || "").toLowerCase();
+  for (const { key, re } of NICHE_KEYWORDS) if (re.test(t)) return key;
+  return "generaliste";
+}
+const NICHE_GUIDE: Record<NicheKey, string> = {
+  luminaire: "NICHE = LUMINAIRE. Titre : type + matière/forme/style (ex. « Suspension Verre Craquelé »). Description : style, pièce, ambiance, rendu, dimensions ; culot/LED/dimmable/puissance/température/matériau UNIQUEMENT si présents dans la source. Meta : bénéfice déco, pas technique. Tags : type + matière + pièce + style (suspension, luminaire cuisine, éclairage intérieur).",
+  bebe: "NICHE = BÉBÉ / PUÉRICULTURE. Titre : produit + usage + bénéfice parent (ex. « Chauffe-Biberon Nomade »). Description : praticité, confort, entretien, usage parent ; JAMAIS de promesse médicale, de sécurité ou de sommeil non prouvée. N'invente JAMAIS : âge conseillé, norme (EN 71/CE), certification, matériau, sans BPA, poids supporté. FAQ : usage quotidien, nettoyage, à vérifier avant usage. Tags : bébé, repas bébé, sécurité bébé, accessoire bébé.",
+  beaute: "NICHE = BEAUTÉ / COSMÉTIQUE. Titre : type de soin + usage (ex. « Sérum Hydratant Visage »). Description : routine, sensation, utilisation, précautions ; texture/type de peau/ingrédient UNIQUEMENT si sourcés. N'invente JAMAIS : ingrédients actifs, résultats, anti-âge/anti-acné, test dermatologique, hypoallergénique, bio. FAQ : intégration dans la routine, fréquence, type de peau (si source). Tags : soin visage, hydratation, routine beauté.",
+  mode: "NICHE = MODE / VÊTEMENTS. Titre : type + coupe + style (ex. « Robe Longue Fluide »). Description : coupe, style, occasions, associations, confort ; matière/lavage/origine UNIQUEMENT si sourcés. N'invente JAMAIS : matière, coupe exacte, taille, origine, imperméable, respirant. FAQ : comment porter, quelle taille, entretien (si source). Tags : robe, mode femme, tenue élégante.",
+  sport: "NICHE = SPORT / FITNESS. Titre : équipement + usage + niveau (ex. « Tapis Fitness Antidérapant »). Description : usage, entraînement, confort, stabilité, rangement, dimensions ; JAMAIS de performance/charge max/bénéfice santé/usage pro non sourcés. Tags : fitness, équipement sport, entraînement maison.",
+  cuisine: "NICHE = CUISINE. Titre : ustensile + matière/usage (ex. « Poêle Antiadhésive »). Description : usage, praticité, entretien, compatibilité (induction…) SI sourcée ; JAMAIS de matériau/compatibilité/certification non sourcés. Tags : cuisine, ustensile, accessoire cuisine.",
+  mobilier: "NICHE = MOBILIER. Titre : meuble + matière/style (ex. « Table Basse Bois »). Description : style, pièce, dimensions, usage ; matériau/charge UNIQUEMENT si sourcés. Tags : meuble, salon, mobilier moderne.",
+  electronique: "NICHE = ÉLECTRONIQUE / ACCESSOIRES. Titre : produit + usage (ex. « Chargeur Sans Fil »). Description : usage, compatibilité SI sourcée, praticité ; JAMAIS de spec technique (puissance, autonomie, compatibilité) non sourcée. Tags : accessoire, high-tech, recharge.",
+  animaux: "NICHE = ANIMAUX. Titre : produit + animal + usage (ex. « Gamelle Antidérapante Chien »). Description : usage, confort animal, entretien ; JAMAIS de promesse santé/taille/âge non sourcée. Tags : chien, chat, accessoire animal.",
+  maison: "NICHE = MAISON / DÉCO. Titre : produit + matière/style (ex. « Vase Céramique Mat »). Description : style, pièce, ambiance, rendu, dimensions ; matériau UNIQUEMENT si sourcé. Tags : décoration, maison, salon.",
+  generaliste: "NICHE = GÉNÉRALISTE. Titre : produit + attribut concret. Description : usage, bénéfice, style ; aucune donnée technique inventée. Tags : pertinents au produit.",
+};
+
 export function buildTransformPrompt(products: ImportProductInput[], rules: ImportRules, mem: ImportMemory, ctx: ImportContext): string {
   const brand = ctx.brandName || rules.vendor || "la boutique";
   const vendor = ctx.vendor || rules.vendor || brand;
@@ -542,6 +576,9 @@ export function buildTransformPrompt(products: ImportProductInput[], rules: Impo
   // Directives par responsabilité (agents).
   const directives: string[] = [];
   directives.push(`Mode : ${TRANSFORM_LABEL[rules.transform]}.`);
+  // Adaptation à la niche : titres, description, meta, tags, infos sensibles.
+  const niche = detectNiche(`${ctx.niche || ""} ${products.slice(0, 8).map((p) => `${p.title} ${p.type} ${p.tags}`).join(" ")}`);
+  directives.push(NICHE_GUIDE[niche]);
   directives.push("Analyse produit : déduis type, usage, pièce adaptée, style, couleur/matière SEULEMENT si présents. Ce qui est inconnu reste non mentionné (jamais inventé).");
   directives.push("Mot-clé : déduis 1 mot-clé principal d'achat par produit + des termes naturels (usage, pièce, style) ; intègre-les sans bourrage.");
   // Titres (profil).

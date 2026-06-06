@@ -244,6 +244,22 @@ const CLAIM_DEFS: ClaimDef[] = [
   { re: /\b\d{1,4}\s?watts?\b|\b\d{1,4}\s?W\b(?!\s*[x×])|puissance\s*:?\s*\d/i, label: "puissance", src: /puissance|watt|\bW\b|wattage/i, remove: true },
   { re: /\bgants?\b[^.<>]{0,20}\b(?:fournis?|inclus\w*|livr[ée]\w*)/i, label: "gants fournis", src: /gants?/i, remove: true },
   { re: /\btemp[ée]rature\s+(?:de\s+)?couleur|\b\d{3,5}\s?k(?:elvin)?\b|blanc\s+(?:chaud|froid|neutre)/i, label: "température de couleur", src: /temp[ée]rature|kelvin|\b\d{3,5}\s?k\b|blanc\s+(?:chaud|froid|neutre)/i, remove: true },
+  // ── Bébé / puériculture ──
+  { re: /\bsans\s+bpa\b/i, label: "sans BPA", src: /bpa/i, remove: true },
+  { re: /\bd[èe]s\s+(?:la\s+naissance|\d+\s*(?:mois|ans))|\bà\s+partir\s+de\s+\d+\s*(?:mois|ans)|\bpour\s+(?:nouveau-n[ée]s?|nourrissons?)\b/i, label: "âge conseillé (non sourcé)", src: /naissance|\bmois\b|\bans\b|nourrisson|nouveau-n/i, remove: true },
+  // ── Beauté / cosmétique ──
+  { re: /\bdermatolog\w*\s+test[ée]\w*|\btest[ée]\w*\s+dermatolog\w*/i, label: "test dermatologique", src: /dermatolog/i, remove: true },
+  { re: /\banti[\s-]?(?:[âa]ge|rides?|acn[ée]|t[âa]ches?)\b/i, label: "promesse anti-âge / anti-acné", src: /anti[\s-]?(?:[âa]ge|rides?|acn[ée]|t[âa]ches?)/i, remove: true },
+  { re: /\bhypoallerg[ée]nique\b|\bnon\s+com[ée]dog[èe]ne\b|\bsans\s+(?:parab[èe]ne?s?|sulfates?)\b/i, label: "claim cosmétique (hypoallergénique / sans paraben…)", src: /hypoallerg|com[ée]dog|parab|sulfate/i, remove: true },
+  { re: /\bpour\s+(?:les\s+)?peaux?\s+(?:sensibles?|grasses?|s[èe]ches?|mixtes?|matures?)\b/i, label: "type de peau (non sourcé)", src: /peaux?\s+(?:sensibles?|grasses?|s[èe]ches?|mixtes?|matures?)/i, remove: true },
+  // ── Mode / textile ──
+  { re: /\ben\s+(?:pur\s+)?(?:coton|lin|soie|laine|cuir|cachemire|polyester|velours|jean|denim)\b/i, label: "matière textile (non sourcée)", src: /coton|\blin\b|soie|laine|cuir|cachemire|polyester|velours|jean|denim/i, remove: true },
+  { re: /\bimperm[ée]able\b|\brespirant\b|\blavable\s+(?:en|à)\s+machine\b/i, label: "propriété textile (non sourcée)", src: /imperm[ée]able|respirant|lavable/i, remove: true },
+  // ── Sport / fitness ──
+  { re: /\bcharge\s+max\w*|\bjusqu'à\s+\d+\s*kg\b|\busage\s+(?:professionnel|intensif)\b|\bniveau\s+(?:professionnel|pro)\b/i, label: "performance / charge (non sourcée)", src: /charge|\bkg\b|professionnel|intensif/i, remove: true },
+  // ── Cuisine / électronique ──
+  { re: /\bcompatible\s+(?:induction|lave[\s-]vaisselle|tous?\s+feux)|\bsans\s+pfoa\b/i, label: "compatibilité cuisine (non sourcée)", src: /induction|lave[\s-]vaisselle|pfoa|tous?\s+feux/i, remove: true },
+  { re: /\bautonomie\s+(?:de\s+)?\d+\s*(?:h|heures?|jours?)|\bbluetooth\s?\d|\bcompatible\s+(?:iphone|android|samsung)\b/i, label: "spec électronique (non sourcée)", src: /autonomie|bluetooth|iphone|android|samsung/i, remove: true },
 ];
 
 /** Retire d'un HTML les phrases contenant une affirmation, sans casser les balises. */
