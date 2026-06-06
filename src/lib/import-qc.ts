@@ -548,3 +548,79 @@ export function buildExportReport(groups: ProductGroup[], finalResults: Transfor
   });
   return serializeCsv(["Rapport Import Factory — résumé export", ""], [...summary, ...detail]);
 }
+
+// ── Score « prêt à publier » par produit (§4) + verdict CSV (§3) ────────────
+export interface ProductScore {
+  score: number;                       // 0–100
+  status: "ready" | "improve" | "risk";
+  weak: string[];                      // points faibles lisibles
+}
+
+/** Score déterministe d'une fiche transformée, à partir de son rapport QC. */
+export function scoreProduct(rep: QCReport, ctx: { imageCount: number }): ProductScore {
+  const issues = rep.issues.map((s) => s.toLowerCase());
+  const has = (re: RegExp) => issues.some((s) => re.test(s));
+  const weak: string[] = [];
+  let score = 0;
+  // (points, problème détecté, libellé du point faible)
+  const cat = (pts: number, problem: boolean, label: string) => {
+    if (problem) { score += Math.round(pts * 0.4); weak.push(label); } else score += pts;
+  };
+  cat(15, has(/titre/), "titre à revoir");
+  cat(25, has(/description courte|sans structure|dimensions absente|faq insuffisante|bénéfices|formules génériques/), "description faible");
+  cat(15, has(/meta|suffixe/), "meta à améliorer");
+  cat(10, has(/tags/), "tags à enrichir");
+  // alt : pénalisé uniquement si le produit a des images mais des alts manquants
+  cat(10, ctx.imageCount > 0 && (has(/alt/) || rep.fixed.imageAlts.length === 0), "alt text manquants");
+  cat(10, has(/option|variante|pouce|anglais résiduel|emoji/), "variantes/options à nettoyer");
+  cat(10, !rep.fixed.productType || rep.fixed.collections.length === 0, "product_type / collections");
+  cat(5, has(/sourc|invention|à vérifier \(non sourc/), "affirmation à vérifier");
+  if (rep.status === "failed") score = Math.min(score, 55);
+  if (rep.status === "risk") score = Math.min(score, 80);
+  score = Math.max(0, Math.min(100, score));
+  const status = score >= 85 ? "ready" : score >= 65 ? "improve" : "risk";
+  return { score, status, weak };
+}
+
+export type CsvVerdictStatus = "ready" | "verify" | "risky" | "partial";
+export interface CsvVerdict {
+  status: CsvVerdictStatus;
+  headline: string;
+  reasons: string[];
+  counts: { ok: number; warning: number; risk: number; failed: number };
+}
+
+/** Verdict global du CSV avant export, à partir des rapports QC. */
+export function csvVerdict(reports: Record<string, QCReport>): CsvVerdict {
+  const list = Object.values(reports);
+  const counts = { ok: 0, warning: 0, risk: 0, failed: 0 };
+  for (const r of list) counts[r.status]++;
+  // Agrégation des catégories de problèmes les plus parlantes.
+  const all = list.flatMap((r) => r.issues.map((s) => s.toLowerCase()));
+  const tally = (re: RegExp) => list.filter((r) => r.issues.some((s) => re.test(s.toLowerCase()))).length;
+  const reasons: string[] = [];
+  const add = (n: number, label: string) => { if (n > 0) reasons.push(`${n} ${label}`); };
+  add(tally(/description courte|description faible/), "produit(s) à description trop courte");
+  add(tally(/à vérifier \(non sourc|invention|affirmation/), "produit(s) avec une affirmation technique à vérifier");
+  add(tally(/option|variante|pouce/), "produit(s) avec variantes/unités à nettoyer");
+  add(tally(/meta|suffixe/), "produit(s) avec une meta à améliorer");
+  add(tally(/tags/), "produit(s) avec des tags trop pauvres");
+  add(tally(/doublé|déjà utilisé|trop similaire/), "doublon(s) de nom/handle détecté(s)");
+  add(tally(/alt/), "produit(s) avec alt text à compléter");
+  void all;
+
+  let status: CsvVerdictStatus;
+  if (counts.failed > 0 && counts.ok > 0) status = "partial";
+  else if (counts.failed > 0) status = "risky";
+  else if (counts.risk > 0) status = "risky";
+  else if (counts.warning > 0) status = "verify";
+  else status = "ready";
+
+  const total = list.length;
+  const headline =
+    status === "ready" ? `Votre CSV est prêt à importer : ${counts.ok} produit(s) OK, aucun risque critique.`
+    : status === "verify" ? `À vérifier avant import : ${counts.ok} OK, ${counts.warning} à améliorer.`
+    : status === "partial" ? `Export partiel recommandé : ${counts.ok} produit(s) prêt(s), ${counts.failed} bloqué(s).`
+    : `Risqué pour l'import : ${counts.risk + counts.failed} produit(s) à corriger sur ${total}.`;
+  return { status, headline, reasons: reasons.slice(0, 6), counts };
+}

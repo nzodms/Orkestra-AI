@@ -42,8 +42,16 @@ const METRICS: { key: keyof DashboardMetrics; label: string; icon: React.Element
 ];
 
 export default function DashboardPage() {
-  const { brand, history, connections, analysis, guideHidden, setGuideHidden } = useOrkestra();
+  const { brand, history, connections, analysis, guideHidden, setGuideHidden, recentImports, importPresets } = useOrkestra();
   const providers = connectedProviders(connections);
+  // §13 — Prochaines actions agrégées (Import Factory, Merchant, scan).
+  const recentImport = recentImports[0];
+  const nextActions: { label: string; href: string; icon: React.ElementType }[] = [];
+  if (recentImport && recentImport.warnings + recentImport.risks + recentImport.failed > 0) nextActions.push({ label: `Vérifier ${recentImport.warnings + recentImport.risks + recentImport.failed} produit(s) de votre dernier import`, href: "/seo", icon: Package });
+  if (analysis?.englishTexts?.length) nextActions.push({ label: `Corriger ${analysis.englishTexts.length} texte(s) anglais avant Merchant Center`, href: "/merchant", icon: Languages });
+  if (analysis?.metrics?.imagesWithoutAlt) nextActions.push({ label: `Ajouter un alt text sur ${analysis.metrics.imagesWithoutAlt} image(s)`, href: "/merchant", icon: ImageOff });
+  if (recentImport) nextActions.push({ label: "Relancer Merchant Shield après votre dernier import", href: "/merchant", icon: ShieldCheck });
+  if (recentImport && importPresets.length === 0) nextActions.push({ label: "Créer un preset depuis votre dernier CSV optimisé", href: "/seo", icon: Sparkles });
   const aiConnected = providers.length > 0;
   const profileComplete = Boolean(brand.storeName.trim() && brand.niche.trim());
   const storeReady = analysis != null; // source de vérité unique
@@ -76,6 +84,23 @@ export default function DashboardPage() {
             <span className="text-xs font-medium text-brand-700 dark:text-brand-300">{setupProgress}%</span>
           </div>
           <div className="mt-2"><Progress value={setupProgress} /></div>
+        </Card>
+      )}
+
+      {/* §13/§15 — Prochaines actions : ce qui mérite votre attention */}
+      {nextActions.length > 0 && (
+        <Card className="ork-rise mb-4 border-brand-200 bg-gradient-to-br from-brand-50/60 to-transparent dark:border-brand-900 dark:from-brand-950/30">
+          <h2 className="flex items-center gap-1.5 text-sm font-bold"><ArrowUpRight className="h-4 w-4 text-brand-600" /> Prochaines actions</h2>
+          <p className="mt-0.5 text-xs text-[var(--text-muted)]">Voici ce qui mérite votre attention pour avancer.</p>
+          <div className="mt-3 space-y-1.5">
+            {nextActions.slice(0, 5).map((a, i) => { const Icon = a.icon; return (
+              <Link key={i} href={a.href} className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm transition hover:border-brand-300">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><Icon className="h-3.5 w-3.5" /></span>
+                <span className="min-w-0 flex-1 truncate text-[var(--text)]">{a.label}</span>
+                <ArrowRight className="h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
+              </Link>
+            ); })}
+          </div>
         </Card>
       )}
 

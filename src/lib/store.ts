@@ -120,6 +120,9 @@ export interface RecentImport {
   failed: number;
   rules: ImportRules;
   collectionsText?: string;
+  /** Verdict CSV (ready/verify/risky/partial) + raisons agrégées (pour Merchant Shield). */
+  verdict?: string;
+  riskReasons?: string[];
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -183,6 +186,8 @@ interface OrkestraState {
   importPresets: ImportPreset[];
   /** Derniers imports (réutilisation rapide). */
   recentImports: RecentImport[];
+  /** Demande ciblée en attente pour AI Council (depuis un autre module). */
+  pendingCouncil: { mode: string; question: string } | null;
 
   setOnboardingComplete: (v: boolean) => void;
   setGuideHidden: (v: boolean) => void;
@@ -219,6 +224,8 @@ interface OrkestraState {
   setDefaultImportPreset: (id: string) => void;
   addRecentImport: (rec: RecentImport) => void;
   clearRecentImports: () => void;
+  setPendingCouncil: (p: { mode: string; question: string }) => void;
+  clearPendingCouncil: () => void;
 }
 
 export const useOrkestra = create<OrkestraState>()(
@@ -245,6 +252,7 @@ export const useOrkestra = create<OrkestraState>()(
       selectedProfileId: "custom",
       importPresets: [],
       recentImports: [],
+      pendingCouncil: null,
 
       setOnboardingComplete: (v) => set({ onboardingComplete: v }),
       setGuideHidden: (v) => set({ guideHidden: v }),
@@ -384,6 +392,8 @@ export const useOrkestra = create<OrkestraState>()(
       addRecentImport: (rec) =>
         set((s) => ({ recentImports: [rec, ...s.recentImports].slice(0, 20) })),
       clearRecentImports: () => set({ recentImports: [] }),
+      setPendingCouncil: (p) => set({ pendingCouncil: p }),
+      clearPendingCouncil: () => set({ pendingCouncil: null }),
     }),
     {
       name: "orkestra-store",

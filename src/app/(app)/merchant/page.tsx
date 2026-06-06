@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useOrkestra } from "@/lib/store";
 import { relativeDate } from "@/lib/utils";
 import { PageHeader, Card, Badge, ScoreRing } from "@/components/ui/primitives";
@@ -68,7 +69,19 @@ const POST_ROUTINES: { t: string; icon: React.ElementType; items: string[] }[] =
 type Phase = "avant" | "pendant" | "apres";
 
 export default function MerchantPage() {
-  const { brand, analysis, merchantAuditAt, merchantResolved, setMerchantAudited, toggleMerchantResolved } = useOrkestra();
+  const { brand, analysis, merchantAuditAt, merchantResolved, setMerchantAudited, toggleMerchantResolved, recentImports, setPendingCouncil } = useOrkestra();
+  const router = useRouter();
+  const [importChecked, setImportChecked] = useState<string[]>([]);
+  const recentRisky = recentImports.filter((r) => !importChecked.includes(r.id) && (r.warnings > 0 || r.risks > 0 || r.failed > 0)).slice(0, 3);
+  function askCouncilImport(r: typeof recentImports[number]) {
+    const q =
+      `Contexte ciblé Import Factory — vérification avant Google Merchant Center.\n` +
+      `Import « ${r.fileName} » · ${r.products} produit(s) · ${r.warnings} à améliorer · ${r.risks} à risque · ${r.failed} bloqué(s).\n` +
+      `Risques détectés : ${(r.riskReasons || []).join(" ; ") || "aucun détail"}.\n` +
+      `Question : parmi ces points, lesquels sont vraiment bloquants pour Google Merchant Center, lesquels sont acceptables, et que corriger en priorité avant soumission ? Réponds de façon ciblée, sans refaire un audit complet.`;
+    setPendingCouncil({ mode: "merchant", question: q });
+    router.push("/council");
+  }
   const [loading, setLoading] = useState(false);
   const [phase, setPhase] = useState<Phase>("avant");
   const [toast, setToast] = useState<string | null>(null);
@@ -107,6 +120,43 @@ export default function MerchantPage() {
         {audited && <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]"><Clock className="h-3.5 w-3.5" /> Dernier audit : {relativeDate(merchantAuditAt!)}</span>}
         {analysis && <span className="text-xs text-[var(--text-muted)]">· {brand.country || "—"} · {brand.language || "français"}</span>}
       </div>
+
+      {/* §9 — Risques détectés dans vos derniers imports (Import Factory) */}
+      {recentRisky.length > 0 && (
+        <Card className="ork-rise mb-5 border-amber-200 bg-amber-50/40 dark:border-amber-900/60 dark:bg-amber-950/20">
+          <div className="flex items-center gap-2">
+            <span className="grid h-8 w-8 place-items-center rounded-xl bg-amber-500 text-white"><Package className="h-4 w-4" /></span>
+            <h3 className="text-sm font-bold">Risques détectés dans vos derniers imports</h3>
+          </div>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">Import Factory a transformé des produits récemment. Vérifiez ces points avant de soumettre à Google Merchant Center.</p>
+          <div className="mt-3 space-y-3">
+            {recentRisky.map((r) => (
+              <div key={r.id} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Package className="h-3.5 w-3.5 shrink-0 text-brand-600" />
+                    <span className="truncate text-sm font-semibold">{r.fileName}</span>
+                    <span className="shrink-0 text-[11px] text-[var(--text-muted)]">{new Date(r.date).toLocaleDateString("fr-FR")} · {r.products} produit(s)</span>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    {r.warnings > 0 && <Badge tone="warn">{r.warnings} à améliorer</Badge>}
+                    {r.risks > 0 && <Badge tone="bad">{r.risks} à risque</Badge>}
+                    {r.failed > 0 && <Badge tone="bad">{r.failed} bloqué(s)</Badge>}
+                  </div>
+                </div>
+                {r.riskReasons && r.riskReasons.length > 0 ? (
+                  <ul className="mt-2 space-y-0.5">{r.riskReasons.map((x, i) => <li key={i} className="flex items-start gap-1.5 text-xs text-[var(--text-muted)]"><span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-amber-500" /> {x}</li>)}</ul>
+                ) : <p className="mt-2 text-xs text-[var(--text-muted)]">0 problème critique sur les variantes / prix / SKU.</p>}
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  <Link href="/seo"><Button size="sm" variant="outline" icon={<Wand2 className="h-3.5 w-3.5" />}>Corriger dans Import Factory</Button></Link>
+                  <Button size="sm" variant="ghost" icon={<Sparkles className="h-3.5 w-3.5" />} onClick={() => askCouncilImport(r)}>Faire analyser par AI Council</Button>
+                  <Button size="sm" variant="ghost" icon={<Check className="h-3.5 w-3.5" />} onClick={() => setImportChecked((c) => [...c, r.id])}>Marquer comme vérifié</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {!analysis ? (
         <EmptyState onScan />

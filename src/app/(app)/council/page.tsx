@@ -58,7 +58,7 @@ function followUps(mode: CouncilMode): Follow[] {
 }
 
 export default function CouncilPage() {
-  const { connections, brand, analysis, addGeneration, councilMessages, addCouncilTurn, clearCouncil } = useOrkestra();
+  const { connections, brand, analysis, addGeneration, councilMessages, addCouncilTurn, clearCouncil, pendingCouncil, clearPendingCouncil } = useOrkestra();
   const providers = connectedProviders(connections);
   const openaiConnected = !!connections.openai?.connected;
   const claudeConnected = !!connections.anthropic?.connected;
@@ -80,6 +80,17 @@ export default function CouncilPage() {
   const autoRan = useRef(false);
   useEffect(() => {
     if (autoRan.current) return;
+    // 1) Demande ciblée déposée par un autre module (Import Factory, Merchant…).
+    if (pendingCouncil?.question) {
+      autoRan.current = true;
+      const m = pendingCouncil.mode as CouncilMode;
+      const q = pendingCouncil.question;
+      clearPendingCouncil();
+      if (m) setMode(m);
+      runCouncil(q, null, m ?? undefined);
+      return;
+    }
+    // 2) Question préparée passée par l'URL (/council?mode=seo&q=...).
     const params = new URLSearchParams(window.location.search);
     const q = params.get("q");
     const m = params.get("mode") as CouncilMode | null;
@@ -87,7 +98,6 @@ export default function CouncilPage() {
       autoRan.current = true;
       if (m) setMode(m);
       runCouncil(q, null, m ?? undefined);
-      // Nettoie l'URL pour éviter une relance au refresh.
       window.history.replaceState({}, "", "/council");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
