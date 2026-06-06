@@ -294,6 +294,7 @@ export default function ImportFactoryPage() {
       const rep = qualityControl(r, {
         metaSuffix: eff.metaSuffix || rules.metaSuffix, vendor: eff.vendor || rules.vendor, level: rules.level, oldTerms: eff.oldTerms,
         brandNames: brandEnabled, language: rules.language, tagsType: rules.tagsType, sourceText, source,
+        sourceVendor: g?.vendor, keepUrls: (rules.collectionsUrls || []).map((c) => c.url),
         usedBrand, usedHandle, usedMetaOpenings, usedTitles,
       });
       reports[r.handle] = rep;

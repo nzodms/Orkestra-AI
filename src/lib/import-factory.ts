@@ -456,6 +456,7 @@ export const FORBIDDEN_JARGON = [
   "seo", "référencement", "referencement", "mot-clé", "mot clé", "mots-clés", "maillage interne",
   "intention de recherche", "champ lexical", "optimisé pour google", "optimise pour google",
   "stratégie seo", "strategie seo", "contenu optimisé", "cette page travaille",
+  "fiche produit", "description produit", "optimisé", "optimisée", "optimise",
 ];
 
 const VARIANT_TRANSLATIONS =
@@ -464,42 +465,39 @@ const VARIANT_TRANSLATIONS =
 
 const UNIT_EXAMPLES = "10\"→25 cm, 11.8\"→30 cm, 15.7\"→40 cm, 23.6\"→60 cm, 31.5\"→80 cm, 39.4\"→100 cm (1 inch = 2,54 cm, arrondi propre)";
 
-const DESC_SKELETON = `<h2>[Titre produit, sans nom brandé]</h2>
-<p>[Introduction naturelle : produit, style, usage, ambiance]</p>
-<p>[Rendu visuel, matière SI connue, forme, couleur, intérêt déco/pratique]</p>
-<h3>Pourquoi choisir ce produit ?</h3>
-<ul><li><strong>[Point fort]</strong> [bénéfice client]</li><li><strong>[Point fort]</strong> [bénéfice]</li><li><strong>[Point fort]</strong> [bénéfice]</li></ul>
-<h3>Où installer ce produit ?</h3>
-<p>[Pièces adaptées, usages, situations]</p>
-<h3>Détails du produit</h3>
-<ul><li>Type : …</li><li>Style : …</li><li>Couleur : …</li><li>Matériaux : UNIQUEMENT si connu</li><li>Usage conseillé : …</li><li>Dimensions : UNIQUEMENT si disponibles</li></ul>
-<h3>Conseils pour bien le choisir</h3>
-<p>[Aide au choix : taille, style, pièce, installation]</p>
-<h3>Questions fréquentes</h3>
-<h4>[Question utile ?]</h4><p>[Réponse courte]</p><h4>[Question utile ?]</h4><p>[Réponse courte]</p>
-<p>[Conclusion naturelle, vendeuse et rassurante]</p>`;
-
-// Structure ENRICHIE pour le mode Ultra (fiche longue, premium, 3000–4000 car.).
-const ULTRA_SKELETON = `<h2>[Titre produit naturel, sans nom brandé]</h2>
-<p>[Introduction LONGUE de 3 à 4 phrases : le produit, son style, l'effet visuel, l'ambiance et l'usage — concrète, JAMAIS une formule passe-partout]</p>
-<p>[Rendu visuel détaillé : forme, lignes, finition, couleur ; matière UNIQUEMENT si présente dans la source]</p>
-<p>[Intérêt déco/pratique selon la pièce et l'usage, avec des détails concrets]</p>
-<h3>Pourquoi choisir ce produit ?</h3>
-<ul><li><strong>[Bénéfice 1]</strong> [explication concrète orientée client]</li><li><strong>[Bénéfice 2]</strong> [explication]</li><li><strong>[Bénéfice 3]</strong> [explication]</li><li><strong>[Bénéfice 4]</strong> [explication]</li></ul>
+// Structure HTML OBLIGATOIRE de toute fiche premium (même structure en Standard /
+// Poussé / Ultra ; seule la LONGUEUR varie). « [type de produit] » est remplacé par
+// le vrai type. La section Dimensions disparaît (ou devient « Format et utilisation »)
+// si aucune taille n'est sourcée.
+const DESC_SKELETON = `<h2>[Nom produit final] : [bénéfice / usage / style court adapté au produit]</h2>
+<p>[Introduction naturelle : le produit, son type, son style, son usage principal et les pièces/contextes où il s'intègre. Mets le mot-clé principal en <strong>. N'invente aucune information absente de la source.]</p>
+<p>[Rendu, usage, matière SI sourcée, forme, finition, ambiance ou bénéfice concret selon la niche. Français, premium, e-commerce, JAMAIS fournisseur.]</p>
+<h3>Pourquoi choisir ce [type de produit] ?</h3>
+<ul>
+<li><strong>Bénéfice 1 :</strong> explication concrète et utile.</li>
+<li><strong>Bénéfice 2 :</strong> explication concrète et utile.</li>
+<li><strong>Bénéfice 3 :</strong> explication concrète et utile.</li>
+<li><strong>Bénéfice 4 :</strong> explication concrète et utile.</li>
+</ul>
 <h3>Dimensions disponibles</h3>
-<p>[SI des tailles existent dans les variantes : présente-les et explique ce qu'elles changent ; SUPPRIME entièrement cette section si aucune dimension fiable]</p>
-<p>[Comment choisir la bonne taille selon la pièce, la hauteur de plafond et l'usage]</p>
-<h3>Où installer ce produit ?</h3>
-<p>[Pièces et situations adaptées, concret et varié]</p>
+<p>[SI des tailles / dimensions / formats existent dans la source : présente-les clairement, en français et en CENTIMÈTRES (convertis les pouces). SINON supprime entièrement cette section ou remplace ce titre par « Format et utilisation ».]</p>
+<ul><li>[Format 1 en cm]</li><li>[Format 2 en cm]</li></ul>
+<p>[Court conseil pour choisir la bonne taille selon l'usage, la pièce, l'espace ou le besoin de la niche.]</p>
+<h3>Où utiliser ce [type de produit] ?</h3>
+<p>[Usages et contextes adaptés selon la niche.]</p>
 <h3>Détails du produit</h3>
-<ul><li>Type : …</li><li>Style : …</li><li>Couleur : … (si connue)</li><li>Matériaux : UNIQUEMENT si dans la source</li><li>Dimensions : UNIQUEMENT si disponibles</li><li>Usage conseillé : …</li></ul>
-<h3>Conseils pour bien choisir</h3>
-<p>[Aide réelle à la décision : taille, style, pièce, association, entretien si fiable]</p>
+<ul>
+<li><strong>Type :</strong> type produit réel</li>
+<li><strong>Style :</strong> style fiable si pertinent</li>
+<li><strong>Couleur :</strong> couleur si sourcée</li>
+<li><strong>Matériaux :</strong> UNIQUEMENT si sourcés</li>
+<li><strong>Usage :</strong> usages adaptés</li>
+</ul>
 <h3>Questions fréquentes</h3>
-<h4>[Question utile 1 ?]</h4><p>[Réponse prudente, basée sur les variantes — jamais d'invention]</p>
-<h4>[Question utile 2 ?]</h4><p>[Réponse]</p>
-<h4>[Question utile 3 ?]</h4><p>[Réponse]</p>
-<p>[Conclusion naturelle et rassurante, sans promesse non sourcée]</p>`;
+<h4>[Question utile 1 ?]</h4><p>[Réponse prudente, naturelle, sans invention.]</p>
+<h4>[Question utile 2 ?]</h4><p>[Réponse prudente, naturelle, sans invention.]</p>
+<h4>[Question utile 3 ?]</h4><p>[Réponse prudente, naturelle, sans invention.]</p>
+<p>[Conclusion courte qui résume le bénéfice principal et l'usage du produit.]</p>`;
 
 export function buildTransformSystem(rules: ImportRules): string {
   return (
@@ -794,17 +792,19 @@ export function buildTransformPrompt(products: ImportProductInput[], rules: Impo
   const richDesc = rules.description === "html_rich" || rules.level === "poussé" || rules.level === "ultra complet";
   const ultra = rules.level === "ultra complet";
   const lengthGoal = ultra
-    ? " LONGUEUR CIBLE : une VRAIE fiche premium de 3000 à 4000 caractères de texte (proche d'une fiche optimisée à la main), PAS une description standard. Développe CHAQUE section (2 à 4 phrases par paragraphe, explications concrètes), traite toutes les sections du squelette. Avant de finir, vérifie mentalement que le corps atteint bien ~3000 caractères. Si — et seulement si — les données source sont trop pauvres pour atteindre 3000 caractères SANS inventer, reste plus court mais ajoute une note « Données source insuffisantes pour une description Ultra complète » et mets status 'review'. N'invente JAMAIS pour rallonger."
+    ? " LONGUEUR CIBLE : fiche premium complète d'environ 2700 à 3200 caractères de texte si la source le permet. Développe chaque section (2 à 4 phrases par paragraphe). Si — et seulement si — la source est trop pauvre pour atteindre cette longueur SANS inventer, reste plus court mais GARDE la structure complète et mets status 'review'. N'invente JAMAIS pour rallonger."
     : rules.level === "poussé"
-    ? " LONGUEUR CIBLE : 1800 à 2800 caractères de texte si les données le permettent."
-    : rules.level === "standard"
-    ? " LONGUEUR CIBLE : 800 à 1400 caractères."
-    : "";
+    ? " LONGUEUR CIBLE : environ 2000 à 2700 caractères de texte si la source le permet (structure complète)."
+    : " LONGUEUR CIBLE : environ 1200 à 1800 caractères si la source le permet — structure complète mais plus courte.";
   const antiFiller = " Évite les formules passe-partout (« apporte une touche moderne et élégante », « ambiance chaleureuse », « style contemporain », « idéal pour votre intérieur ») : appuie-toi plutôt sur la FORME, le rendu visuel, les DIMENSIONS, les pièces adaptées, les variantes, la matière SI fiable, l'usage, l'aide au choix et la comparaison entre tailles. Le texte doit réellement aider le client à choisir.";
-  if (richDesc) directives.push(`Description : HTML riche, naturelle, premium, orientée client final (jamais le moteur de recherche), SANS blabla.${lengthGoal}${antiFiller} Inclus une section « Détails du produit » et, dès que des tailles existent, une section « Dimensions disponibles » qui explique comment choisir. FAQ : ${ultra ? "3 à 5" : "2 à 3"} questions UTILES (quelle taille, dans quelle pièce, comment entretenir, convient-il à un plafond haut) avec réponses PRUDENTES basées sur les variantes — n'invente JAMAIS garantie, délai, manuel inclus, compatibilité d'ampoule (GU10/E27…), matériau précis (cristal K9, acier poli…), dimmable ou certification dans une réponse. Suis CETTE structure exacte :\n${ultra ? ULTRA_SKELETON : DESC_SKELETON}`);
-  else directives.push("Description : claire et naturelle, exploitable, sans blabla ni invention.");
-  // Anti-bruit fournisseur (toutes niches) : la fiche s'adresse au client final.
-  directives.push("JAMAIS d'info fournisseur dans une fiche : pas de numéro de téléphone, d'email, de nom de fournisseur, de remises / tarifs grossiste / quantité, ni d'invitation à « contacter notre équipe » ou à demander un devis. Supprime tout ce démarchage du texte importé.");
+  if (richDesc) directives.push(`Description : HTML, naturelle, française, premium, e-commerce, publiable telle quelle.${lengthGoal}${antiFiller} STRUCTURE OBLIGATOIRE (même structure quel que soit le niveau ; remplace « [type de produit] » par le VRAI type, « [Nom produit final] » par le nom produit ; mets le mot-clé principal en <strong> dans l'intro). FAQ : ${ultra ? "3 à 5" : "3"} questions UTILES avec réponses PRUDENTES (jamais d'invention : ni garantie, délai, manuel inclus, compatibilité, matériau précis, dimmable, certification). Suis CETTE structure EXACTE :\n${DESC_SKELETON}`);
+  else directives.push("Description : claire, naturelle, française, exploitable, sans blabla ni invention.");
+  // Dimensions / tailles : ne JAMAIS les perdre (règle critique).
+  directives.push("DIMENSIONS : si la source contient des tailles, dimensions, mesures ou variantes de taille, CONSERVE-les TOUTES. Traduis en français, convertis les pouces en centimètres (ex. « W 20.1 inch x H 14.2 inch » → « L 51 cm × H 36 cm » ; « 90 x 50 x 30 cm » reste « 90 × 50 × 30 cm » ; « S / M / L » → garde les formats). N'invente AUCUNE dimension absente ; si aucune n'est fournie, n'écris pas « dimensions non communiquées » et utilise « Format et utilisation » à la place.");
+  // Anti-fournisseur / concurrent (toutes niches) : la fiche s'adresse au client final.
+  directives.push(`NEUTRALISE toute identité fournisseur / concurrent dans la fiche (body, meta, SEO title, tags, alt, FAQ, H2/H3/H4, product_type, collections) : aucun nom de fournisseur ou de marque source, aucun nom de domaine, aucun email/téléphone, aucune remise/tarif grossiste, aucun « contactez notre équipe ». Ne parle JAMAIS de la marque source : « ... de <Fournisseur> » → retire « de <Fournisseur> » ; « modèle <Marque source> » → « ce modèle ». La seule marque autorisée est « ${vendor} » (le vendor final).`);
+  // Vocabulaire INTERDIT dans une fiche générée.
+  directives.push("N'écris JAMAIS dans une fiche : « stock », « en stock », « stock limité », « produit physique », « produit réel », « expédition depuis », « inventaire », « disponibilité », « quantité disponible » ; ni le jargon « mot-clé », « SEO », « référencement », « maillage interne », « optimisé », « fiche produit », « description produit ». Texte 100 % orienté client.");
   // Meta (profil).
   if (rules.meta) directives.push(`Meta : metaTitle au format « Mot-clé principal | ${brand} » (50–70 car.), première lettre en MAJUSCULE, marque « ${brand} » avec sa casse EXACTE (jamais en minuscule). metaDescription ≤ 160 car. : une PHRASE COMPLÈTE et naturelle qui se termine proprement (ponctuation) AVANT le suffixe — ne JAMAIS finir par « ou », « et », « à », « pour », « avec », « salle », « salon », « cuisine », « idéale », « compatible », « disponible », ni couper une énumération au milieu. Inclut le mot-clé, formulation NATURELLE et VARIÉE d'un produit à l'autre — appuie-toi sur un angle DIFFÉRENT à chaque fois (forme, matière, pièce, effet visuel, usage, style). N'utilise PAS les formules passe-partout (« élégance moderne », « Découvrez notre… », « ambiance chaleureuse », « apportera une touche », « intérieur élégant »). Pas de promesse agressive${suffix ? `, et TERMINE par EXACTEMENT « ${suffix} » — copie-le caractère pour caractère (même ponctuation finale, même casse, même espace), une SEULE fois, jamais tronqué, jamais en double` : ""}. Ex variés : « Suspension en verre craquelé au style lumineux, idéale pour une cuisine ou une salle à manger.${suffix ? " " + suffix : ""} » / « Lustre rond en aluminium pour éclairer une pièce de vie avec une silhouette sobre.${suffix ? " " + suffix : ""} ».`);
   // Maillage.

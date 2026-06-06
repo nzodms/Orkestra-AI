@@ -24,6 +24,10 @@ export interface QCContext {
   /** Champs source STRUCTURÉS (ordre titre → type → tags → description) pour identifier
    *  le vrai type produit avant de renommer (naming à la racine). */
   source?: { title?: string; type?: string; tags?: string; body?: string; options?: string };
+  /** Marque / vendor SOURCE (concurrent / fournisseur) à neutraliser dans la fiche publique. */
+  sourceVendor?: string;
+  /** URLs internes (collections du profil) à PRÉSERVER lors du nettoyage des domaines. */
+  keepUrls?: string[];
   /** Sets mutables partagés sur tout le lot (dédoublonnage / répétition). */
   usedBrand: Set<string>;
   usedHandle: Set<string>;
@@ -278,6 +282,51 @@ function removeSentencesMatching(html: string, re: RegExp): string {
   return out;
 }
 
+// ── §3 — Identité fournisseur / concurrent (nom de marque source, domaines) ──────
+/** Termes à neutraliser = oldTerms + vendor source, SAUF le vendor final (conservé). */
+function buildSupplierTerms(ctx: QCContext): string[] {
+  const keep = normName(ctx.vendor || "");
+  const out = new Set<string>();
+  const add = (t?: string) => { const n = (t || "").trim(); if (n && normName(n) !== keep && normName(n).length >= 3) out.add(n); };
+  (ctx.oldTerms || []).forEach(add);
+  add(ctx.sourceVendor);
+  return Array.from(out);
+}
+/** Retire les noms de marque/fournisseur source + domaines/URLs (sauf URLs internes). */
+function stripSupplierIdentity(text: string, terms: string[], keepUrls: string[]): { out: string; changed: boolean } {
+  if (!text) return { out: text, changed: false };
+  let out = text, changed = false;
+  // 1) URLs + domaines D'ABORD (avant le nom de marque, sinon « pilateo.com » → « .com »).
+  out = out.replace(/\bhttps?:\/\/[^\s"'<>]+/gi, (u) => { if (keepUrls.some((k) => k && u.includes(k))) return u; changed = true; return ""; });
+  out = out.replace(/\b[a-z0-9-]{2,}\.(?:com|fr|net|org|shop|store|io|co|eu|de|es|it|biz|info)\b(?:\/[^\s"'<>]*)?/gi, (d) => { if (keepUrls.some((k) => k && k.includes(d))) return d; changed = true; return ""; });
+  // 2) Nom de marque / fournisseur source (« de <Marque> » puis le mot seul).
+  for (const term of terms) {
+    const esc = escapeRe(term).replace(/\s+/g, "\\s+");
+    const prep = new RegExp(`\\s*\\b(?:de|du|d['’]|par|chez|from|by)\\s+${esc}\\b`, "gi");
+    const bare = new RegExp(`\\b${esc}\\b`, "gi");
+    if (prep.test(out)) { out = out.replace(prep, ""); changed = true; }
+    if (bare.test(out)) { out = out.replace(bare, ""); changed = true; }
+  }
+  if (changed) out = collapse(out).replace(/\(\s*\)/g, "").replace(/<(h[1-4]|p|li)>\s*<\/\1>/gi, "").replace(/\s+([,.;:!?])/g, "$1");
+  return { out, changed };
+}
+
+// ── §4/§9 — Vocabulaire commerce/stock interdit dans une fiche générée ──────────
+const COMMERCE_FORBIDDEN = /\b(?:en\s+stock|stocks?\s+limit[ée]s?|rupture\s+de\s+stock|en\s+rupture|\bstocks?\b|inventaires?|quantit[ée]s?\s+disponibles?|disponibilit[ée]s?|produit\s+physique|produit\s+r[ée]el|exp[ée]di[ée]\w*\s+depuis|exp[ée]dition\s+depuis)\b/i;
+
+// ── §2 — Pouces → centimètres dans le corps (ne JAMAIS perdre / garder les tailles) ──
+function convertBodyDimensions(html: string): { out: string; changed: boolean } {
+  let changed = false;
+  // Formes explicites uniquement (inch / inches / pouce / pouces / ″) — on évite le « " »
+  // ASCII qui corromprait des attributs HTML (ex. width="20").
+  let out = (html || "").replace(/(\d+(?:[.,]\d+)?)\s*(?:(?:inch(?:es)?|pouces?)\b|″)/gi, (_m, num: string) => {
+    const v = parseFloat(num.replace(",", ".")); if (!isFinite(v)) return _m;
+    changed = true; return `${Math.round(v * 2.54)} cm`;
+  });
+  out = out.replace(/(\d)\s*[xX]\s*(?=\d)/g, (_m, a: string) => { changed = true; return `${a} × `; });
+  return { out, changed };
+}
+
 // ── §4/§7 — Bruit fournisseur (contact, promo, démarchage) : jamais dans une fiche client ──
 // Téléphone FR + email + tournures de démarchage / grossiste / remises fournisseur.
 const SUPPLIER_NOISE = /(?:\+33|\b0)\s?[1-9](?:[\s.\-]?\d{2}){4}\b|[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}|\b(?:contactez|contacter|appelez|t[ée]l[ée]phon\w*|whatsapp|n['’]h[ée]sitez|notre\s+[ée]quipe|service\s+client|remises?\s+(?:sur|pour|de|quantit\w*)|tarif\s+(?:grossiste|pro|professionnel)|prix\s+(?:grossiste|d['’]achat)|devis|commande\s+minimum|minimum\s+de\s+commande|propose\s+des\s+remises|nous\s+contacter|vente\s+en\s+gros|revendeurs?)\b/i;
@@ -500,6 +549,9 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
   const fixed: TransformedProduct = { ...r };
   const fr = isFrench(ctx.language);
   const vendor = ctx.vendor || "";
+  // Identité fournisseur / concurrent à neutraliser partout (réutilisé au naming).
+  const supplierTerms = buildSupplierTerms(ctx);
+  const keepUrls = ctx.keepUrls || [];
 
   // Vendor = marque saisie, casse EXACTE.
   if (vendor) fixed.vendor = vendor;
@@ -549,18 +601,37 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     fixed.title = fixTitle(collapse(fixed.title));
   }
 
-  // Anciens termes / domaines à supprimer.
-  if (ctx.oldTerms?.length) {
-    for (const term of ctx.oldTerms) {
-      if (!term) continue;
-      const re = new RegExp(escapeRe(term), "gi");
-      if (re.test(`${fixed.title} ${fixed.bodyHtml} ${fixed.metaDescription}`)) {
-        issues.push(`Terme à supprimer retiré : ${term}`);
-        bump("risk");
-        fixed.title = fixed.title.replace(re, "").trim();
-        fixed.bodyHtml = collapse(fixed.bodyHtml.replace(re, ""));
-        fixed.metaDescription = fixed.metaDescription.replace(re, "").trim();
-      }
+  // ── §3 — Neutralise l'identité fournisseur / concurrent dans TOUS les champs publics ──
+  {
+    let hit = false;
+    const scrub = (s: string) => { const r = stripSupplierIdentity(s, supplierTerms, keepUrls); if (r.changed) hit = true; return r.out; };
+    fixed.title = scrub(fixed.title);
+    fixed.bodyHtml = scrub(fixed.bodyHtml);
+    fixed.metaTitle = scrub(fixed.metaTitle);
+    fixed.metaDescription = scrub(fixed.metaDescription);
+    fixed.productType = scrub(fixed.productType);
+    fixed.tags = fixed.tags.split(",").map((t) => scrub(t).trim()).filter(Boolean).join(", ");
+    fixed.imageAlts = fixed.imageAlts.map((a) => scrub(a).trim());
+    fixed.collections = fixed.collections.map((c) => scrub(c).trim()).filter(Boolean);
+    if (hit) { issues.push("Marque / fournisseur / domaine source neutralisé"); bump("warning"); }
+  }
+
+  // ── §2 — Pouces → cm dans le corps (ne jamais perdre / dénaturer les tailles) ──
+  {
+    const d = convertBodyDimensions(fixed.bodyHtml);
+    if (d.changed) { fixed.bodyHtml = d.out; issues.push("Dimensions converties en cm dans la description"); bump("warning"); }
+    const dm = convertBodyDimensions(fixed.metaDescription);
+    if (dm.changed) fixed.metaDescription = dm.out;
+  }
+
+  // ── §4/§9 — Retire le vocabulaire stock / disponibilité / produit physique ──
+  {
+    const hay = `${stripHtml(fixed.bodyHtml)} ${fixed.metaDescription} ${fixed.tags}`;
+    if (COMMERCE_FORBIDDEN.test(hay)) {
+      fixed.bodyHtml = removeSentencesMatching(fixed.bodyHtml, COMMERCE_FORBIDDEN);
+      fixed.metaDescription = fixed.metaDescription.split(/(?<=[.!?])\s+/).filter((s) => !COMMERCE_FORBIDDEN.test(s)).join(" ").trim();
+      fixed.tags = fixed.tags.split(",").map((t) => t.trim()).filter((t) => t && !COMMERCE_FORBIDDEN.test(t)).join(", ");
+      issues.push("Mentions stock / disponibilité retirées"); bump("warning");
     }
   }
 
@@ -680,7 +751,8 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     // sinon on le recadre dessus (le mot-clé IA fidèle, sinon celui du titre source). Aucune
     // règle par niche : « posture » ne transforme pas un Reformer en « Correcteur de posture ».
     const typed = enforceMarketName(cleanedProduct, fixed.keyword, ctx.source || { title: ctx.sourceText, type: fixed.productType, tags: fixed.tags }, fr);
-    const product = typed.product;
+    // Le mot-clé/recadrage lit la source brute : on re-neutralise une éventuelle marque source.
+    const product = supplierTerms.length ? stripSupplierIdentity(typed.product, supplierTerms, keepUrls).out.trim() : typed.product;
     if (typed.recadred) {
       issues.push("Titre recadré sur le mot-clé produit (fidélité marché)"); bump("warning");
       // Cohérence : handle + alt suivent le titre recadré.
@@ -763,9 +835,13 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     if (fr) { const enTag = tagList.find((t) => EN_FLAG.some((w) => new RegExp(`\\b${escapeRe(w)}\\b`, "i").test(t))); if (enTag) { issues.push(`Tag en anglais : ${enTag}`); bump("warning"); } }
   }
 
-  // Description : structure attendue en mode Poussé / Ultra.
+  // Description : structure premium attendue en mode Poussé / Ultra (on signale, on n'invente pas).
   if (ctx.level === "poussé" || ctx.level === "ultra complet") {
-    if (!/<h[23]\b/i.test(fixed.bodyHtml)) { issues.push("Description sans structure H2/H3 (mode avancé)"); bump("warning"); }
+    const b = fixed.bodyHtml;
+    if (!/<h2\b/i.test(b)) { issues.push("Description sans titre H2 (structure premium)"); bump("warning"); }
+    if (!/<h3\b/i.test(b)) { issues.push("Description sans sections H3 (structure premium)"); bump("warning"); }
+    if (!/<ul\b|<li\b/i.test(b)) { issues.push("Description sans liste de bénéfices/détails (structure premium)"); bump("warning"); }
+    if (!/<h4\b/i.test(b)) { issues.push("Description sans FAQ (structure premium)"); bump("warning"); }
   }
 
   // Collections : français naturel (Foyer → Entrée, Living Room → Salon…) + accents + anglais.
