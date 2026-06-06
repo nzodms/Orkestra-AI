@@ -25,6 +25,8 @@ export interface QCContext {
   usedBrand: Set<string>;
   usedHandle: Set<string>;
   usedMetaOpenings: Set<string>;
+  /** Clés de titres déjà utilisés (anti-doublon flou des noms produits). */
+  usedTitles?: Set<string>;
 }
 
 export interface QCReport {
@@ -51,6 +53,28 @@ function editDistance(a: string, b: string): number {
   }
   return dp[m];
 }
+// ── Anti-doublon flou des titres produit (§13/§14) ──────────────────────────
+const TITLE_STOP = new Set(["en", "de", "du", "des", "la", "le", "les", "au", "aux", "et", "ou", "pour", "avec", "sur", "sans", "a", "d", "l"]);
+/** Clé normalisée d'un titre : minuscules, sans accents, sans mots vides, mots triés. */
+export function titleKey(t: string): string {
+  return (t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/).filter((w) => w && !TITLE_STOP.has(w)).sort().join(" ");
+}
+/** Vrai si le titre est exact ou trop proche d'un titre déjà utilisé (mots communs à 1 lettre près). */
+function tooCloseTitle(t: string, set: Set<string>): boolean {
+  const a = titleKey(t);
+  if (!a) return false;
+  if (set.has(a)) return true;
+  const aw = a.split(" ");
+  for (const b of set) {
+    const bw = b.split(" ");
+    if (Math.abs(aw.length - bw.length) > 1) continue;
+    const common = aw.filter((w) => bw.some((x) => x === w || editDistance(w, x) <= 1)).length;
+    if (common >= Math.max(aw.length, bw.length) - 0.001 || common >= Math.ceil(Math.max(aw.length, bw.length) * 0.8)) return true;
+  }
+  return false;
+}
+
 /** Détecte un nom déjà pris : exact, accent-insensible, ou trop similaire. */
 function similarTo(n: string, set: Set<string>): { match: string; exact: boolean } | null {
   if (!n) return null;
@@ -433,6 +457,15 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     else ctx.usedHandle.add(h);
   }
 
+  // Titre : doublon / trop proche d'un produit existant (anti-doublon flou).
+  if (ctx.usedTitles && fixed.title) {
+    const tk = titleKey(fixed.title);
+    if (tk) {
+      if (tooCloseTitle(fixed.title, ctx.usedTitles)) { issues.push("Titre trop proche d'un autre produit (à distinguer)"); bump("warning"); }
+      ctx.usedTitles.add(tk);
+    }
+  }
+
   // Titre : naturel, pas télégraphique (suite de noms sans connecteur).
   {
     const words = fixed.title.split(/\s+/).filter(Boolean);
@@ -524,16 +557,32 @@ export function buildIssueReportCsv(groups: ProductGroup[], reports: Record<stri
 }
 
 /** Rapport de modifications complet (résumé export + détail par produit). */
+// ── Rapport naming (§21) : titres / noms brandés / handles vérifiés ─────────
+export interface NamingSummary { titles: number; titlesClose: number; brandNames: number; brandDups: number; handleDups: number }
+export function namingSummary(results: TransformedProduct[], reports: Record<string, QCReport>): NamingSummary {
+  let titlesClose = 0, brandNames = 0, brandDups = 0, handleDups = 0;
+  for (const r of results) {
+    if (r.brandName) brandNames++;
+    const j = (reports[r.handle]?.issues ?? []).join(" ").toLowerCase();
+    if (/titre trop proche/.test(j)) titlesClose++;
+    if (/nom brandé déjà|nom brandé trop similaire/.test(j)) brandDups++;
+    if (/handle déjà utilisé/.test(j)) handleDups++;
+  }
+  return { titles: results.length, titlesClose, brandNames, brandDups, handleDups };
+}
+
 export function buildExportReport(groups: ProductGroup[], finalResults: TransformedProduct[], applied: ApplyResult, reports: Record<string, QCReport>): string {
   const qcCount = { ok: 0, warning: 0, risk: 0, failed: 0 };
   for (const g of groups) qcCount[reports[g.handle]?.status ?? "ok"]++;
   const reasons = applied.checks.filter((c) => c.status !== "ok").map((c) => `${c.label}${c.detail ? ` (${c.detail})` : ""}`);
+  const nm = namingSummary(finalResults, reports);
   const summary: string[][] = [
     ["Produits exportés", String(applied.stats.products)],
     ["Variantes", String(applied.stats.variants)],
     ["Images", String(applied.stats.images)],
     ["Statut export global", applied.status.toUpperCase()],
     ["Produits OK / Warning / Risk / Failed", `${qcCount.ok} / ${qcCount.warning} / ${qcCount.risk} / ${qcCount.failed}`],
+    ["Naming — noms vérifiés / titres trop proches / noms brandés / doublons brandés / doublons handle", `${nm.titles} / ${nm.titlesClose} / ${nm.brandNames} / ${nm.brandDups} / ${nm.handleDups}`],
     ["Colonnes ajoutées", applied.stats.added.join(" | ") || "aucune"],
     ["Colonnes conservées", applied.stats.preserved.join(" | ") || "aucune"],
     ["Colonnes vidées (sécurité)", applied.stats.cleared.join(" | ") || "aucune"],

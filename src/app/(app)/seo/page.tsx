@@ -12,11 +12,11 @@ import {
 } from "@/lib/import-factory";
 import { PROFILES, CUSTOM_PROFILE, profileById, profileRuleOverrides, profileContext, effectiveProfile, type ProfileConfig } from "@/lib/import-profiles";
 import { emptyProfileMemory } from "@/lib/store";
-import { qualityControl, buildIssueReportCsv, buildExportReport, scoreProduct, csvVerdict, type QCReport, type QCStatus, type ProductScore, type CsvVerdict } from "@/lib/import-qc";
+import { qualityControl, buildIssueReportCsv, buildExportReport, scoreProduct, csvVerdict, titleKey, namingSummary, type QCReport, type QCStatus, type ProductScore, type CsvVerdict } from "@/lib/import-qc";
 import { useRouter } from "next/navigation";
 import { planImportModels } from "@/lib/ai/import-models";
 import type { EditorialFocus } from "@/lib/ai/import-editorial";
-import { ImportTabsNav, PresetsTab, RecentImportsTab, CreateProfileTab, ResumeLastImportCard, SavePresetModal, type ImportTab, type UsePresetPayload } from "./_tabs";
+import { ImportTabsNav, PresetsTab, RecentImportsTab, CreateProfileTab, SavePresetModal, type ImportTab, type UsePresetPayload } from "./_tabs";
 import type { ImportPreset, RecentImport } from "@/lib/store";
 import { PageHeader, Card, Badge } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
@@ -27,8 +27,10 @@ import {
 } from "lucide-react";
 import { relativeDate } from "@/lib/utils";
 
-const QC_TONE: Record<QCStatus, "good" | "warn" | "bad" | "neutral"> = { ok: "good", warning: "warn", risk: "bad", failed: "bad" };
-const QC_LABEL: Record<QCStatus, string> = { ok: "OK", warning: "Warning", risk: "Risk", failed: "Failed" };
+// Statuts non anxiogènes (§10) : « risk » (qualité) reste en ton « warn » ;
+// seul « failed » (CSV qui casserait l'import) garde le ton « bad ».
+const QC_TONE: Record<QCStatus, "good" | "warn" | "bad" | "neutral"> = { ok: "good", warning: "warn", risk: "warn", failed: "bad" };
+const QC_LABEL: Record<QCStatus, string> = { ok: "Prêt", warning: "À améliorer", risk: "À vérifier", failed: "À corriger" };
 
 // Collections au format « Nom | URL » (URL optionnelle, pour le maillage).
 function parseCollections(text: string): { name: string; url: string }[] {
@@ -197,6 +199,8 @@ export default function ImportFactoryPage() {
   const [activePreset, setActivePreset] = useState<{ id?: string; name?: string }>({});
   const [perfecting, setPerfecting] = useState(false);
   const [perfectMenuOpen, setPerfectMenuOpen] = useState(false);
+  const [editorialApplied, setEditorialApplied] = useState(false);
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [autoFixSummary, setAutoFixSummary] = useState<{ fixed: number; improved: number; remaining: number } | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -276,6 +280,8 @@ export default function ImportFactoryPage() {
     const usedBrand = new Set(mem.brandNames.map(normName));
     const usedHandle = new Set(mem.handles.map((h) => h.toLowerCase()));
     const usedMetaOpenings = new Set<string>();
+    // Anti-doublon des titres : amorcé par les titres déjà générés (mémoire profil).
+    const usedTitles = new Set(mem.titles.map(titleKey).filter(Boolean));
     const reports: Record<string, QCReport> = {};
     const fixed = list.map((r) => {
       const g = groups.find((x) => x.handle === r.handle);
@@ -283,7 +289,7 @@ export default function ImportFactoryPage() {
       const rep = qualityControl(r, {
         metaSuffix: eff.metaSuffix || rules.metaSuffix, vendor: eff.vendor || rules.vendor, level: rules.level, oldTerms: eff.oldTerms,
         brandNames: rules.brandNames, language: rules.language, tagsType: rules.tagsType, sourceText,
-        usedBrand, usedHandle, usedMetaOpenings,
+        usedBrand, usedHandle, usedMetaOpenings, usedTitles,
       });
       reports[r.handle] = rep;
       return rep.fixed;
@@ -348,7 +354,7 @@ export default function ImportFactoryPage() {
     if (!parsed || !stats?.hasTitle || !target.length) return;
     if (!openaiConnected) { setError("Connectez OpenAI pour lancer la transformation."); return; }
     setError(null);
-    if (!append) { setAutoFixSummary(null); setFilter("all"); }
+    if (!append) { setAutoFixSummary(null); setFilter("all"); setEditorialApplied(false); }
     const claudeOn = !!connections.anthropic?.connected;
     const ps: Record<string, ProductStatus> = append ? { ...productStatus } : {};
     for (const g of target) ps[g.handle] = "wait";
@@ -391,6 +397,7 @@ export default function ImportFactoryPage() {
       } else {
         acc.push(...data.results);
         for (const r of data.results) if (r.brandName) brandAcc.push(r.brandName);
+        if (data.editorial) setEditorialApplied(true);
         for (const g of batch) ps[g.handle] = data.editorial ? "claude" : "done";
         setProductStatus({ ...ps });
       }
@@ -527,7 +534,6 @@ export default function ImportFactoryPage() {
   function qMeta(r: TransformedProduct) { return `Contexte ciblé Import Factory — Corriger la meta description.\n${cLine(r)}\nMeta title : ${r.metaTitle}\nMeta description actuelle (${r.metaDescription.length} car.) : ${r.metaDescription}\n${cIssues(r.handle)}\nDonne 3 propositions de meta description (≤160 car., finissant par le suffixe si imposé), indique la meilleure recommandée, le nombre de caractères et le risque SEO/Merchant.${COUNCIL_FMT}`; }
   function qDesc(r: TransformedProduct) { const ed = edits[r.handle] || {}; return `Contexte ciblé Import Factory — Améliorer la description produit (sans rien inventer au-delà des données fournies).\n${cLine(r)}\n${cIssues(r.handle)}\nDescription HTML actuelle :\n${ed.bodyHtml ?? r.bodyHtml}\nIndique la version améliorée, ce qui a été renforcé et ce qui ne doit pas être inventé.${COUNCIL_FMT}`; }
   function qVerify(r: TransformedProduct) { const ed = edits[r.handle] || {}; return `Contexte ciblé Import Factory — Vérifier ce produit avant export Shopify.\n${cLine(r)}\nTitle : ${ed.title ?? r.title}\nMeta : ${r.metaDescription}\nTags : ${ed.tags ?? r.tags}\n${cIssues(r.handle)}\nDis ce qui est bloquant avant export, ce qui est acceptable, et les corrections prioritaires.${COUNCIL_FMT}`; }
-  function qWarning(r: TransformedProduct) { return `Contexte ciblé Import Factory — Expliquer les points signalés par le contrôle qualité.\n${cLine(r)}\n${cIssues(r.handle)}\nExplique pourquoi ces points sont signalés et comment les corriger concrètement.${COUNCIL_FMT}`; }
 
   function finalResults(): TransformedProduct[] {
     return (results || []).map((r) => ({ ...r, ...(edits[r.handle] || {}) }));
@@ -625,7 +631,7 @@ export default function ImportFactoryPage() {
     setParsed(null); setMapping({}); setMapOpen(false); setFileInfo(null); setResults(null);
     setQcReports({}); setEdits({}); setValidated([]); setRejected([]); setLocked([]); setConfirmExport(false); setApprovePanel(false); setError(null); setParseError(null); setPhase("idle");
     setProductStatus({}); setProcStart(null); setElapsed(0); setProcStep(""); setSelectedHandles(null); setSelectOpen(false);
-    setAutoFixSummary(null); setFilter("all");
+    setAutoFixSummary(null); setFilter("all"); setEditorialApplied(false); setMoreActionsOpen(false);
   }
   // Construit une fiche produit synthétique (mêmes headers/mapping qu'un CSV Shopify).
   function buildManualParsed(): { headers: string[]; rows: string[][] } | null {
@@ -684,6 +690,7 @@ export default function ImportFactoryPage() {
     return m;
   }, [results, qcReports, groups]);
   const verdict: CsvVerdict | null = useMemo(() => (results && results.length ? csvVerdict(qcReports) : null), [results, qcReports]);
+  const naming = useMemo(() => (results && results.length ? namingSummary(results, qcReports) : null), [results, qcReports]);
   // §5 — filtre « À corriger ».
   const [filter, setFilter] = useState<"all" | "verify" | "ready" | "risk" | "error">("all");
   const visibleResults = (results || []).filter((r) => {
@@ -731,9 +738,6 @@ export default function ImportFactoryPage() {
       <div className="ork-stagger space-y-5">
         {tab === "import" && (
           <>
-            {phase === "idle" && recentImports.length > 0 && (
-              <ResumeLastImportCard last={recentImports[0]} onResume={onReuse} setTab={setTab} />
-            )}
         {/* ── Hero ── */}
         {phase === "idle" && (
           <>
@@ -768,14 +772,17 @@ export default function ImportFactoryPage() {
 
                 {showExample && <ExampleCard />}
 
-                <div className="ork-stagger grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {VALUE.map((v) => { const I = v.icon; return (
-                    <Card key={v.t} className="ork-interactive">
-                      <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><I className="h-[18px] w-[18px]" /></div>
-                      <h3 className="mt-3 text-sm font-semibold">{v.t}</h3>
-                      <p className="mt-1 text-xs text-[var(--text-muted)]">{v.d}</p>
-                    </Card>
-                  ); })}
+                {/* §6 — « Ce que fait Orkestra » : bloc discret et compact */}
+                <div>
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-400">Ce que fait Orkestra</div>
+                  <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                    {VALUE.map((v) => { const I = v.icon; return (
+                      <div key={v.t} className="flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2">
+                        <I className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                        <div className="min-w-0"><div className="text-xs font-semibold">{v.t}</div><div className="text-[11px] text-[var(--text-muted)]">{v.d}</div></div>
+                      </div>
+                    ); })}
+                  </div>
                 </div>
 
                 <Card>
@@ -792,6 +799,11 @@ export default function ImportFactoryPage() {
                     <Button className="mt-4" size="sm" icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Choisir un fichier</Button>
                     {parseError && <p className="mt-3 text-xs text-red-500">{parseError}</p>}
                   </div>
+                  {recentImports.length > 0 && (
+                    <button onClick={(e) => { e.stopPropagation(); setTab("recent"); }} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
+                      <RefreshCw className="h-3.5 w-3.5" /> Reprendre un import récent
+                    </button>
+                  )}
                 </Card>
               </>
             ) : (
@@ -1077,45 +1089,42 @@ export default function ImportFactoryPage() {
                 </div>
               </Card>
             )}
-            <Card className="flex flex-col gap-3 border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="flex items-center gap-1.5 text-base font-bold"><CheckCircle2 className="h-5 w-5 text-emerald-600" /> Catalogue transformé</h2>
-                <p className="mt-0.5 text-sm text-[var(--text-muted)]">{results.length} produit(s) transformé(s) · {applied?.stats.variants ?? 0} variante(s) conservée(s) · {applied?.stats.images ?? 0} image(s) préservée(s){qcCounts.warning + qcCounts.risk + qcCounts.failed > 0 ? ` · ${qcCounts.warning + qcCounts.risk + qcCounts.failed} à vérifier avant export` : " · prêt à exporter"}.</p>
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  <Badge tone="good">{qcCounts.ok} OK</Badge>
-                  {qcCounts.warning > 0 && <Badge tone="warn">{qcCounts.warning} à améliorer</Badge>}
-                  {qcCounts.risk > 0 && <Badge tone="bad">{qcCounts.risk} à risque</Badge>}
-                  {qcCounts.failed > 0 && <Badge tone="bad">{qcCounts.failed} bloqué(s)</Badge>}
-                  {validated.length > 0 && <Badge tone="brand">{validated.length} approuvé(s)</Badge>}
-                </div>
-              </div>
-              <div className="flex flex-col items-stretch gap-2 sm:items-end">
-                <div className="flex flex-wrap gap-2 sm:justify-end">
-                  <Button onClick={() => exportCsv()} icon={<Download className="h-4 w-4" />}>Télécharger le CSV Shopify</Button>
-                  <Button variant="outline" onClick={exportReport} icon={<FileText className="h-4 w-4" />}>Rapport</Button>
-                  <Button variant="ghost" onClick={exportIssues} icon={<AlertTriangle className="h-4 w-4" />}>À vérifier</Button>
-                  <Link href={councilReviewLink()}><Button variant="ghost" icon={<MessagesSquare className="h-4 w-4" />}>Faire vérifier par AI Council</Button></Link>
-                </div>
-                {claudeConnected ? (
-                  <div className="relative">
-                    <Button variant="outline" size="sm" onClick={() => (perfecting ? null : setPerfectMenuOpen((v) => !v))} disabled={perfecting} icon={perfecting ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600" /> : <Sparkles className="h-3.5 w-3.5" />}>{perfecting ? "Relecture premium…" : "Perfectionner avec Claude"}<ChevronDown className="ml-1 h-3 w-3" /></Button>
-                    {perfectMenuOpen && (
-                      <>
-                        <div className="fixed inset-0 z-40" onClick={() => setPerfectMenuOpen(false)} />
-                        <div className="ork-fade absolute right-0 z-50 mt-1 w-72 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] py-1 shadow-pop">
-                          <button onClick={() => perfectWithClaude()} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold hover:bg-ink-100 dark:hover:bg-ink-900"><Sparkles className="h-3.5 w-3.5 text-brand-500" /> Perfectionner toutes les fiches faibles</button>
-                          <div className="my-1 border-t border-[var(--border)]" />
-                          {CLAUDE_SCOPES.map((s) => (
-                            <button key={s.id} onClick={() => runClaudeScope(s)} className="block w-full px-3 py-1.5 text-left text-xs hover:bg-ink-100 dark:hover:bg-ink-900">{s.label}</button>
-                          ))}
-                        </div>
-                      </>
-                    )}
+            {/* §7 — Bloc résultat unique : verdict + action principale + « Plus d'actions » */}
+            <Card className={`ork-rise ${verdict?.status === "ready" ? "border-emerald-200 bg-emerald-50/30 dark:border-emerald-900/60 dark:bg-emerald-950/15" : verdict?.status === "risky" ? "border-amber-200 bg-amber-50/30 dark:border-amber-900/60 dark:bg-amber-950/15" : "border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40"}`}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <h2 className="flex items-center gap-1.5 text-base font-bold">{verdict?.status === "ready" ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <AlertTriangle className="h-5 w-5 text-amber-500" />} {verdict?.status === "ready" ? "Catalogue prêt à télécharger" : verdict?.status === "partial" ? "Catalogue prêt (export partiel)" : verdict?.status === "risky" ? "Corrections requises avant téléchargement" : "Catalogue prêt — vérifications recommandées"}</h2>
+                  <p className="mt-0.5 text-sm text-[var(--text-muted)]">{results.length} produit(s) transformé(s) · {applied?.stats.variants ?? 0} variante(s) conservée(s) · {applied?.stats.images ?? 0} image(s) préservée(s){qcCounts.warning + qcCounts.risk + qcCounts.failed > 0 ? ` · ${qcCounts.warning + qcCounts.risk + qcCounts.failed} vérification(s) recommandée(s)` : ""}.</p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    <Badge tone="good">{qcCounts.ok} prêt(s)</Badge>
+                    {qcCounts.warning > 0 && <Badge tone="warn">{qcCounts.warning} à améliorer</Badge>}
+                    {qcCounts.risk > 0 && <Badge tone="warn">{qcCounts.risk} à vérifier</Badge>}
+                    {qcCounts.failed > 0 && <Badge tone="bad">{qcCounts.failed} à corriger</Badge>}
+                    {editorialApplied && <Badge tone="brand"><Sparkles className="h-3 w-3" /> Relecture premium appliquée</Badge>}
                   </div>
-                ) : (
-                  <span className="text-[11px] text-[var(--text-muted)]">Connectez Claude pour une relecture premium des fiches longues.</span>
-                )}
+                  {naming && <div className="mt-1 text-[11px] text-[var(--text-muted)]">{naming.titles} noms vérifiés{naming.brandNames > 0 ? ` · ${naming.brandNames} nom(s) brandé(s)` : ""} · {naming.titlesClose + naming.brandDups + naming.handleDups} doublon(s) évité(s) · relecture qualité appliquée.</div>}
+                </div>
+                <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+                  <Button className="ork-glow" onClick={() => exportCsv()} icon={<Download className="h-4 w-4" />}>Télécharger le CSV Shopify</Button>
+                  <div className="flex flex-wrap gap-2 sm:justify-end">
+                    {qcCounts.warning + qcCounts.risk > 0 && <Button variant="outline" size="sm" onClick={autoFixWarnings} icon={<Wand2 className="h-3.5 w-3.5" />} title="Corrige : suffixes meta, accents, emojis, options anglaises, pouces→cm, collections anglaises, alt sans image, doublons simples.">Corriger automatiquement</Button>}
+                    {qcCounts.warning + qcCounts.risk + qcCounts.failed > 0 && <Button variant="ghost" size="sm" onClick={() => { setFilter("verify"); setTimeout(scrollToFirstIssue, 40); }} icon={<ListFilter className="h-3.5 w-3.5" />}>Voir les vérifications</Button>}
+                    <Button variant="ghost" size="sm" onClick={() => setMoreActionsOpen((v) => !v)} icon={<ChevronDown className="h-3.5 w-3.5" />}>Plus d'actions</Button>
+                  </div>
+                </div>
               </div>
+              {moreActionsOpen && (
+                <div className="ork-fade mt-3 flex flex-wrap gap-2 border-t border-[var(--border)] pt-3">
+                  <Button variant="outline" size="sm" onClick={exportReport} icon={<FileText className="h-3.5 w-3.5" />}>Rapport qualité</Button>
+                  <Button variant="ghost" size="sm" onClick={exportIssues} icon={<AlertTriangle className="h-3.5 w-3.5" />}>Export « à vérifier »</Button>
+                  <Link href={councilReviewLink()}><Button variant="ghost" size="sm" icon={<MessagesSquare className="h-3.5 w-3.5" />}>Faire vérifier par AI Council</Button></Link>
+                  <Link href="/merchant"><Button variant="ghost" size="sm" icon={<ShieldCheck className="h-3.5 w-3.5" />}>Relancer Merchant Shield</Button></Link>
+                  <Button variant="ghost" size="sm" onClick={reset} icon={<Upload className="h-3.5 w-3.5" />}>Nouvel import</Button>
+                  {claudeConnected && <Button variant="ghost" size="sm" onClick={() => perfectWithClaude()} disabled={perfecting} icon={<Sparkles className="h-3.5 w-3.5" />}>{perfecting ? "Relecture…" : "Relecture Claude ciblée"}</Button>}
+                  {claudeConnected && CLAUDE_SCOPES.slice(1).map((s) => <button key={s.id} onClick={() => runClaudeScope(s)} disabled={perfecting} className="rounded-full border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-muted)] transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-50 dark:hover:text-brand-300">{s.label}</button>)}
+                  {!claudeConnected && <span className="self-center text-[11px] text-[var(--text-muted)]">Connectez Claude pour la relecture premium.</span>}
+                </div>
+              )}
             </Card>
 
             {/* Contrôle qualité export Shopify */}
@@ -1159,28 +1168,6 @@ export default function ImportFactoryPage() {
               <Link href="/merchant"><Button variant="ghost" size="sm" icon={<ShieldCheck className="h-3.5 w-3.5" />}>Relancer Merchant Shield après import</Button></Link>
               <Button variant="ghost" size="sm" onClick={reset} icon={<Upload className="h-3.5 w-3.5" />}>Nouvel import</Button>
             </div>
-
-            {/* §3 — Verdict du CSV avant export */}
-            {verdict && (
-              <Card className={`ork-rise ${verdict.status === "ready" ? "border-emerald-200 bg-emerald-50/40 dark:border-emerald-900/60 dark:bg-emerald-950/20" : verdict.status === "risky" ? "border-red-200 bg-red-50/40 dark:border-red-900/60 dark:bg-red-950/20" : "border-amber-200 bg-amber-50/40 dark:border-amber-900/60 dark:bg-amber-950/20"}`}>
-                <div className="flex items-start gap-3">
-                  <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white ${verdict.status === "ready" ? "bg-emerald-500" : verdict.status === "risky" ? "bg-red-500" : "bg-amber-500"}`}>{verdict.status === "ready" ? <CheckCircle2 className="h-[18px] w-[18px]" /> : <AlertTriangle className="h-[18px] w-[18px]" />}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Verdict du CSV</div>
-                    <h3 className="text-sm font-bold">{verdict.status === "ready" ? "Prêt à importer" : verdict.status === "verify" ? "À vérifier avant import" : verdict.status === "partial" ? "Export partiel recommandé" : "Risqué pour l'import"}</h3>
-                    <p className="mt-1 text-sm text-[var(--text-muted)]">{verdict.headline}</p>
-                    {verdict.reasons.length > 0 && <ul className="mt-1.5 space-y-0.5">{verdict.reasons.map((x, i) => <li key={i} className="flex items-start gap-1.5 text-xs text-[var(--text-muted)]"><span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-current opacity-50" /> {x}</li>)}</ul>}
-                  </div>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2 border-t border-[var(--border)] pt-3">
-                  <Button size="sm" onClick={() => exportCsv()} icon={<Download className="h-3.5 w-3.5" />}>Télécharger le CSV Shopify</Button>
-                  {qcCounts.warning + qcCounts.risk > 0 && <Button size="sm" variant="outline" onClick={autoFixWarnings} icon={<Wand2 className="h-3.5 w-3.5" />} title="Corrige : suffixes meta, accents, emojis, options anglaises, pouces→cm, collections anglaises, alt sans image, doublons simples, espaces/ponctuation.">Corriger automatiquement</Button>}
-                  {qcCounts.warning + qcCounts.risk + qcCounts.failed > 0 && <Button size="sm" variant="ghost" onClick={() => { setFilter("verify"); setTimeout(scrollToFirstIssue, 40); }} icon={<ListFilter className="h-3.5 w-3.5" />}>Voir les produits à corriger</Button>}
-                  <Link href={councilReviewLink()}><Button size="sm" variant="ghost" icon={<MessagesSquare className="h-3.5 w-3.5" />}>Faire vérifier par AI Council</Button></Link>
-                  {verdict.status === "partial" && <Button size="sm" variant="ghost" onClick={() => exportCsv(true)} icon={<Download className="h-3.5 w-3.5" />}>Exporter uniquement les produits OK</Button>}
-                </div>
-              </Card>
-            )}
 
             {/* §6 — Résumé du correcteur automatique */}
             {autoFixSummary && (
@@ -1291,15 +1278,11 @@ export default function ImportFactoryPage() {
                       <Button size="sm" variant="ghost" icon={<Lock className="h-3.5 w-3.5" />} onClick={() => toggle(locked, setLocked, r.handle)}>{isLock ? "Déverrouiller" : "Verrouiller"}</Button>
                       <Button size="sm" variant="ghost" icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={() => regenerateOne(r.handle)} disabled={isLock}>Régénérer</Button>
                     </div>
-                    {/* §1/§2 — actions ciblées AI Council (fiches à corriger) */}
+                    {/* §1/§2/§20 — actions ciblées (réduites) : Claude + 1 demande AI Council */}
                     {openaiConnected && rep && rep.issues.length > 0 && (st === "warning" || st === "risk" || st === "failed") && (
                       <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-dashed border-[var(--border)] pt-2">
-                        <span className="self-center text-[10px] font-semibold uppercase tracking-wide text-ink-400">AI Council :</span>
-                        {/(meta|suffixe)/.test(issuesText) && <CouncilChip label="Corriger la meta" onClick={() => askCouncil(qMeta(r))} />}
-                        {/(description|faq|bénéfices|dimensions|structure|formules)/.test(issuesText) && <CouncilChip label="Améliorer la description" onClick={() => askCouncil(qDesc(r))} />}
-                        <CouncilChip label="Pourquoi ce warning ?" onClick={() => askCouncil(qWarning(r))} />
-                        <CouncilChip label="Vérifier" onClick={() => askCouncil(qVerify(r))} />
                         {claudeConnected && <CouncilChip label="Perfectionner avec Claude" icon="claude" onClick={() => perfectWithClaude({ handles: [r.handle], focus: focusForIssues(issuesText) })} />}
+                        <CouncilChip label="Demander à AI Council" onClick={() => askCouncil(/(meta|suffixe)/.test(issuesText) ? qMeta(r) : /(description|faq|bénéfices|dimensions|structure|formules)/.test(issuesText) ? qDesc(r) : qVerify(r))} />
                       </div>
                     )}
                   </Card>
