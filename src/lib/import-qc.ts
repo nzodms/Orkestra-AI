@@ -275,6 +275,29 @@ function removeSentencesMatching(html: string, re: RegExp): string {
   return out;
 }
 
+// ── §4/§7 — Bruit fournisseur (contact, promo, démarchage) : jamais dans une fiche client ──
+// Téléphone FR + email + tournures de démarchage / grossiste / remises fournisseur.
+const SUPPLIER_NOISE = /(?:\+33|\b0)\s?[1-9](?:[\s.\-]?\d{2}){4}\b|[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}|\b(?:contactez|contacter|appelez|t[ée]l[ée]phon\w*|whatsapp|n['’]h[ée]sitez|notre\s+[ée]quipe|service\s+client|remises?\s+(?:sur|pour|de|quantit\w*)|tarif\s+(?:grossiste|pro|professionnel)|prix\s+(?:grossiste|d['’]achat)|devis|commande\s+minimum|minimum\s+de\s+commande|propose\s+des\s+remises|nous\s+contacter|vente\s+en\s+gros|revendeurs?)\b/i;
+
+// ── §3/§8 — Santé / médical : prudence en contexte sport / bien-être ─────────
+// Déclencheur de la passe (hors sport, « soin »/« traitement » restent légitimes, ex. beauté).
+const SPORT_CTX = /\b(pilates|reformer|cadillac|wunda|yoga|fitness|musculation|gym\w*|cardio|workout|entra[îi]nement|posture|posturale?|abdo\w*|[ée]tirements?|fessiers?|gainage|squat|halt[èe]res?|kettlebell|sportif|sportive|sport)\b/i;
+// Reformulations « bien-être » sûres (appliquées AVANT toute suppression).
+const HEALTH_REWRITES: [RegExp, string][] = [
+  // « travail postural » est masculin : on adapte l'article féminin de « rééducation ».
+  [/\bde\s+la\s+r[ée][ée]?ducation\s+posturale/gi, "du travail postural"],
+  [/\bla\s+r[ée][ée]?ducation\s+posturale/gi, "le travail postural"],
+  [/\bune\s+r[ée][ée]?ducation\s+posturale/gi, "un travail postural"],
+  [/r[ée][ée]?ducation\s+posturale/gi, "travail postural"],
+  [/r[ée]habilitation\s+posturale/gi, "travail postural"],
+  [/mobilit[ée]\s+vert[ée]brale/gi, "mobilité"],
+  [/(?:vertus|bienfaits|effets?)\s+th[ée]rapeutiques?/gi, "bienfaits bien-être"],
+  [/[àa]\s+vis[ée]e?\s+th[ée]rapeutique/gi, "pour le bien-être"],
+  [/renforcement\s+th[ée]rapeutique/gi, "renforcement musculaire"],
+];
+// Affirmations médicales à NE JAMAIS faire en e-commerce → on retire la phrase entière.
+const HEALTH_REMOVE = /\b(?:r[ée][ée]?ducation|r[ée]habilitation|douleurs?\s+(?:chroniques?|dorsales?|lombaires?|articulaires?|musculaires?)|maux?\s+de\s+dos|pathologies?|m[ée]dical\w*|th[ée]rapeutiques?|gu[ée]ri\w*|kin[ée]sith[ée]rap\w*|kin[ée]\b|traitements?|soigne\w*|supervision\s+d['’]un\s+\w+|prescription\s+m[ée]dicale|maladies?|hernie\w*|scolioses?|arthroses?|tendinites?)\b/i;
+
 // ── Qualité française (corrections sûres + détection) ───────────────────────
 // Corrections d'accents / fautes fréquentes (mot entier, casse préservée).
 const FR_FIX: Record<string, string> = {
@@ -299,6 +322,10 @@ const EN_FIX: Record<string, string> = {
   indoor: "intérieur", outdoor: "extérieur", bedroom: "chambre", kitchen: "cuisine",
   "living room": "salon", "dining room": "salle à manger", large: "grand", small: "petit",
   for: "pour", with: "avec", your: "votre", our: "notre", and: "et", adjustable: "réglable",
+  // Sport / Pilates : franciser le vocabulaire courant (on GARDE Reformer / Cadillac / Wunda,
+  // noms d'appareils). « spine corrector » avant « corrector » seul (ordre d'insertion).
+  "spine corrector": "correcteur de posture", corrector: "correcteur", chair: "chaise",
+  "foam roller": "rouleau de massage", "resistance band": "élastique de résistance", strap: "sangle",
 };
 // Mots anglais à SIGNALER (RISK) s'ils restent après correction.
 const EN_FLAG = ["raindrop", "ceiling", "pendant", "chandelier", "lamp", "light", "glass", "crystal", "indoor", "outdoor", "bedroom", "kitchen", "luxury", "premium", "minimalist", "nordic", "vintage", "modern", "contemporary", "round", "square", "gold", "black", "white"];
@@ -376,7 +403,39 @@ export function normalizeBrandName(name: string): string {
   n = n.split(/[\s-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(" ").trim();
   return n;
 }
-function isValidBrand(name: string, used: Set<string>, vendor: string): boolean {
+// Mots « produit / type / modèle / catégorie / niche » : un nom brandé n'est JAMAIS
+// l'un d'eux (sinon ce n'est pas une marque mais une redite du produit). Couvre
+// notamment les appareils Pilates (Cadillac, Wunda, Reformer…) cités par le client.
+const NICHE_PRODUCT_TERMS = new Set<string>([
+  // sport / pilates / fitness / yoga
+  "pilates", "reformer", "cadillac", "wunda", "chair", "chaise", "spine", "corrector",
+  "correcteur", "barrel", "ladder", "studio", "fitness", "yoga", "gym", "gymnastique",
+  "sport", "cardio", "musculation", "muscu", "tapis", "banc", "haltere", "kettlebell",
+  "elastique", "rouleau", "ballon", "step", "trampoline", "velo", "rameur", "sangle",
+  // luminaire / mobilier / maison
+  "luminaire", "suspension", "lustre", "plafonnier", "lampe", "applique", "lampadaire",
+  "spot", "guirlande", "meuble", "mobilier", "canape", "fauteuil", "table", "etagere",
+  "armoire", "commode", "bureau", "tabouret", "vase", "miroir",
+  // beauté / bébé
+  "beaute", "cosmetique", "creme", "serum", "maquillage", "soin", "bebe", "puericulture",
+  "poussette", "biberon", "doudou",
+  // mode / cuisine / électronique / animaux
+  "mode", "robe", "veste", "pantalon", "chaussure", "montre", "bijou", "collier", "bracelet",
+  "cuisine", "casserole", "poele", "couteau", "ustensile", "vaisselle", "electronique",
+  "ecouteur", "casque", "enceinte", "chargeur", "cable", "chien", "chat", "croquette",
+  // génériques
+  "produit", "article", "kit", "pack", "accessoire", "collection", "gamme",
+  "serie", "premium", "luxe", "deluxe", "classic", "classique", "original", "edition",
+  "model", "modele", "type", "standard",
+].map(normName));
+/** Set des mots (≥3 lettres) normalisés des sources données + termes produit interdits.
+ *  Sert à interdire un nom brandé déjà présent dans le titre source / type produit. */
+function brandStopWords(...sources: string[]): Set<string> {
+  const set = new Set(NICHE_PRODUCT_TERMS);
+  for (const s of sources) for (const w of (s || "").split(/[^A-Za-zÀ-ÿ]+/)) { const n = normName(w); if (n.length >= 3) set.add(n); }
+  return set;
+}
+function isValidBrand(name: string, used: Set<string>, vendor: string, forbidden?: Set<string>): boolean {
   const raw = (name || "").trim();
   if (/\d/.test(raw)) return false;                       // chiffres → SKU
   const n = normName(name);
@@ -384,14 +443,16 @@ function isValidBrand(name: string, used: Set<string>, vendor: string): boolean 
   if (vendor && n === normName(vendor)) return false;      // jamais le vendor
   if ((n.match(/[aeiouy]/g) || []).length < 2) return false; // ressemble à un code
   if (/[bcdfghjklmnpqrstvwxz]{4,}/.test(n)) return false;  // amas de consonnes = code
+  if (NICHE_PRODUCT_TERMS.has(n)) return false;            // terme produit/type/modèle ≠ marque
+  if (forbidden && forbidden.has(n)) return false;         // mot déjà présent dans le titre/type source
   return !similarTo(n, used);
 }
 /** Repli déterministe : nom brandé UNIQUE du pool (indexé par le handle). */
-function generateBrandName(seed: string, used: Set<string>, vendor: string): string {
+function generateBrandName(seed: string, used: Set<string>, vendor: string, forbidden?: Set<string>): string {
   let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
   for (let i = 0; i < BRAND_POOL.length; i++) {
     const cand = BRAND_POOL[(h + i) % BRAND_POOL.length];
-    if (isValidBrand(cand, used, vendor)) { used.add(normName(cand)); return cand; }
+    if (isValidBrand(cand, used, vendor, forbidden)) { used.add(normName(cand)); return cand; }
   }
   const base = BRAND_POOL[h % BRAND_POOL.length];
   used.add(normName(base));
@@ -556,6 +617,39 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     }
   }
 
+  // ── §4/§7 — Retire le bruit fournisseur (téléphone, email, démarchage, remises) ──
+  {
+    const hay = `${stripHtml(fixed.bodyHtml)} ${fixed.metaDescription} ${fixed.tags}`;
+    if (SUPPLIER_NOISE.test(hay)) {
+      fixed.bodyHtml = removeSentencesMatching(fixed.bodyHtml, SUPPLIER_NOISE);
+      fixed.metaDescription = fixed.metaDescription.split(/(?<=[.!?])\s+/).filter((s) => !SUPPLIER_NOISE.test(s)).join(" ").trim();
+      fixed.tags = fixed.tags.split(",").map((t) => t.trim()).filter((t) => t && !SUPPLIER_NOISE.test(t)).join(", ");
+      issues.push("Coordonnées / démarchage fournisseur retirés"); bump("warning");
+    }
+  }
+
+  // ── §3/§8 — Santé / médical : reformulation prudente puis retrait (contexte sport / bien-être) ──
+  {
+    const probe = `${stripHtml(fixed.bodyHtml)} ${fixed.metaDescription} ${fixed.title} ${fixed.productType} ${fixed.tags}`;
+    if (SPORT_CTX.test(probe)) {
+      const rewrite = (s: string) => { let o = s || ""; for (const [re, rep] of HEALTH_REWRITES) o = o.replace(re, rep); return o; };
+      let softened = false;
+      for (const k of ["title", "metaTitle", "metaDescription", "tags", "bodyHtml"] as const) {
+        const after = rewrite(fixed[k] || "");
+        if (after !== (fixed[k] || "")) { fixed[k] = after; softened = true; }
+      }
+      let removed = false;
+      if (HEALTH_REMOVE.test(`${stripHtml(fixed.bodyHtml)} ${fixed.metaDescription} ${fixed.tags}`)) {
+        fixed.bodyHtml = removeSentencesMatching(fixed.bodyHtml, HEALTH_REMOVE);
+        fixed.metaDescription = fixed.metaDescription.split(/(?<=[.!?])\s+/).filter((s) => !HEALTH_REMOVE.test(s)).join(" ").trim();
+        fixed.tags = fixed.tags.split(",").map((t) => t.trim()).filter((t) => t && !HEALTH_REMOVE.test(t)).join(", ");
+        removed = true;
+      }
+      if (removed) { issues.push("Allégation santé / médicale retirée (prudence sport)"); bump("warning"); }
+      else if (softened) { issues.push("Vocabulaire santé adouci (bien-être)"); bump("warning"); }
+    }
+  }
+
   // Meta description : suffixe exact (gère absent / doublé / mal écrit / tronqué) + ≤ 160.
   const me = enforceMeta(fixed.metaDescription, ctx.metaSuffix);
   if (me.changed) { if (me.issue) issues.push(me.issue); bump("warning"); }
@@ -579,12 +673,15 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
   // ── NAMING PASS (§1/§2/§3) : titre propre + nom brandé cohérent et unique ──
   {
     const { product, brandFromTitle } = cleanProductTitle(fixed.title);
+    // Un nom brandé ne doit jamais reprendre un mot du titre/type SOURCE (jamais l'invention
+    // de l'IA, qui n'est pas dans la source) ni un terme produit/modèle (Cadillac, Reformer…).
+    const forbidden = brandStopWords(ctx.sourceText || "", fixed.productType || "");
     if (ctx.brandNames) {
       let brand = normalizeBrandName((fixed.brandName || "").trim() || brandFromTitle.trim());
-      if (!isValidBrand(brand, ctx.usedBrand, vendor)) {
+      if (!isValidBrand(brand, ctx.usedBrand, vendor, forbidden)) {
         const had = !!brand;
-        brand = generateBrandName(fixed.newHandle || fixed.handle || product, ctx.usedBrand, vendor);
-        issues.push(had ? "Nom brandé régénéré (faible, doublon ou vendor)" : "Nom brandé généré"); bump("warning");
+        brand = generateBrandName(fixed.newHandle || fixed.handle || product, ctx.usedBrand, vendor, forbidden);
+        issues.push(had ? "Nom brandé régénéré (terme produit, faible, doublon ou vendor)" : "Nom brandé généré"); bump("warning");
       } else {
         ctx.usedBrand.add(normName(brand));
       }
