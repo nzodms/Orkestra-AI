@@ -201,6 +201,7 @@ export default function ImportFactoryPage() {
   const [perfectMenuOpen, setPerfectMenuOpen] = useState(false);
   const [editorialApplied, setEditorialApplied] = useState(false);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const [cardMore, setCardMore] = useState<string[]>([]);
   const [autoFixSummary, setAutoFixSummary] = useState<{ fixed: number; improved: number; remaining: number } | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -631,7 +632,7 @@ export default function ImportFactoryPage() {
     setParsed(null); setMapping({}); setMapOpen(false); setFileInfo(null); setResults(null);
     setQcReports({}); setEdits({}); setValidated([]); setRejected([]); setLocked([]); setConfirmExport(false); setApprovePanel(false); setError(null); setParseError(null); setPhase("idle");
     setProductStatus({}); setProcStart(null); setElapsed(0); setProcStep(""); setSelectedHandles(null); setSelectOpen(false);
-    setAutoFixSummary(null); setFilter("all"); setEditorialApplied(false); setMoreActionsOpen(false);
+    setAutoFixSummary(null); setFilter("all"); setEditorialApplied(false); setMoreActionsOpen(false); setCardMore([]);
   }
   // Construit une fiche produit synthétique (mêmes headers/mapping qu'un CSV Shopify).
   function buildManualParsed(): { headers: string[]; rows: string[][] } | null {
@@ -1093,7 +1094,7 @@ export default function ImportFactoryPage() {
             <Card className={`ork-rise ${verdict?.status === "ready" ? "border-emerald-200 bg-emerald-50/30 dark:border-emerald-900/60 dark:bg-emerald-950/15" : verdict?.status === "risky" ? "border-amber-200 bg-amber-50/30 dark:border-amber-900/60 dark:bg-amber-950/15" : "border-brand-200 bg-gradient-to-br from-brand-50 to-transparent dark:border-brand-900 dark:from-brand-950/40"}`}>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <h2 className="flex items-center gap-1.5 text-base font-bold">{verdict?.status === "ready" ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <AlertTriangle className="h-5 w-5 text-amber-500" />} {verdict?.status === "ready" ? "Catalogue prêt à télécharger" : verdict?.status === "partial" ? "Catalogue prêt (export partiel)" : verdict?.status === "risky" ? "Corrections requises avant téléchargement" : "Catalogue prêt — vérifications recommandées"}</h2>
+                  <h2 className="flex items-center gap-1.5 text-base font-bold">{verdict?.status === "ready" || verdict?.status === "verify" ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <AlertTriangle className="h-5 w-5 text-amber-500" />} {verdict?.status === "ready" ? "Catalogue prêt à télécharger" : verdict?.status === "partial" ? "Catalogue prêt (export partiel)" : verdict?.status === "risky" ? "Correction requise avant export complet" : "Catalogue prêt avec vérifications recommandées"}</h2>
                   <p className="mt-0.5 text-sm text-[var(--text-muted)]">{results.length} produit(s) transformé(s) · {applied?.stats.variants ?? 0} variante(s) conservée(s) · {applied?.stats.images ?? 0} image(s) préservée(s){qcCounts.warning + qcCounts.risk + qcCounts.failed > 0 ? ` · ${qcCounts.warning + qcCounts.risk + qcCounts.failed} vérification(s) recommandée(s)` : ""}.</p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     <Badge tone="good">{qcCounts.ok} prêt(s)</Badge>
@@ -1271,18 +1272,19 @@ export default function ImportFactoryPage() {
                     {r.imageAlts.length > 0 && (
                       <div className="mt-2"><div className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">Alt text ({r.imageAlts.length})</div><div className="mt-1 flex flex-wrap gap-1">{r.imageAlts.slice(0, 4).map((a, i) => <span key={i} className="rounded bg-[var(--bg)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{a}</span>)}{r.imageAlts.length > 4 && <span className="text-[10px] text-[var(--text-muted)]">+{r.imageAlts.length - 4}</span>}</div></div>
                     )}
-                    {rep && rep.issues.length > 0 && <div className={`mt-2 flex items-start gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] ${st === "risk" || st === "failed" ? "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300" : "bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"}`}><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {rep.issues.join(" · ")}</div>}
-                    <div className="mt-3 flex flex-wrap gap-2 border-t border-[var(--border)] pt-3">
+                    {rep && rep.issues.length > 0 && <div className={`mt-2 flex items-start gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] ${st === "failed" ? "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300" : "bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"}`}><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> <span>{rep.issues.slice(0, 3).join(" · ")}{rep.issues.length > 3 ? ` · +${rep.issues.length - 3}` : ""}</span></div>}
+                    {/* §1 — actions visibles : Approuver · Régénérer · ⋯ */}
+                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3">
                       <Button size="sm" variant={isVal ? "secondary" : "ghost"} icon={<Check className="h-3.5 w-3.5" />} onClick={() => { toggle(validated, setValidated, r.handle); setRejected((x) => x.filter((h) => h !== r.handle)); }}>{isVal ? "Approuvé" : "Approuver"}</Button>
-                      <Button size="sm" variant="ghost" icon={<X className="h-3.5 w-3.5" />} onClick={() => { toggle(rejected, setRejected, r.handle); setValidated((x) => x.filter((h) => h !== r.handle)); }}>{isRej ? "Rejeté" : "Rejeter"}</Button>
-                      <Button size="sm" variant="ghost" icon={<Lock className="h-3.5 w-3.5" />} onClick={() => toggle(locked, setLocked, r.handle)}>{isLock ? "Déverrouiller" : "Verrouiller"}</Button>
                       <Button size="sm" variant="ghost" icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={() => regenerateOne(r.handle)} disabled={isLock}>Régénérer</Button>
+                      <button onClick={() => setCardMore((c) => (c.includes(r.handle) ? c.filter((h) => h !== r.handle) : [...c, r.handle]))} className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--text-muted)] transition hover:bg-ink-100 dark:hover:bg-ink-900" aria-label="Plus d'actions">⋯</button>
                     </div>
-                    {/* §1/§2/§20 — actions ciblées (réduites) : Claude + 1 demande AI Council */}
-                    {openaiConnected && rep && rep.issues.length > 0 && (st === "warning" || st === "risk" || st === "failed") && (
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-dashed border-[var(--border)] pt-2">
+                    {cardMore.includes(r.handle) && (
+                      <div className="ork-fade mt-2 flex flex-wrap items-center gap-1.5 border-t border-dashed border-[var(--border)] pt-2">
+                        <Button size="sm" variant="ghost" icon={<X className="h-3.5 w-3.5" />} onClick={() => { toggle(rejected, setRejected, r.handle); setValidated((x) => x.filter((h) => h !== r.handle)); }}>{isRej ? "Rejeté" : "Rejeter"}</Button>
+                        <Button size="sm" variant="ghost" icon={<Lock className="h-3.5 w-3.5" />} onClick={() => toggle(locked, setLocked, r.handle)}>{isLock ? "Déverrouiller" : "Verrouiller"}</Button>
                         {claudeConnected && <CouncilChip label="Perfectionner avec Claude" icon="claude" onClick={() => perfectWithClaude({ handles: [r.handle], focus: focusForIssues(issuesText) })} />}
-                        <CouncilChip label="Demander à AI Council" onClick={() => askCouncil(/(meta|suffixe)/.test(issuesText) ? qMeta(r) : /(description|faq|bénéfices|dimensions|structure|formules)/.test(issuesText) ? qDesc(r) : qVerify(r))} />
+                        {openaiConnected && <CouncilChip label="Demander à AI Council" onClick={() => askCouncil(/(meta|suffixe)/.test(issuesText) ? qMeta(r) : /(description|faq|bénéfices|dimensions|structure|formules)/.test(issuesText) ? qDesc(r) : qVerify(r))} />}
                       </div>
                     )}
                   </Card>

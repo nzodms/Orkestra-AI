@@ -86,11 +86,45 @@ function similarTo(n: string, set: Set<string>): { match: string; exact: boolean
   return null;
 }
 
+// ── Meta : ne jamais couper au milieu d'une expression (§3) ─────────────────
+const META_PREP_END = new Set(["et", "ou", "en", "de", "du", "des", "la", "le", "les", "a", "au", "aux", "avec", "pour", "sur", "sans", "dans", "par", "d", "l", "comme", "que", "qu", "ideal", "ideale", "ideals", "ideales", "compatible", "disponible", "tel", "telle", "tels", "telles", "ainsi", "soit"]);
+function bareW(w: string): string { return w.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z]/g, ""); }
+function ensureSentenceEnd(t: string): string { const x = t.trim(); return /[.!?]$/.test(x) ? x : (x ? x + "." : x); }
+/** Nettoie une fin de meta incomplète : coupe une énumération pendante après
+ *  la dernière virgule, puis retire les mots faibles finaux. */
+function cleanDanglingEnd(s: string): string {
+  let out = s.trim().replace(/[\s,;:–—-]+$/, "");
+  const lc = out.lastIndexOf(",");
+  if (lc > 0) {
+    const tail = out.slice(lc + 1).trim().split(/\s+/).filter(Boolean);
+    if (tail.length && tail.length <= 3 && META_PREP_END.has(bareW(tail[tail.length - 1]))) out = out.slice(0, lc);
+  }
+  const words = out.replace(/[\s,;:–—-]+$/, "").split(/\s+/);
+  while (words.length > 1 && META_PREP_END.has(bareW(words[words.length - 1]))) words.pop();
+  return words.join(" ").replace(/[\s,;:–—-]+$/, "");
+}
+/** Renvoie un corps de meta = phrase(s) COMPLÈTE(S) tenant dans `room`, jamais coupé sur un mot faible. */
+function trimMetaBody(body: string, room: number): string {
+  const s = body.trim();
+  if (s.length <= room) return /[.!?]$/.test(s) ? s : ensureSentenceEnd(cleanDanglingEnd(s));
+  // 1) Garder le maximum de phrases complètes.
+  const sentences = s.split(/(?<=[.!?])\s+/);
+  let acc = "";
+  for (const sen of sentences) { const c = acc ? `${acc} ${sen}` : sen; if (c.length <= room) acc = c; else break; }
+  if (acc) return acc.trim();
+  // 2) Première phrase trop longue → couper à la meilleure frontière de clause.
+  const head = s.slice(0, room);
+  let cutAt = -1;
+  for (const b of [", ", " ou ", " et ", " mais "]) { const i = head.lastIndexOf(b); if (i > cutAt) cutAt = i; }
+  const piece = cutAt >= room * 0.35 ? head.slice(0, cutAt) : head.replace(/\s+\S*$/, "");
+  return ensureSentenceEnd(cleanDanglingEnd(piece));
+}
+
 function enforceMeta(md: string, suffix?: string): { md: string; changed: boolean; issue?: string } {
-  let s = (md || "").trim();
+  const s = (md || "").trim();
   if (!suffix) {
-    if (s.length > 160) { s = s.slice(0, 160).replace(/\s+\S*$/, "").trim(); return { md: s, changed: true, issue: "Meta description tronquée à 160" }; }
-    return { md: s, changed: false };
+    const cleaned = trimMetaBody(s, 160);
+    return cleaned !== s ? { md: cleaned, changed: true, issue: "Meta description recadrée (phrase complète)" } : { md: s, changed: false };
   }
   // Retire TOUTES les occurrences finales du suffixe (exactes, doublées ou mal écrites).
   const core = escapeRe(suffix.replace(/[.!]+$/, "").replace(/^[\s✓✔•·\-–—]+/, "").trim()).replace(/ /g, "\\s+");
@@ -112,17 +146,18 @@ function enforceMeta(md: string, suffix?: string): { md: string; changed: boolea
     const mi = body.lastIndexOf(marker);
     if (mi >= 0 && body.length - mi <= suffix.length + 4) { body = body.slice(0, mi).replace(/\s+$/, ""); truncatedFrag = true; }
   }
-  // Tronque le corps pour laisser la place au suffixe (≤ 160).
-  let truncated = false;
+  // Recadre le corps : phrase COMPLÈTE qui tient avant le suffixe (jamais coupée).
   const room = Math.max(0, 160 - suffix.length - 1);
-  if (body.length > room) { body = body.slice(0, room).replace(/\s+\S*$/, "").trim(); truncated = true; }
+  const cleanedBody = trimMetaBody(body, room);
+  const truncated = cleanedBody !== body.trim();
+  body = cleanedBody;
   const out = body ? `${body} ${suffix}` : suffix;
   let issue: string | undefined;
   if (truncatedFrag) issue = "Suffixe meta tronqué corrigé";
   else if (count === 0) issue = "Suffixe meta ajouté";
   else if (count > 1) issue = "Suffixe meta doublé corrigé";
   else if (!exactLast) issue = "Suffixe meta normalisé (casse / espace)";
-  if (truncated) issue = "Meta description ajustée (≤ 160 + suffixe)";
+  if (truncated) issue = "Meta description recadrée (phrase complète + suffixe)";
   return { md: out, changed: out !== s, issue };
 }
 
@@ -173,15 +208,18 @@ function replaceFoyer(s: string): { out: string; changed: boolean } {
 /** Corrige l'accord / la préposition autour de « entrée » (souvent issu de
  *  « foyer » → « entrée » : « un entrée » → « une entrée », « du/au entrée »…). */
 function fixEntreeGrammar(input: string): { out: string; changed: boolean } {
-  if (!input || !/entrées?\b/i.test(input)) return { out: input, changed: false };
+  if (!input || !/entrées?\b|\d\s*(?:cm|mm|m)\s+de\s+(?:grand|gros)/i.test(input)) return { out: input, changed: false };
   let out = input, changed = false;
   const sub = (re: RegExp, repl: string) => { const n = out.replace(re, repl); if (n !== out) { changed = true; out = n; } };
   sub(/\bun\s+(entrées?)\b/gi, "une $1");           // un entrée → une entrée
   sub(/\bdu\s+(entrées?)\b/gi, "de l'$1");          // du entrée → de l'entrée
   sub(/\bau\s+(entrées?)\b/gi, "à l'$1");           // au entrée → à l'entrée
+  sub(/\bà\s+(entrées?)\b/gi, "à l'$1");            // à entrée → à l'entrée
+  sub(/\b(pour|dans|vers)\s+(entrées?)\b/gi, "$1 une $2"); // pour entrée → pour une entrée
   sub(/\b([Ll]e)\s+(entrées?)\b/g, "l'$2");         // le entrée → l'entrée
   sub(/\bce\s+(entrées?)\b/gi, "cette $1");         // ce entrée → cette entrée
   sub(/\b(entrées?)\s+(ou|et)\s+(escalier)\b/gi, "$1 $2 un $3"); // entrée ou escalier → entrée ou un escalier
+  sub(/(\d+(?:[.,]\d+)?\s*(?:cm|mm|m))\s+de\s+(?:grands?|gros)\b/gi, "$1"); // « 15,7 cm de grand » → « 15,7 cm »
   return { out, changed };
 }
 
@@ -193,16 +231,18 @@ const CLAIM_DEFS: ClaimDef[] = [
   { re: /(?:manuel|notice)\b[^.<>]{0,40}\b(?:inclus\w*|fourni\w*|livr[ée]\w*|compris\w*)/i, label: "manuel / notice inclus", src: /manuel|notice|manual|instruction/i, remove: true },
   { re: /ampoules?\b[^.<>]{0,30}\b(?:inclus\w*|fournies?|comprises?|livr[ée]\w*)/i, label: "ampoules incluses", src: /ampoule|bulb/i, remove: true },
   { re: /dur[ée]e\s+de\s+vie\s+(?:de\s+)?\d+|>?\s?\d{2,}\s*0{3}\s*h(?:eures?)?\b/i, label: "durée de vie", src: /dur[ée]e\s+de\s+vie|lifespan|\bh(?:eures?)?\s+de\s+vie/i, remove: true },
-  { re: /\b(?:non[\s-]?)?dimmable\b|intensit[ée]\s+variable|variateur|gradable/i, label: "dimmable / intensité variable", src: /dimmable|intensit[ée]\s+variable|variateur|gradable/i, remove: false },
-  { re: /\bled[s]?\s+int[ée]gr[ée]e?s?/i, label: "LED intégrées", src: /\bled\b/i, remove: false },
-  { re: /\bcertifi[ée]\w*|\bcertification\b|\bnorme\s+[A-Za-z]|\bIP\s?\d{2}\b/i, label: "certification / norme", src: /certifi|certification|\bnorme\b|\bIP\s?\d{2}\b|\bCE\b/i, remove: false },
-  { re: /\b(?:GU\s?10|E\s?27|E\s?26|E\s?14|E\s?12|B\s?22|MR\s?16)\b/i, label: "compatibilité d'ampoule (culot)", src: /\b(?:GU\s?10|E\s?27|E\s?26|E\s?14|E\s?12|B\s?22|MR\s?16|culot)\b/i, remove: false },
-  { re: /\bcristal\s+k9\b/i, label: "cristal K9", src: /cristal\s+k9|\bk9\b/i, remove: false },
-  { re: /\bacier\s+(?:inoxydable|inox|poli|bross[ée]e?s?)|\blaiton\s+massif/i, label: "matériau précis (acier / laiton)", src: /acier|inox|laiton|steel|brass/i, remove: false },
-  { re: /\bfer\s+dor[ée]e?s?/i, label: "matériau précis (fer doré)", src: /fer\s+dor|\bfer\b|iron/i, remove: false },
-  { re: /\bverre\s+souffl[ée]e?s?/i, label: "matériau précis (verre soufflé)", src: /verre\s+souffl|blown\s+glass/i, remove: false },
-  { re: /\bpoids\s+(?:de\s+)?\d|\b\d+([.,]\d+)?\s?(?:kg|kilos?|grammes?)\b/i, label: "poids", src: /poids|\bkg\b|kilo|gramme|weight/i, remove: false },
-  { re: /\b\d{1,4}\s?watts?\b|\b\d{1,4}\s?W\b(?!\s*[x×])|puissance\s*:?\s*\d/i, label: "puissance", src: /puissance|watt|\bW\b|wattage/i, remove: false },
+  { re: /\b(?:non[\s-]?)?dimmable\b|intensit[ée]\s+variable|variateur|gradable/i, label: "dimmable / intensité variable", src: /dimmable|intensit[ée]\s+variable|variateur|gradable/i, remove: true },
+  { re: /\bled[s]?\s+int[ée]gr[ée]e?s?/i, label: "LED intégrées", src: /\bled\b/i, remove: true },
+  { re: /\bcertifi[ée]\w*|\bcertification\b|\bnorme\s+[A-Za-z]|\bIP\s?\d{2}\b/i, label: "certification / norme", src: /certifi|certification|\bnorme\b|\bIP\s?\d{2}\b|\bCE\b/i, remove: true },
+  { re: /\b(?:GU\s?10|E\s?27|E\s?26|E\s?14|E\s?12|B\s?22|MR\s?16)\b/i, label: "compatibilité d'ampoule (culot)", src: /\b(?:GU\s?10|E\s?27|E\s?26|E\s?14|E\s?12|B\s?22|MR\s?16|culot)\b/i, remove: true },
+  { re: /\bcristal\s+k9\b/i, label: "cristal K9", src: /cristal\s+k9|\bk9\b/i, remove: true },
+  { re: /\bacier\s+(?:inoxydable|inox|poli|bross[ée]e?s?)|\blaiton\s+massif/i, label: "matériau précis (acier / laiton)", src: /acier|inox|laiton|steel|brass/i, remove: true },
+  { re: /\bfer\s+dor[ée]e?s?/i, label: "matériau précis (fer doré)", src: /fer\s+dor|\bfer\b|iron/i, remove: true },
+  { re: /\bverre\s+souffl[ée]e?s?/i, label: "matériau précis (verre soufflé)", src: /verre\s+souffl|blown\s+glass/i, remove: true },
+  { re: /\bpoids\s+(?:de\s+)?\d|\b\d+([.,]\d+)?\s?(?:kg|kilos?|grammes?)\b/i, label: "poids", src: /poids|\bkg\b|kilo|gramme|weight/i, remove: true },
+  { re: /\b\d{1,4}\s?watts?\b|\b\d{1,4}\s?W\b(?!\s*[x×])|puissance\s*:?\s*\d/i, label: "puissance", src: /puissance|watt|\bW\b|wattage/i, remove: true },
+  { re: /\bgants?\b[^.<>]{0,20}\b(?:fournis?|inclus\w*|livr[ée]\w*)/i, label: "gants fournis", src: /gants?/i, remove: true },
+  { re: /\btemp[ée]rature\s+(?:de\s+)?couleur|\b\d{3,5}\s?k(?:elvin)?\b|blanc\s+(?:chaud|froid|neutre)/i, label: "température de couleur", src: /temp[ée]rature|kelvin|\b\d{3,5}\s?k\b|blanc\s+(?:chaud|froid|neutre)/i, remove: true },
 ];
 
 /** Retire d'un HTML les phrases contenant une affirmation, sans casser les balises. */
@@ -412,11 +452,15 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
       if (!c.re.test(hay)) continue;
       if (src && c.src.test(src)) continue; // l'info est dans la source → on garde
       if (c.remove) {
+        const g = new RegExp(c.re.source, "gi");
         fixed.bodyHtml = removeSentencesMatching(fixed.bodyHtml, c.re);
         fixed.metaDescription = fixed.metaDescription.split(/(?<=[.!?])\s+/).filter((s) => !c.re.test(s)).join(" ").trim();
-        issues.push(`Affirmation non sourcée retirée : ${c.label}`); bump("warning");
+        fixed.tags = fixed.tags.split(",").map((t) => t.trim()).filter((t) => t && !c.re.test(t)).join(", ");
+        if (c.re.test(fixed.title)) fixed.title = collapse(fixed.title.replace(g, "")).replace(/\s*[|–-]\s*$/, "").trim();
+        fixed.imageAlts = fixed.imageAlts.map((a) => (c.re.test(a) ? collapse(a.replace(g, "")).trim() : a));
+        issues.push(`Information non sourcée retirée : ${c.label}`); bump("warning");
       } else {
-        issues.push(`Affirmation à vérifier (non sourcée) : ${c.label}`); bump("risk");
+        issues.push(`Information non sourcée à vérifier : ${c.label}`); bump("risk");
       }
     }
   }
@@ -658,18 +702,19 @@ export function csvVerdict(reports: Record<string, QCReport>): CsvVerdict {
   add(tally(/alt/), "produit(s) avec alt text à compléter");
   void all;
 
+  // §7 — « risk » = qualité perfectible (téléchargeable) → « verify » ; seul un
+  // « failed » (produit non exportable) déclenche « correction requise ».
   let status: CsvVerdictStatus;
-  if (counts.failed > 0 && counts.ok > 0) status = "partial";
+  if (counts.failed > 0 && counts.ok + counts.warning + counts.risk > 0) status = "partial";
   else if (counts.failed > 0) status = "risky";
-  else if (counts.risk > 0) status = "risky";
-  else if (counts.warning > 0) status = "verify";
+  else if (counts.warning > 0 || counts.risk > 0) status = "verify";
   else status = "ready";
 
-  const total = list.length;
+  const verifyN = counts.warning + counts.risk;
   const headline =
-    status === "ready" ? `Votre CSV est prêt à importer : ${counts.ok} produit(s) OK, aucun risque critique.`
-    : status === "verify" ? `À vérifier avant import : ${counts.ok} OK, ${counts.warning} à améliorer.`
-    : status === "partial" ? `Export partiel recommandé : ${counts.ok} produit(s) prêt(s), ${counts.failed} bloqué(s).`
-    : `Risqué pour l'import : ${counts.risk + counts.failed} produit(s) à corriger sur ${total}.`;
+    status === "ready" ? `Catalogue prêt à télécharger : ${counts.ok} produit(s) OK, aucune vérification requise.`
+    : status === "verify" ? `Catalogue prêt à télécharger — ${verifyN} vérification(s) recommandée(s).`
+    : status === "partial" ? `${counts.ok + verifyN} produit(s) prêt(s) à télécharger · ${counts.failed} produit(s) non exportable(s).`
+    : `Correction requise avant export : ${counts.failed} produit(s) non exportable(s).`;
   return { status, headline, reasons: reasons.slice(0, 6), counts };
 }
