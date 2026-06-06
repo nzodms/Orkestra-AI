@@ -10,7 +10,7 @@ import { visionComplete } from "./ai/openai";
 import { getEncrypted } from "./server/keyStore";
 import { decryptSecret } from "./crypto";
 import { detectNiche, type NicheKey } from "./import-factory";
-import type { LensAnalysis, LensInputKind } from "./lens-store";
+import type { LensAnalysis, LensInputKind } from "./lens-types";
 
 export interface LensAnalyzeInput {
   kind: LensInputKind;

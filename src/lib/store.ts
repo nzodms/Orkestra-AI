@@ -18,7 +18,7 @@ import type { FactoryStatus, FactoryOutput } from "./factory";
 import type { ImportRules, ProfileCollection } from "./import-factory";
 import type { ImportStyleAnalysis } from "./import-analyze";
 import type { ProfileConfig } from "./import-profiles";
-import type { LensSavedItem } from "./lens-store";
+import type { LensSavedItem } from "./lens-types";
 import { PROVIDER_ORDER } from "./providers";
 import { DEFAULT_BRAND_MEMORY } from "./mock-data";
 

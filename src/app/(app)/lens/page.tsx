@@ -4,15 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useOrkestra } from "@/lib/store";
-import { useLens, type LensAnalysis, type SupplierResult, type LensInputKind } from "@/lib/lens-store";
-import { searchSuppliers } from "@/lib/supplier-search";
+import { useLens, type LensAnalysis, type SupplierResult, type LensInputKind, type SupplierSearchProvider } from "@/lib/lens-store";
 import { draftFromSupplier } from "@/lib/send-to-import-factory";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import { LensUploader, LensUrlInput, LensClipperGuide, LensAnalysisCard, SupplierResults, SupplierComparison } from "./_components";
-import { ScanSearch, Loader2, RotateCcw, Plug, Bookmark, ArrowRight } from "lucide-react";
+import { ScanSearch, Loader2, RotateCcw, Plug, Bookmark, ArrowRight, RefreshCw, Pencil, Check, X } from "lucide-react";
 
 type Step = "input" | "analyzing" | "results";
+interface SearchMeta { provider: SupplierSearchProvider; real: boolean; keywords: string[]; error?: string }
 
 export default function OrkestraLensPage() {
   const { connections } = useOrkestra();
@@ -23,28 +23,47 @@ export default function OrkestraLensPage() {
   const [step, setStep] = useState<Step>("input");
   const [analysis, setAnalysis] = useState<LensAnalysis | null>(null);
   const [results, setResults] = useState<SupplierResult[]>([]);
+  const [meta, setMeta] = useState<SearchMeta | null>(null);
+  const [searching, setSearching] = useState(false);
   const [preview, setPreview] = useState<string>("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string>("");
+  const [editKw, setEditKw] = useState(false);
+  const [kwText, setKwText] = useState("");
   const started = useRef(false);
 
   const savedIds = useMemo(() => new Set(lensSaved.map((s) => s.supplier.id)), [lensSaved]);
   const compareList = useMemo(() => results.filter((r) => selected.has(r.id)).slice(0, 4), [results, selected]);
 
+  async function runSearch(a: LensAnalysis, opts: { provider?: SupplierSearchProvider; keywords?: string[] } = {}) {
+    setSearching(true);
+    try {
+      const res = await fetch("/api/lens/search", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ analysis: a, provider: opts.provider, keywords: opts.keywords }),
+      });
+      const data = await res.json();
+      setResults(data.results || []);
+      setMeta({ provider: data.provider || "simulated", real: !!data.real, keywords: data.keywords || [], error: data.error });
+    } catch {
+      setResults([]);
+      setMeta({ provider: "simulated", real: false, keywords: [], error: "Impossible de joindre la recherche fournisseurs. Réessayez." });
+    } finally { setSearching(false); }
+  }
+
   async function analyze(input: { kind: LensInputKind; image?: string; url?: string }, previewSrc: string) {
-    setStep("analyzing"); setError(""); setPreview(previewSrc); setSelected(new Set());
+    setStep("analyzing"); setError(""); setPreview(previewSrc); setSelected(new Set()); setMeta(null); setEditKw(false);
     try {
       const res = await fetch("/api/lens/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ input, keyRefs: { openai: connections.openai?.keyId } }),
       });
       const data = await res.json();
       if (!data.ok || !data.analysis) { setError(data.error || "Analyse impossible."); setStep("input"); return; }
-      const a = data.analysis as LensAnalysis;
-      a.preview = previewSrc;
+      const a = data.analysis as LensAnalysis; a.preview = previewSrc;
       setAnalysis(a);
-      setResults(searchSuppliers(a));
+      setKwText([...a.keywordsSupplier, ...a.keywordsEn].slice(0, 6).join(", "));
+      await runSearch(a);
       setStep("results");
     } catch {
       setError("Impossible de joindre Orkestra Lens (réseau)."); setStep("input");
@@ -61,21 +80,33 @@ export default function OrkestraLensPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Polish : coller une image depuis le presse-papier (étape d'entrée).
+  useEffect(() => {
+    if (step !== "input") return;
+    const onPaste = (e: ClipboardEvent) => {
+      const item = Array.from(e.clipboardData?.items || []).find((it) => it.type.startsWith("image/"));
+      const file = item?.getAsFile();
+      if (file) { const r = new FileReader(); r.onload = () => analyze({ kind: "upload", image: String(r.result) }, String(r.result)); r.readAsDataURL(file); }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
   function toggle(id: string) {
     setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else if (n.size < 4) n.add(id); return n; });
   }
-  function send(r: SupplierResult) {
-    if (!analysis) return;
-    setImportDraft(draftFromSupplier(analysis, r));
-    router.push("/seo");
-  }
-  function save(r: SupplierResult) {
-    if (!analysis) return;
-    saveLens({ id: r.id, date: new Date().toISOString(), analysis, supplier: r });
-  }
+  function send(r: SupplierResult) { if (analysis) { setImportDraft(draftFromSupplier(analysis, r)); router.push("/seo"); } }
+  function save(r: SupplierResult) { if (analysis) saveLens({ id: r.id, date: new Date().toISOString(), analysis, supplier: r }); }
   function reset() {
-    setStep("input"); setAnalysis(null); setResults([]); setPreview(""); setSelected(new Set()); setError("");
+    setStep("input"); setAnalysis(null); setResults([]); setMeta(null); setPreview(""); setSelected(new Set()); setError(""); setEditKw(false);
     if (typeof window !== "undefined" && window.location.search) router.replace("/lens");
+  }
+  function relaunchKeywords() {
+    if (!analysis) return;
+    const kws = kwText.split(",").map((s) => s.trim()).filter(Boolean);
+    setEditKw(false);
+    runSearch(analysis, { keywords: kws.length ? kws : undefined });
   }
 
   return (
@@ -101,6 +132,7 @@ export default function OrkestraLensPage() {
         <div className="grid gap-5 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <LensUploader onImage={(d) => analyze({ kind: "upload", image: d }, d)} busy={false} />
+            <p className="mt-2 text-center text-xs text-[var(--text-muted)]">Astuce : vous pouvez aussi coller une image (Ctrl/Cmd+V).</p>
           </div>
           <div className="space-y-5">
             <LensUrlInput
@@ -118,23 +150,54 @@ export default function OrkestraLensPage() {
           <div className="grid h-16 w-16 place-items-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300">
             <Loader2 className="h-8 w-8 animate-spin" />
           </div>
-          <h2 className="mt-5 text-lg font-semibold text-[var(--text)]">Analyse du produit…</h2>
-          <p className="mt-1 text-sm text-[var(--text-muted)]">Identification du type, de la niche et des mots-clés fournisseurs.</p>
+          <h2 className="mt-5 text-lg font-semibold text-[var(--text)]">Analyse du produit et recherche de fournisseurs…</h2>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">Identification du produit, des mots-clés et des sources fournisseurs.</p>
         </div>
       )}
 
       {step === "results" && analysis && (
         <div className="space-y-5">
           <LensAnalysisCard analysis={analysis} preview={preview} />
+
+          {/* Bandeau source + mots-clés utilisés (modifiables) */}
+          <Card className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {meta?.real ? <Badge tone="good">Source réelle · {meta.provider}</Badge> : <Badge tone="warn">Résultats simulés</Badge>}
+                <span className="text-xs text-[var(--text-muted)]">{results.length} résultat(s)</span>
+              </div>
+              {!editKw && <Button size="sm" variant="ghost" onClick={() => setEditKw(true)} icon={<Pencil className="h-3.5 w-3.5" />}>Modifier les mots-clés</Button>}
+            </div>
+            {editKw ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <input className="input flex-1 min-w-[220px]" value={kwText} onChange={(e) => setKwText(e.target.value)} placeholder="mots-clés séparés par des virgules" onKeyDown={(e) => { if (e.key === "Enter") relaunchKeywords(); }} />
+                <Button size="sm" loading={searching} onClick={relaunchKeywords} icon={<RefreshCw className="h-3.5 w-3.5" />}>Relancer</Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditKw(false)} icon={<X className="h-3.5 w-3.5" />}>Annuler</Button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {(meta?.keywords || []).map((k, i) => <Badge key={i} tone="neutral">{k}</Badge>)}
+              </div>
+            )}
+            {meta?.error && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
+                <span className="flex-1">{meta.error}</span>
+                <Button size="sm" variant="outline" loading={searching} onClick={() => runSearch(analysis)} icon={<RefreshCw className="h-3.5 w-3.5" />}>Réessayer</Button>
+                <Button size="sm" variant="ghost" onClick={() => runSearch(analysis, { provider: "simulated" })}>Résultats simulés</Button>
+              </div>
+            )}
+          </Card>
+
           {compareList.length >= 2 && <SupplierComparison results={compareList} onSend={send} />}
+
           <div>
             <div className="mb-3 flex items-center gap-2">
               <ScanSearch className="h-4 w-4 text-brand-600" />
               <h3 className="text-sm font-semibold text-[var(--text)]">Fournisseurs similaires</h3>
-              <Badge tone="neutral">{results.length}</Badge>
               {selected.size > 0 && <span className="text-xs text-[var(--text-muted)]">· {selected.size} sélectionné(s) pour comparer (max 4)</span>}
+              {searching && <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-600" />}
             </div>
-            <SupplierResults results={results} selected={selected} onToggle={toggle} onSend={send} onSave={save} savedIds={savedIds} />
+            <SupplierResults results={results} selected={selected} onToggle={toggle} onSend={send} onSave={save} savedIds={savedIds} real={!!meta?.real} />
           </div>
         </div>
       )}
@@ -151,7 +214,7 @@ export default function OrkestraLensPage() {
               <div key={s.id} className="flex items-center justify-between gap-2 rounded-xl border border-[var(--border)] p-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-[var(--text)]">{s.supplier.title}</p>
-                  <p className="text-xs text-[var(--text-muted)]">{s.supplier.source} · {s.analysis.productType} · {s.supplier.score}/100</p>
+                  <p className="text-xs text-[var(--text-muted)]">{s.supplier.source} · {s.analysis.productType} · {s.supplier.supplierScore}/100</p>
                 </div>
                 <Button size="sm" variant="outline" onClick={() => { setImportDraft(draftFromSupplier(s.analysis, s.supplier)); router.push("/seo"); }} icon={<ArrowRight className="h-3.5 w-3.5" />}>Importer</Button>
               </div>

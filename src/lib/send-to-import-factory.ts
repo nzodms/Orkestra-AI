@@ -6,11 +6,12 @@
 // ──────────────────────────────────────────────────────────────────────────
 
 import type { ImportDraft } from "./store";
-import type { LensAnalysis, SupplierResult } from "./lens-store";
+import type { LensAnalysis, SupplierResult } from "./lens-types";
 
-/** Première valeur numérique d'une fourchette de prix (« 4.20 – 9.90 $ » → « 4.20 »). */
-function firstPrice(price?: string): string {
-  const m = (price || "").match(/\d+(?:[.,]\d+)?/);
+/** Prix de référence : minPrice si dispo, sinon 1ʳᵉ valeur de la fourchette affichée. */
+function firstPrice(s: SupplierResult): string {
+  if (typeof s.minPrice === "number") return String(s.minPrice);
+  const m = (s.price || "").match(/\d+(?:[.,]\d+)?/);
   return m ? m[0].replace(",", ".") : "";
 }
 
@@ -30,11 +31,11 @@ export function draftFromSupplier(analysis: LensAnalysis, s: SupplierResult): Im
     dimensions: "",
     materials: analysis.material || "",
     colors: analysis.color || "",
-    price: firstPrice(s.price),
+    price: firstPrice(s),
     sku: "",
-    images: s.image || "",
-    sourceUrl: s.url,
-    notes: `Importé via Orkestra Lens · ${s.source} · score ${s.score}/100 (${s.scoreReason})`,
+    images: s.imageUrl || "",
+    sourceUrl: s.productUrl,
+    notes: `Importé via Orkestra Lens · ${s.source}${s.simulated ? " (simulé)" : ""} · score ${s.supplierScore}/100 (${s.reasons.join(", ")})`,
     productType: analysis.productType,
     tags,
     source: `Orkestra Lens · ${s.source}`,

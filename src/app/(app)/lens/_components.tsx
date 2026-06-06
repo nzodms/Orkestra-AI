@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Card, CardHeader, Badge, ScoreRing, EmptyState } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
-import { riskLabel } from "@/lib/supplier-score";
+import { riskMeta } from "@/lib/supplier-score";
 import type { LensAnalysis, SupplierResult } from "@/lib/lens-store";
 import {
   Upload, Link2, ScanLine, ImageIcon, Sparkles, Star, Truck, Package, ExternalLink,
@@ -157,59 +157,60 @@ export function LensAnalysisCard({ analysis, preview }: { analysis: LensAnalysis
 function SupplierCard({ r, selected, onToggle, onSend, onSave, saved }: {
   r: SupplierResult; selected: boolean; onToggle: () => void; onSend: () => void; onSave: () => void; saved: boolean;
 }) {
-  const risk = riskLabel(r.score);
+  const risk = riskMeta(r.riskLevel);
   return (
     <Card className={`flex flex-col gap-3 transition-shadow ${selected ? "ring-2 ring-brand-400" : ""}`}>
       <div className="flex gap-3">
-        <Thumb hue={r.hue} src={r.image} label={r.title} className="h-20 w-20 shrink-0 overflow-hidden rounded-xl object-cover" />
+        <Thumb hue={r.hue} src={r.imageUrl} label={r.title} className="h-20 w-20 shrink-0 overflow-hidden rounded-xl object-cover" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <Badge tone="neutral">{r.source}</Badge>
             {r.simulated && <Badge tone="warn">Simulé</Badge>}
           </div>
           <p className="mt-1 line-clamp-2 text-sm font-medium text-[var(--text)]">{r.title}</p>
-          <p className="mt-0.5 text-xs text-[var(--text-muted)]">{r.vendor}</p>
+          <p className="mt-0.5 text-xs text-[var(--text-muted)]">{r.supplierName || "Vendeur non communiqué"}{r.location ? ` · ${r.location}` : ""}</p>
         </div>
-        <ScoreRing value={r.score} size={56} label="Orkestra" />
+        <ScoreRing value={r.supplierScore} size={56} label="Orkestra" />
       </div>
 
       <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-        {r.price && <div className="flex items-center gap-1.5 text-[var(--text)]"><Package className="h-3.5 w-3.5 text-[var(--text-muted)]" /> {r.price}</div>}
+        <div className="flex items-center gap-1.5 text-[var(--text)]"><Package className="h-3.5 w-3.5 text-[var(--text-muted)]" /> {r.price || "Prix non disponible"}</div>
         {r.moq && <div className="flex items-center gap-1.5 text-[var(--text-muted)]">MOQ : {r.moq}</div>}
-        {typeof r.rating === "number" && <div className="flex items-center gap-1.5 text-[var(--text)]"><Star className="h-3.5 w-3.5 text-amber-500" /> {r.rating} {r.reviews ? <span className="text-[var(--text-muted)]">({r.reviews})</span> : null}</div>}
-        {r.shipping && <div className="flex items-center gap-1.5 text-[var(--text-muted)]"><Truck className="h-3.5 w-3.5" /> {r.shipping}</div>}
+        {typeof r.supplierRating === "number" && <div className="flex items-center gap-1.5 text-[var(--text)]"><Star className="h-3.5 w-3.5 text-amber-500" /> {r.supplierRating} {r.reviewCount ? <span className="text-[var(--text-muted)]">({r.reviewCount})</span> : null}</div>}
+        {r.shippingInfo && <div className="flex items-center gap-1.5 text-[var(--text-muted)]"><Truck className="h-3.5 w-3.5" /> {r.shippingInfo}</div>}
       </div>
 
       <div className="flex items-center justify-between text-xs">
-        <span className="text-[var(--text-muted)]">Similarité {r.similarity}%</span>
+        <span className="text-[var(--text-muted)]">Similarité {r.similarityScore}%</span>
         <Badge tone={risk.tone}>{risk.label}</Badge>
       </div>
-      <p className="text-[11px] text-[var(--text-muted)]">{r.scoreReason}</p>
+      <p className="text-[11px] text-[var(--text-muted)]">{r.reasons.join(", ")}</p>
 
       <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
         <Button size="sm" onClick={onSend} icon={<ArrowRight className="h-3.5 w-3.5" />}>Envoyer vers Import Factory</Button>
         <Button size="sm" variant="outline" onClick={onToggle} icon={<GitCompare className="h-3.5 w-3.5" />}>{selected ? "Retirer" : "Comparer"}</Button>
         <Button size="sm" variant="ghost" onClick={onSave} icon={<Bookmark className={`h-3.5 w-3.5 ${saved ? "fill-brand-500 text-brand-600" : ""}`} />}>{saved ? "Sauvegardé" : "Sauvegarder"}</Button>
-        <a href={r.url} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text)]"><ExternalLink className="h-3.5 w-3.5" /> Source</a>
+        <a href={r.productUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text)]"><ExternalLink className="h-3.5 w-3.5" /> Source</a>
       </div>
     </Card>
   );
 }
 
 // ── 6. Grille de résultats ──────────────────────────────────────────────────
-export function SupplierResults({ results, selected, onToggle, onSend, onSave, savedIds }: {
+export function SupplierResults({ results, selected, onToggle, onSend, onSave, savedIds, real }: {
   results: SupplierResult[];
   selected: Set<string>;
   onToggle: (id: string) => void;
   onSend: (r: SupplierResult) => void;
   onSave: (r: SupplierResult) => void;
   savedIds: Set<string>;
+  real: boolean;
 }) {
   if (!results.length) return <EmptyState icon={<Store className="h-6 w-6" />} title="Aucun résultat" description="Réessayez avec une autre image ou une URL plus précise." />;
   return (
     <div>
-      <div className="mb-3 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
-        <Info className="h-4 w-4 shrink-0" /> Résultats similaires détectés — à vérifier avant achat. (Sources réelles en cours de connexion.)
+      <div className={`mb-3 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${real ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300" : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300"}`}>
+        <Info className="h-4 w-4 shrink-0" /> {real ? "Résultats fournisseurs réels — à vérifier avant achat (fournisseur, qualité, conditions)." : "Résultats simulés — source réelle non connectée. À vérifier avant achat."}
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {results.map((r) => (
@@ -223,16 +224,16 @@ export function SupplierResults({ results, selected, onToggle, onSend, onSave, s
 // ── 7. Comparaison (2 à 4 résultats) ────────────────────────────────────────
 export function SupplierComparison({ results, onSend }: { results: SupplierResult[]; onSend: (r: SupplierResult) => void }) {
   if (results.length < 2) return null;
-  const best = results.reduce((a, b) => (b.score > a.score ? b : a), results[0]);
+  const best = results.reduce((a, b) => (b.supplierScore > a.supplierScore ? b : a), results[0]);
   const rows: { k: string; get: (r: SupplierResult) => React.ReactNode }[] = [
     { k: "Source", get: (r) => r.source },
-    { k: "Prix", get: (r) => r.price || "—" },
-    { k: "MOQ", get: (r) => r.moq || "—" },
-    { k: "Note", get: (r) => (typeof r.rating === "number" ? `${r.rating} (${r.reviews ?? 0})` : "—") },
-    { k: "Variantes", get: (r) => r.variantsCount ?? 0 },
-    { k: "Livraison", get: (r) => r.shipping || "—" },
-    { k: "Similarité", get: (r) => `${r.similarity}%` },
-    { k: "Score Orkestra", get: (r) => <span className="font-semibold">{r.score}/100</span> },
+    { k: "Prix", get: (r) => r.price || "non disponible" },
+    { k: "MOQ", get: (r) => r.moq || "non disponible" },
+    { k: "Note", get: (r) => (typeof r.supplierRating === "number" ? `${r.supplierRating} (${r.reviewCount ?? 0})` : "non disponible") },
+    { k: "Variantes", get: (r) => r.variants?.length ?? 0 },
+    { k: "Livraison", get: (r) => r.shippingInfo || "non disponible" },
+    { k: "Similarité", get: (r) => `${r.similarityScore}%` },
+    { k: "Score Orkestra", get: (r) => <span className="font-semibold">{r.supplierScore}/100</span> },
   ];
   return (
     <Card>
@@ -244,7 +245,7 @@ export function SupplierComparison({ results, onSend }: { results: SupplierResul
               <th className="w-32" />
               {results.map((r) => (
                 <th key={r.id} className="px-2 pb-2 text-left align-bottom">
-                  <Thumb hue={r.hue} src={r.image} className="mb-1 h-12 w-12 overflow-hidden rounded-lg object-cover" />
+                  <Thumb hue={r.hue} src={r.imageUrl} className="mb-1 h-12 w-12 overflow-hidden rounded-lg object-cover" />
                   {r.id === best.id && <Badge tone="good">Meilleur choix</Badge>}
                 </th>
               ))}
