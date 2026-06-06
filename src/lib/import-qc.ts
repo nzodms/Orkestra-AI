@@ -239,6 +239,7 @@ const CLAIM_DEFS: ClaimDef[] = [
   { re: /\bacier\s+(?:inoxydable|inox|poli|bross[ée]e?s?)|\blaiton\s+massif/i, label: "matériau précis (acier / laiton)", src: /acier|inox|laiton|steel|brass/i, remove: true },
   { re: /\bfer\s+dor[ée]e?s?/i, label: "matériau précis (fer doré)", src: /fer\s+dor|\bfer\b|iron/i, remove: true },
   { re: /\bverre\s+souffl[ée]e?s?/i, label: "matériau précis (verre soufflé)", src: /verre\s+souffl|blown\s+glass/i, remove: true },
+  { re: /\b(?:souffl[ée]s?|fabriqu[ée]s?|faits?)\s+(?:à\s+la\s+)?main\b/i, label: "fabrication à la main", src: /\bmain\b|artisan|hand[\s-]?(?:made|blown)/i, remove: true },
   { re: /\bpoids\s+(?:de\s+)?\d|\b\d+([.,]\d+)?\s?(?:kg|kilos?|grammes?)\b/i, label: "poids", src: /poids|\bkg\b|kilo|gramme|weight/i, remove: true },
   { re: /\b\d{1,4}\s?watts?\b|\b\d{1,4}\s?W\b(?!\s*[x×])|puissance\s*:?\s*\d/i, label: "puissance", src: /puissance|watt|\bW\b|wattage/i, remove: true },
   { re: /\bgants?\b[^.<>]{0,20}\b(?:fournis?|inclus\w*|livr[ée]\w*)/i, label: "gants fournis", src: /gants?/i, remove: true },
@@ -339,6 +340,61 @@ function fixFrenchCaps(s: string): string {
 const GENERIC_TAGS = new Set(["moderne", "interieur", "design", "elegant", "salon", "deco", "decoration", "contemporain", "chic", "tendance", "maison", "nouveau", "qualite", "luxe", "minimaliste"]);
 // Formules passe-partout à éviter dans la description (richesse éditoriale).
 const FILLER_PHRASES = ["touche moderne et élégante", "touche moderne et elegante", "ambiance chaleureuse", "style contemporain", "idéal pour votre intérieur", "ideal pour votre interieur", "touche d'élégance", "touche d'elegance", "alliant style et fonctionnalité", "apporte une touche", "élégance intemporelle"];
+
+// ── Moteur de naming (§1/§2/§3) ─────────────────────────────────────────────
+// Noms brandés premium génériques (inventés, aucune marque réelle). Repli
+// déterministe quand l'IA n'en fournit pas ou propose un doublon.
+const BRAND_POOL = [
+  "Oravia", "Velora", "Elvoria", "Novelia", "Lumera", "Soravel", "Aravia", "Velmora", "Noralis", "Esveria",
+  "Olvera", "Calenza", "Mirova", "Solvana", "Velaris", "Oranza", "Nuvelia", "Lorvena", "Auvelia", "Sevelia",
+  "Mariva", "Oriane", "Velina", "Norvia", "Eldora", "Soreva", "Avelis", "Ombria", "Levira", "Calvia",
+  "Vesoria", "Nolvia", "Eravia", "Solnea", "Lunavia", "Orvane", "Velsea", "Nerina", "Aliora", "Sorvane",
+  "Elunia", "Castia", "Norelia", "Ovira", "Lumavia", "Selora", "Andovia", "Velura", "Orinea", "Maelis",
+];
+function isValidBrand(name: string, used: Set<string>, vendor: string): boolean {
+  const n = normName(name);
+  if (!n || n.length < 3 || n.length > 14) return false;
+  if (vendor && n === normName(vendor)) return false;
+  if (/\d/.test(name)) return false;
+  return !similarTo(n, used);
+}
+/** Repli déterministe : nom brandé UNIQUE du pool (indexé par le handle). */
+function generateBrandName(seed: string, used: Set<string>, vendor: string): string {
+  let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < BRAND_POOL.length; i++) {
+    const cand = BRAND_POOL[(h + i) % BRAND_POOL.length];
+    if (isValidBrand(cand, used, vendor)) { used.add(normName(cand)); return cand; }
+  }
+  const base = BRAND_POOL[h % BRAND_POOL.length];
+  used.add(normName(base));
+  return base;
+}
+// Détails techniques / fournisseur à NE PAS garder dans un titre.
+const TITLE_FILLER: RegExp[] = [
+  /\bsouffl[ée]s?\s+à\s+la\s+main\b/gi,
+  /\bfaits?\s+(?:à\s+la\s+)?main\b/gi,
+  /\b[ée]clairage\s+led(?:\s+(?:contemporain|moderne))?\b/gi,
+  /\bled\s+(?:contemporain|moderne|int[ée]gr[ée]e?s?)\b/gi,
+  /\bfinition\s+(?:chrom[ée]e?|dor[ée]e?|noire?|argent[ée]e?|laiton|bross[ée]e?|mate?)\b/gi,
+  /\bhauteur\s+(?:ajustable|r[ée]glable)\b/gi,
+  /\br[ée]glable\s+en\s+hauteur\b/gi,
+  /\bbase\s+ronde\b/gi,
+  /\bdesign\s+(?:contemporain|moderne|aérien)\b/gi,
+];
+/** Nettoie le titre : retire suffixe brandé, clauses après tiret et détails techniques, cap ~6 mots. */
+function cleanProductTitle(title: string): { product: string; brandFromTitle: string } {
+  const t = (title || "").trim();
+  const pipe = t.indexOf("|");
+  const brandFromTitle = pipe >= 0 ? t.slice(pipe + 1).trim() : "";
+  let product = (pipe >= 0 ? t.slice(0, pipe) : t).trim();
+  product = product.replace(/\s+[–—]\s+.*$/u, "").replace(/\s+-\s+\S.*$/u, "");
+  for (const re of TITLE_FILLER) product = product.replace(re, " ");
+  product = collapse(product).replace(/[\s,–—-]+$/u, "").trim();
+  let words = product.split(/\s+/).filter(Boolean);
+  if (words.length > 7) words = words.slice(0, 7);
+  while (words.length > 3 && META_PREP_END.has(bareW(words[words.length - 1]))) words.pop();
+  return { product: words.join(" "), brandFromTitle };
+}
 
 /** Contrôle qualité + corrections déterministes d'un produit transformé. */
 export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport {
@@ -454,7 +510,10 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
       if (c.remove) {
         const g = new RegExp(c.re.source, "gi");
         fixed.bodyHtml = removeSentencesMatching(fixed.bodyHtml, c.re);
-        fixed.metaDescription = fixed.metaDescription.split(/(?<=[.!?])\s+/).filter((s) => !c.re.test(s)).join(" ").trim();
+        // meta : retire les phrases concernées, puis tout résidu inline.
+        let md = fixed.metaDescription.split(/(?<=[.!?])\s+/).filter((s) => !c.re.test(s)).join(" ").trim();
+        if (c.re.test(md)) md = collapse(md.replace(g, "")).replace(/\s*,\s*,/g, ",").replace(/,\s*([.!?])/g, "$1").replace(/\s+,/g, ",").trim();
+        fixed.metaDescription = md;
         fixed.tags = fixed.tags.split(",").map((t) => t.trim()).filter((t) => t && !c.re.test(t)).join(", ");
         if (c.re.test(fixed.title)) fixed.title = collapse(fixed.title.replace(g, "")).replace(/\s*[|–-]\s*$/, "").trim();
         fixed.imageAlts = fixed.imageAlts.map((a) => (c.re.test(a) ? collapse(a.replace(g, "")).trim() : a));
@@ -485,13 +544,25 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     else ctx.usedMetaOpenings.add(opening);
   }
 
-  // Nom brandé : doublon exact / accent / trop similaire ? (uniquement si activé)
-  if (ctx.brandNames && fixed.brandName) {
-    const n = normName(fixed.brandName);
-    const sim = similarTo(n, ctx.usedBrand);
-    if (sim?.exact) { issues.push(`Nom brandé déjà utilisé : ${fixed.brandName}`); bump("risk"); }
-    else if (sim) { issues.push(`Nom brandé trop similaire à un nom existant : ${fixed.brandName}`); bump("risk"); if (n) ctx.usedBrand.add(n); }
-    else if (n) ctx.usedBrand.add(n);
+  // ── NAMING PASS (§1/§2/§3) : titre propre + nom brandé cohérent et unique ──
+  {
+    const { product, brandFromTitle } = cleanProductTitle(fixed.title);
+    if (ctx.brandNames) {
+      let brand = (fixed.brandName || "").trim() || brandFromTitle.trim();
+      if (!isValidBrand(brand, ctx.usedBrand, vendor)) {
+        const had = !!brand;
+        brand = generateBrandName(fixed.newHandle || fixed.handle || product, ctx.usedBrand, vendor);
+        issues.push(had ? "Nom brandé régénéré (doublon ou vendor évité)" : "Nom brandé généré"); bump("warning");
+      } else {
+        ctx.usedBrand.add(normName(brand));
+      }
+      fixed.brandName = brand;
+      fixed.title = product ? `${product} | ${brand}` : brand;
+    } else {
+      fixed.brandName = undefined;
+      if (fixed.title !== product) { fixed.title = product; }
+    }
+    if (product && product.split(/\s+/).length > 7) { issues.push("Titre produit trop long (raccourci)"); bump("warning"); }
   }
 
   // Handle : doublon (exact ou après normalisation) ?
@@ -501,21 +572,23 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     else ctx.usedHandle.add(h);
   }
 
-  // Titre : doublon / trop proche d'un produit existant (anti-doublon flou).
+  // Titre : doublon / trop proche d'un produit existant (sur le NOM produit, hors nom brandé).
   if (ctx.usedTitles && fixed.title) {
-    const tk = titleKey(fixed.title);
+    const productPart = fixed.title.split("|")[0].trim();
+    const tk = titleKey(productPart);
     if (tk) {
-      if (tooCloseTitle(fixed.title, ctx.usedTitles)) { issues.push("Titre trop proche d'un autre produit (à distinguer)"); bump("warning"); }
+      if (tooCloseTitle(productPart, ctx.usedTitles)) { issues.push("Titre trop proche d'un autre produit (à distinguer)"); bump("warning"); }
       ctx.usedTitles.add(tk);
     }
   }
 
-  // Titre : naturel, pas télégraphique (suite de noms sans connecteur).
+  // Titre : naturel, pas télégraphique (sur le NOM produit, hors nom brandé).
   {
-    const words = fixed.title.split(/\s+/).filter(Boolean);
+    const productPart = fixed.title.split("|")[0].trim();
+    const words = productPart.split(/\s+/).filter(Boolean);
     const hasConnector = words.some((w) => FR_LOWER.has(w.toLowerCase().replace(/[^a-zàâäéèêëîïôöûüç]/g, "")));
-    if (words.length >= 5 && !hasConnector) { issues.push("Titre télégraphique (ajouter un connecteur « en / à » pour plus de naturel)"); bump("warning"); }
-    if (/[\s,;:–—-]+$|\b(et|ou|en|de|à|du|des|avec|pour)$/i.test(fixed.title)) { issues.push("Titre finissant par un connecteur"); bump("warning"); }
+    if (words.length >= 6 && !hasConnector) { issues.push("Titre télégraphique (ajouter un connecteur « en / à »)"); bump("warning"); }
+    if (/[\s,;:–—-]+$|\b(et|ou|en|de|à|du|des|avec|pour)$/i.test(productPart)) { issues.push("Titre finissant par un connecteur"); bump("warning"); }
   }
 
   // Tags : richesse + longue traîne + type produit + anglais.

@@ -355,7 +355,7 @@ export default function ImportFactoryPage() {
     if (!parsed || !stats?.hasTitle || !target.length) return;
     if (!openaiConnected) { setError("Connectez OpenAI pour lancer la transformation."); return; }
     setError(null);
-    if (!append) { setAutoFixSummary(null); setFilter("all"); setEditorialApplied(false); }
+    if (!append) { setAutoFixSummary(null); setFilter("all"); setEditorialApplied(false); setMoreActionsOpen(false); setCardMore([]); }
     const claudeOn = !!connections.anthropic?.connected;
     const ps: Record<string, ProductStatus> = append ? { ...productStatus } : {};
     for (const g of target) ps[g.handle] = "wait";
