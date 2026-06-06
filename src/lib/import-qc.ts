@@ -350,12 +350,24 @@ const BRAND_POOL = [
   "Mariva", "Oriane", "Velina", "Norvia", "Eldora", "Soreva", "Avelis", "Ombria", "Levira", "Calvia",
   "Vesoria", "Nolvia", "Eravia", "Solnea", "Lunavia", "Orvane", "Velsea", "Nerina", "Aliora", "Sorvane",
   "Elunia", "Castia", "Norelia", "Ovira", "Lumavia", "Selora", "Andovia", "Velura", "Orinea", "Maelis",
+  "Amoria", "Celoria", "Eloria", "Noravia", "Aurelia", "Orelia", "Meliora", "Lioria", "Selenia", "Valoria",
+  "Elvina", "Novara", "Aloria", "Virelia", "Amélia", "Solaria", "Ostara", "Nivora", "Elaria", "Caloria",
 ];
+/** Normalise un nom brandé : retire chiffres/caractères SKU, force le Title Case (jamais full caps). */
+export function normalizeBrandName(name: string): string {
+  let n = (name || "").trim().replace(/[^A-Za-zÀ-ÿ' -]/g, "").trim(); // retire chiffres & symboles type SKU
+  if (!n) return "";
+  n = n.split(/[\s-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(" ").trim();
+  return n;
+}
 function isValidBrand(name: string, used: Set<string>, vendor: string): boolean {
+  const raw = (name || "").trim();
+  if (/\d/.test(raw)) return false;                       // chiffres → SKU
   const n = normName(name);
-  if (!n || n.length < 3 || n.length > 14) return false;
-  if (vendor && n === normName(vendor)) return false;
-  if (/\d/.test(name)) return false;
+  if (!n || n.length < 4 || n.length > 12) return false;  // ni trop court ni trop long
+  if (vendor && n === normName(vendor)) return false;      // jamais le vendor
+  if ((n.match(/[aeiouy]/g) || []).length < 2) return false; // ressemble à un code
+  if (/[bcdfghjklmnpqrstvwxz]{4,}/.test(n)) return false;  // amas de consonnes = code
   return !similarTo(n, used);
 }
 /** Repli déterministe : nom brandé UNIQUE du pool (indexé par le handle). */
@@ -552,11 +564,11 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
   {
     const { product, brandFromTitle } = cleanProductTitle(fixed.title);
     if (ctx.brandNames) {
-      let brand = (fixed.brandName || "").trim() || brandFromTitle.trim();
+      let brand = normalizeBrandName((fixed.brandName || "").trim() || brandFromTitle.trim());
       if (!isValidBrand(brand, ctx.usedBrand, vendor)) {
         const had = !!brand;
         brand = generateBrandName(fixed.newHandle || fixed.handle || product, ctx.usedBrand, vendor);
-        issues.push(had ? "Nom brandé régénéré (doublon ou vendor évité)" : "Nom brandé généré"); bump("warning");
+        issues.push(had ? "Nom brandé régénéré (faible, doublon ou vendor)" : "Nom brandé généré"); bump("warning");
       } else {
         ctx.usedBrand.add(normName(brand));
       }
