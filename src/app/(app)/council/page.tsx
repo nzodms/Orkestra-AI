@@ -459,12 +459,22 @@ function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: C
       <div className="min-w-0 p-4 sm:p-5">
         {tab === "why" ? (
           <div className="min-w-0">
-            <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><Layers className="h-4 w-4 text-brand-600" /> Comment Orkestra a fusionné les réponses</div>
-            <ul className="space-y-2">
-              {result.synthesisReasons.map((s, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-[var(--text-muted)]"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" /> {s}</li>
-              ))}
-            </ul>
+            <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><Layers className="h-4 w-4 text-brand-600" /> Comment Orkestra a fusionné les réponses</div>
+            {result.councilWhy ? (
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                <WhyCard color="#10a37f" title="Ce qu'OpenAI a apporté" text={result.councilWhy.openai} />
+                <WhyCard color="#d97757" title="Ce que Claude a apporté" text={result.councilWhy.claude} />
+                <WhyCard color="var(--brand-600)" title="Ce qu'Orkestra a gardé" text={result.councilWhy.kept} icon={<Check className="h-3.5 w-3.5 text-emerald-500" />} />
+                <WhyCard color="var(--brand-600)" title="Ce qu'Orkestra a écarté" text={result.councilWhy.rejected} icon={<AlertCircle className="h-3.5 w-3.5 text-amber-500" />} />
+                {result.councilWhy.contradiction && <div className="sm:col-span-2"><WhyCard color="#ef4444" title="Contradiction arbitrée" text={result.councilWhy.contradiction} icon={<AlertCircle className="h-3.5 w-3.5 text-red-500" />} /></div>}
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {result.synthesisReasons.map((s, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-[var(--text-muted)]"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" /> {s}</li>
+                ))}
+              </ul>
+            )}
             <p className="mt-3 text-[11px] text-[var(--text-muted)]">La synthèse garde le meilleur de chaque IA, retire les doublons et tranche les contradictions. Le contrôle qualité reste l&apos;arbitre final.</p>
           </div>
         ) : tab === "final" ? (
@@ -514,6 +524,19 @@ function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: C
           <ProviderTab answer={current} />
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function WhyCard({ color, title, text, icon }: { color: string; title: string; text: string; icon?: React.ReactNode }) {
+  if (!text) return null;
+  return (
+    <div className="rounded-xl border border-[var(--border)] p-3">
+      <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold">
+        {icon ?? <span className="h-2 w-2 rounded-full" style={{ background: color }} />}
+        {title}
+      </div>
+      <p className="text-xs text-[var(--text-muted)]">{text}</p>
     </div>
   );
 }

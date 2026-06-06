@@ -388,8 +388,18 @@ export interface CouncilResult {
   nextActions: string[];
   synthesisReasons: string[];
   providerAnswers: CouncilProviderAnswer[];
+  /** Détail transparent de la fusion (OpenAI + Claude) — onglet « Pourquoi cette synthèse ? ». */
+  councilWhy?: CouncilWhy;
   /** Présent uniquement pour une demande de review/analyse de site. */
   review?: SiteReview;
+}
+
+export interface CouncilWhy {
+  openai: string;
+  claude: string;
+  kept: string;
+  rejected: string;
+  contradiction?: string;
 }
 
 /** Un tour de conversation dans l'AI Council (persisté). */

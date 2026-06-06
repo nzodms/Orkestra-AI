@@ -65,8 +65,10 @@ const FUSION_MODES = new Set<CouncilMode>(["code", "strategy", "competitive", "f
 const FUSION_SYSTEM =
   "Tu es Orkestra, l'arbitre qui FUSIONNE les réponses de plusieurs IA en UNE réponse finale supérieure, en français, markdown structuré.\n" +
   "Tu reçois : la demande utilisateur, la Réponse A (OpenAI) et la Réponse B (Claude).\n" +
-  "Produis la MEILLEURE réponse finale : reprends le meilleur des deux, SUPPRIME les doublons, garde le plus actionnable et précis, signale BRIÈVEMENT les contradictions importantes, termine par une recommandation/action concrète.\n" +
-  "RÈGLES : ne fais PAS la somme des deux et ne rallonge pas inutilement ; reste précis sur la DERNIÈRE question ; si la demande est ciblée, reste ciblé (PAS de ré-audit complet) ; si une réponse invente une information non sourcée, ignore-la ; ne mentionne pas « Réponse A / Réponse B » dans le texte final.";
+  "Produis la MEILLEURE réponse finale : reprends le meilleur des deux, SUPPRIME les doublons, garde le plus actionnable et précis, signale BRIÈVEMENT les contradictions importantes.\n" +
+  "RÈGLES : ne fais PAS la somme des deux et ne rallonge pas inutilement ; reste précis sur la DERNIÈRE question ; si la demande est ciblée, reste ciblé (PAS de ré-audit complet) ; si une réponse invente une information non sourcée, ignore-la ; ne mentionne pas « Réponse A / Réponse B » dans le texte final.\n" +
+  "Le champ 'final' DOIT se terminer par une section « ## Prochaine action » : UNE action concrète, sa priorité, et le module Orkestra où agir (Import Factory, Merchant Shield, Assistant Shopify).\n" +
+  "Réponds UNIQUEMENT par un JSON : {\"final\": \"<réponse finale fusionnée en markdown>\", \"why\": {\"openai\": \"<ce qu'OpenAI a apporté, 1 phrase>\", \"claude\": \"<ce que Claude a apporté, 1 phrase>\", \"kept\": \"<ce que tu as gardé, 1 phrase>\", \"rejected\": \"<ce que tu as écarté : info non sourcée, répétition, vague… 1 phrase>\", \"contradiction\": \"<contradiction éventuelle + qui est retenu et pourquoi, sinon chaîne vide>\"}}.";
 
 function fusionPrompt(question: string, a: string, b: string, targeted: boolean): string {
   return (
@@ -295,14 +297,24 @@ export async function runCouncil(
       const result: CouncilResult = { ...scaffold, finalAnswer: good.text, providerAnswers: [pa], modelsUsed: [isOpenai ? "openai" : "anthropic"], synthesisReasons: [isOpenai ? "Claude indisponible — réponse OpenAI conservée." : "OpenAI indisponible — réponse Claude conservée."] };
       return { result, meta: { live: true, provider: isOpenai ? "openai" : "anthropic", model: good.model, tokens: good.tokens, generatedAt: nowIso(), fallbackReason: isOpenai ? "Claude indisponible, réponse OpenAI conservée" : undefined, ...codeMeta } };
     }
-    // Les deux OK → synthèse Orkestra (arbitre = OpenAI, structuré).
-    const synth = await chatComplete({ apiKey: key!.apiKey, model: key!.model, system: FUSION_SYSTEM, prompt: fusionPrompt(question, oa.text, ca.text, targeted), temperature: 0.3, maxTokens: maxTok });
-    const finalAnswer = synth.ok ? synth.text : oa.text;
+    // Les deux OK → synthèse Orkestra (arbitre = OpenAI, structuré, sortie JSON).
+    const synth = await chatComplete({ apiKey: key!.apiKey, model: key!.model, system: FUSION_SYSTEM, prompt: fusionPrompt(question, oa.text, ca.text, targeted), temperature: 0.3, maxTokens: maxTok, json: true });
+    let finalAnswer = oa.text;
+    let councilWhy: CouncilResult["councilWhy"];
+    if (synth.ok) {
+      try {
+        const p = JSON.parse(synth.text) as { final?: unknown; why?: Record<string, unknown> };
+        const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+        if (s(p.final)) finalAnswer = s(p.final);
+        if (p.why) councilWhy = { openai: s(p.why.openai), claude: s(p.why.claude), kept: s(p.why.kept), rejected: s(p.why.rejected), contradiction: s(p.why.contradiction) || undefined };
+      } catch { finalAnswer = oa.text; }
+    }
     const result: CouncilResult = {
       ...scaffold,
       finalAnswer,
       providerAnswers: [openaiPA(oa.text, oa.model), claudePA(ca.text, ca.model)],
       modelsUsed: ["openai", "anthropic"],
+      councilWhy,
       synthesisReasons: [
         "OpenAI : structure, données du scan et format actionnable.",
         "Claude : formulation naturelle et relecture éditoriale.",

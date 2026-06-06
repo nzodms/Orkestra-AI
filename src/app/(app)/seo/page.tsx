@@ -15,6 +15,7 @@ import { emptyProfileMemory } from "@/lib/store";
 import { qualityControl, buildIssueReportCsv, buildExportReport, scoreProduct, csvVerdict, type QCReport, type QCStatus, type ProductScore, type CsvVerdict } from "@/lib/import-qc";
 import { useRouter } from "next/navigation";
 import { planImportModels } from "@/lib/ai/import-models";
+import type { EditorialFocus } from "@/lib/ai/import-editorial";
 import { ImportTabsNav, PresetsTab, RecentImportsTab, CreateProfileTab, ResumeLastImportCard, SavePresetModal, type ImportTab, type UsePresetPayload } from "./_tabs";
 import type { ImportPreset, RecentImport } from "@/lib/store";
 import { PageHeader, Card, Badge } from "@/components/ui/primitives";
@@ -76,6 +77,28 @@ const PSTATUS: Record<ProductStatus, { label: string; tone: string; icon: "wait"
   error: { label: "Erreur", tone: "text-red-600", icon: "error" },
 };
 function fmtTime(s: number): string { const m = Math.floor(s / 60); const sec = s % 60; return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`; }
+// §6 — Menu « Perfectionner avec Claude » : chaque option cible un sous-ensemble + un focus.
+const CLAUDE_SCOPES: { id: string; label: string; focus: EditorialFocus; pick: (issues: string, st: QCStatus) => boolean }[] = [
+  { id: "warn", label: "Toutes les fiches en warning", focus: "all", pick: (_i, s) => s === "warning" || s === "risk" || s === "failed" },
+  { id: "desc", label: "Descriptions courtes", focus: "descriptions", pick: (i) => /description courte|faq insuffisante|bénéfices|dimensions absente|structure|formules génériques/.test(i) },
+  { id: "meta", label: "Meta faibles", focus: "meta", pick: (i) => /meta|suffixe/.test(i) },
+  { id: "title", label: "Titres mécaniques", focus: "titres", pick: (i) => /titre/.test(i) },
+  { id: "tags", label: "Enrichir les tags", focus: "tags", pick: (i) => /tags/.test(i) },
+  { id: "invent", label: "Vérifier les inventions potentielles", focus: "inventions", pick: (i) => /sourc|invention|à vérifier/.test(i) },
+  { id: "tone", label: "Harmoniser le ton du catalogue", focus: "ton", pick: () => true },
+  { id: "brand", label: "Noms brandés trop proches", focus: "brand", pick: (i) => /brandé/.test(i) },
+  { id: "risk", label: "Relire uniquement les produits risqués", focus: "all", pick: (_i, s) => s === "risk" || s === "failed" },
+];
+function focusForIssues(issues: string): EditorialFocus {
+  const i = issues.toLowerCase();
+  if (/description|faq|bénéfices|dimensions|structure|formules/.test(i)) return "descriptions";
+  if (/meta|suffixe/.test(i)) return "meta";
+  if (/titre/.test(i)) return "titres";
+  if (/tags/.test(i)) return "tags";
+  if (/sourc|invention|à vérifier/.test(i)) return "inventions";
+  if (/brandé/.test(i)) return "brand";
+  return "all";
+}
 
 const LANGS = ["Français", "Anglais", "Espagnol", "Allemand", "Italien"];
 const COUNTRIES = ["France", "Belgique", "Suisse", "Canada", "USA", "Autre"];
@@ -173,6 +196,7 @@ export default function ImportFactoryPage() {
   const [savePresetOpen, setSavePresetOpen] = useState(false);
   const [activePreset, setActivePreset] = useState<{ id?: string; name?: string }>({});
   const [perfecting, setPerfecting] = useState(false);
+  const [perfectMenuOpen, setPerfectMenuOpen] = useState(false);
   const [autoFixSummary, setAutoFixSummary] = useState<{ fixed: number; improved: number; remaining: number } | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -307,6 +331,11 @@ export default function ImportFactoryPage() {
       return [...list, h];
     });
   }
+  function runClaudeScope(scope: typeof CLAUDE_SCOPES[number]) {
+    const handles = (results || []).filter((r) => scope.pick((qcReports[r.handle]?.issues || []).join(" ").toLowerCase(), qcReports[r.handle]?.status ?? "ok")).map((r) => r.handle);
+    if (!handles.length) { setError("Aucune fiche concernée pour cette relecture."); setPerfectMenuOpen(false); return; }
+    perfectWithClaude({ handles, focus: scope.focus });
+  }
   function transform() { runTransform(selectedForTransform(), false); }
   function retryErrors() {
     const errs = groups.filter((g) => productStatus[g.handle] === "error");
@@ -403,12 +432,14 @@ export default function ImportFactoryPage() {
       for (const h of Object.keys(reports)) { const st = reports[h].status; if (st === "warning" || st === "risk" || st === "failed") agg[st]++; }
       const overall: RecentImport["status"] = errored.length || agg.failed ? "failed" : agg.risk ? "risk" : agg.warning ? "warning" : "ok";
       const v = csvVerdict(reports);
+      const imgByHandle = new Map(target.map((g) => [g.handle, g.images.length]));
+      const avgScore = fixed.length ? Math.round(fixed.reduce((a, r) => a + (reports[r.handle] ? scoreProduct(reports[r.handle], { imageCount: imgByHandle.get(r.handle) ?? 0 }).score : 100), 0) / fixed.length) : 0;
       addRecentImport({
         id: `imp_${Date.now().toString(36)}`, date: new Date().toISOString(), fileName: fileInfo?.name ?? "Catalogue",
         products: target.length, variants: target.reduce((a, g) => a + g.variants.length, 0), images: target.reduce((a, g) => a + g.images.length, 0),
         presetId: activePreset.id, presetName: activePreset.name ?? PRESETS.find((p) => p.id === presetId)?.label,
         profileId: selectedProfileId, status: overall, warnings: agg.warning, risks: agg.risk, failed: agg.failed, rules, collectionsText,
-        verdict: v.status, riskReasons: v.reasons,
+        verdict: v.status, riskReasons: v.reasons, avgScore,
       });
     }
     if (errored.length) setError(`${errored.length} produit(s) en erreur. Les autres sont prêts — vous pouvez relancer les produits en erreur.`);
@@ -416,12 +447,16 @@ export default function ImportFactoryPage() {
     setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
 
-  // §18 — « Perfectionner avec Claude » : relit les fiches faibles (WARNING/RISK)
-  // — champs éditoriaux uniquement — puis repasse le QC déterministe.
-  async function perfectWithClaude() {
+  // §6/§18 — « Perfectionner avec Claude » : relit un SOUS-ENSEMBLE ciblé de
+  // fiches (champs éditoriaux uniquement) avec un focus, puis repasse le QC.
+  async function perfectWithClaude(opts?: { handles?: string[]; focus?: EditorialFocus }) {
     if (!results || perfecting) return;
-    const weak = results.filter((r) => { const s = qcReports[r.handle]?.status; return s === "warning" || s === "risk" || s === "failed"; });
-    const list = weak.length ? weak : results;
+    const focus = opts?.focus ?? "all";
+    let list: TransformedProduct[];
+    if (opts?.handles) { const set = new Set(opts.handles); list = results.filter((r) => set.has(r.handle)); }
+    else { const weak = results.filter((r) => { const s = qcReports[r.handle]?.status; return s === "warning" || s === "risk" || s === "failed"; }); list = weak.length ? weak : results; }
+    if (!list.length) { setError("Aucune fiche concernée pour cette relecture."); return; }
+    setPerfectMenuOpen(false);
     const withEdits = list.map((r) => ({ ...r, ...(edits[r.handle] || {}) }));
     const handleSet = new Set(list.map((r) => r.handle));
     const sources = groups.filter((g) => handleSet.has(g.handle)).map(toProductInput);
@@ -430,7 +465,7 @@ export default function ImportFactoryPage() {
       const res = await fetch("/api/import/refine", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          products: withEdits, sources, rules,
+          products: withEdits, sources, rules, focus,
           context: { ...profileContext(eff), brandName: eff.brand || brand.storeName || undefined, niche: eff.niche || brand.niche || undefined, positioning: brand.positioning },
           memory: { brandNames: mem.brandNames, anchors: mem.anchors, handles: mem.handles, titles: mem.titles },
           keyRefs: { claude: connections.anthropic?.keyId },
@@ -1062,7 +1097,21 @@ export default function ImportFactoryPage() {
                   <Link href={councilReviewLink()}><Button variant="ghost" icon={<MessagesSquare className="h-4 w-4" />}>Faire vérifier par AI Council</Button></Link>
                 </div>
                 {claudeConnected ? (
-                  <Button variant="outline" size="sm" onClick={perfectWithClaude} disabled={perfecting} icon={perfecting ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600" /> : <Sparkles className="h-3.5 w-3.5" />}>{perfecting ? "Relecture premium…" : "Perfectionner avec Claude"}</Button>
+                  <div className="relative">
+                    <Button variant="outline" size="sm" onClick={() => (perfecting ? null : setPerfectMenuOpen((v) => !v))} disabled={perfecting} icon={perfecting ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600" /> : <Sparkles className="h-3.5 w-3.5" />}>{perfecting ? "Relecture premium…" : "Perfectionner avec Claude"}<ChevronDown className="ml-1 h-3 w-3" /></Button>
+                    {perfectMenuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setPerfectMenuOpen(false)} />
+                        <div className="ork-fade absolute right-0 z-50 mt-1 w-72 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] py-1 shadow-pop">
+                          <button onClick={() => perfectWithClaude()} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold hover:bg-ink-100 dark:hover:bg-ink-900"><Sparkles className="h-3.5 w-3.5 text-brand-500" /> Perfectionner toutes les fiches faibles</button>
+                          <div className="my-1 border-t border-[var(--border)]" />
+                          {CLAUDE_SCOPES.map((s) => (
+                            <button key={s.id} onClick={() => runClaudeScope(s)} className="block w-full px-3 py-1.5 text-left text-xs hover:bg-ink-100 dark:hover:bg-ink-900">{s.label}</button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 ) : (
                   <span className="text-[11px] text-[var(--text-muted)]">Connectez Claude pour une relecture premium des fiches longues.</span>
                 )}
@@ -1250,6 +1299,7 @@ export default function ImportFactoryPage() {
                         {/(description|faq|bénéfices|dimensions|structure|formules)/.test(issuesText) && <CouncilChip label="Améliorer la description" onClick={() => askCouncil(qDesc(r))} />}
                         <CouncilChip label="Pourquoi ce warning ?" onClick={() => askCouncil(qWarning(r))} />
                         <CouncilChip label="Vérifier" onClick={() => askCouncil(qVerify(r))} />
+                        {claudeConnected && <CouncilChip label="Perfectionner avec Claude" icon="claude" onClick={() => perfectWithClaude({ handles: [r.handle], focus: focusForIssues(issuesText) })} />}
                       </div>
                     )}
                   </Card>
@@ -1421,9 +1471,9 @@ function Mini({ label, value, full }: { label: string; value: string; full?: boo
     </div>
   );
 }
-// Petite pastille d'action AI Council (demande ciblée par produit).
-function CouncilChip({ label, onClick }: { label: string; onClick: () => void }) {
-  return <button onClick={onClick} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-muted)] transition hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300"><MessagesSquare className="h-3 w-3" /> {label}</button>;
+// Petite pastille d'action ciblée (AI Council ou relecture Claude) par produit.
+function CouncilChip({ label, onClick, icon = "council" }: { label: string; onClick: () => void; icon?: "council" | "claude" }) {
+  return <button onClick={onClick} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-muted)] transition hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300">{icon === "claude" ? <Sparkles className="h-3 w-3 text-brand-500" /> : <MessagesSquare className="h-3 w-3" />} {label}</button>;
 }
 
 // Visualisation premium du pipeline : CSV → IA → QC → Shopify (§3).

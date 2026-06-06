@@ -24,12 +24,26 @@ function targetChars(rules: ImportRules): string {
   return "800 à 1400 caractères";
 }
 
-export function buildEditorialSystem(rules: ImportRules): string {
+// Focus optionnel de la relecture Claude (menu « Perfectionner avec Claude »).
+export type EditorialFocus = "all" | "descriptions" | "meta" | "titres" | "tags" | "inventions" | "ton" | "brand";
+const FOCUS_DIRECTIVE: Record<EditorialFocus, string> = {
+  all: "",
+  descriptions: "FOCUS : le Body HTML avant tout — enrichis et naturalise la description (structure H2/H3, bénéfices, FAQ utile), sans rien inventer.",
+  meta: "FOCUS : la metaDescription — plus précise, différenciante et naturelle (≤160 car., suffixe EXACT conservé).",
+  titres: "FOCUS : le title — reformulation plus naturelle (pas télégraphique, pas mot-à-mot), sans anglais résiduel, casse FR correcte.",
+  tags: "FOCUS : les tags — enrichis (type + matière / pièce / usage), longue traîne, supprime les tags trop génériques.",
+  inventions: "FOCUS : les affirmations non sourcées — reformule prudemment ou RETIRE ce qui n'est pas explicitement dans les faits source (garantie, culot, matériau précis, dimmable…).",
+  ton: "FOCUS : harmonise le TON sur l'ensemble — style cohérent, naturel, premium, sans formule passe-partout.",
+  brand: "FOCUS : le brandName — propose un nom premium, court et UNIQUE, qui ne ressemble à AUCUN nom déjà utilisé (liste fournie).",
+};
+
+export function buildEditorialSystem(rules: ImportRules, focus: EditorialFocus = "all"): string {
   const fr = /fran[çc]ais/i.test(rules.language);
+  const focusLine = FOCUS_DIRECTIVE[focus] ? `\nDEMANDE CIBLÉE — ${FOCUS_DIRECTIVE[focus]} (améliore aussi le reste si pertinent, mais traite ce point en priorité).` : "";
   return (
     "Tu es l'éditeur premium d'Orkestra Import Factory. Tu AMÉLIORES des fiches produit e-commerce déjà générées, " +
     "sans en casser la structure. Tu ne touches QU'AUX champs éditoriaux : title, bodyHtml, metaDescription, tags.\n" +
-    `Langue : ${rules.language}. ` + (fr ? "Français naturel, premium, sans faute, sans mot anglais résiduel, accents corrects." : "") + "\n" +
+    `Langue : ${rules.language}. ` + (fr ? "Français naturel, premium, sans faute, sans mot anglais résiduel, accents corrects." : "") + focusLine + "\n" +
     "RÈGLES ABSOLUES :\n" +
     `1) Body HTML : vise ${targetChars(rules)} si — et seulement si — les données fournies le permettent. Texte naturel, premium, utile au client (forme, rendu, dimensions, pièces, variantes, usage, aide au choix, comparaison de tailles, FAQ utile). PAS de blabla (« touche moderne et élégante », « ambiance chaleureuse »…).\n` +
     "2) N'INVENTE JAMAIS : garantie, délai de livraison, ampoules/manuel inclus, culot (E12/E27/GU10…), matériau précis (cristal K9, acier poli, fer doré, verre soufflé), LED intégrée, dimmable, certification, poids, puissance. Si l'info n'est pas dans les données fournies, ne l'écris pas.\n" +
@@ -111,9 +125,10 @@ export async function refineEditorialWithClaude(
   rules: ImportRules,
   ctx: ImportContext,
   key: { apiKey: string; model: string },
-  mem?: ImportMemory
+  mem?: ImportMemory,
+  focus: EditorialFocus = "all"
 ): Promise<{ results: TransformedProduct[]; used: boolean; tokens: number }> {
-  const system = buildEditorialSystem(rules);
+  const system = buildEditorialSystem(rules, focus);
   const prompt = buildEditorialPrompt(results, sources, rules, ctx, mem);
   const maxTokens = rules.level === "ultra complet" ? 4096 : 3000;
   const r = await claudeComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.4, maxTokens, json: true });

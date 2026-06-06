@@ -123,6 +123,8 @@ export interface RecentImport {
   /** Verdict CSV (ready/verify/risky/partial) + raisons agrégées (pour Merchant Shield). */
   verdict?: string;
   riskReasons?: string[];
+  /** Score moyen « prêt à publier » du lot (0–100). */
+  avgScore?: number;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

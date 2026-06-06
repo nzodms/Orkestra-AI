@@ -46,12 +46,17 @@ export default function DashboardPage() {
   const providers = connectedProviders(connections);
   // §13 — Prochaines actions agrégées (Import Factory, Merchant, scan).
   const recentImport = recentImports[0];
-  const nextActions: { label: string; href: string; icon: React.ElementType }[] = [];
-  if (recentImport && recentImport.warnings + recentImport.risks + recentImport.failed > 0) nextActions.push({ label: `Vérifier ${recentImport.warnings + recentImport.risks + recentImport.failed} produit(s) de votre dernier import`, href: "/seo", icon: Package });
-  if (analysis?.englishTexts?.length) nextActions.push({ label: `Corriger ${analysis.englishTexts.length} texte(s) anglais avant Merchant Center`, href: "/merchant", icon: Languages });
-  if (analysis?.metrics?.imagesWithoutAlt) nextActions.push({ label: `Ajouter un alt text sur ${analysis.metrics.imagesWithoutAlt} image(s)`, href: "/merchant", icon: ImageOff });
-  if (recentImport) nextActions.push({ label: "Relancer Merchant Shield après votre dernier import", href: "/merchant", icon: ShieldCheck });
-  if (recentImport && importPresets.length === 0) nextActions.push({ label: "Créer un preset depuis votre dernier CSV optimisé", href: "/seo", icon: Sparkles });
+  type Prio = "high" | "medium" | "low";
+  const nextActions: { label: string; href: string; icon: React.ElementType; prio: Prio; time: string }[] = [];
+  if (recentImport && recentImport.risks + recentImport.failed > 0) nextActions.push({ label: `${recentImport.risks + recentImport.failed} produit(s) à risque dans votre dernier import — à corriger avant export`, href: "/seo", icon: Package, prio: "high", time: "10 min" });
+  else if (recentImport && recentImport.warnings > 0) nextActions.push({ label: `Vérifier ${recentImport.warnings} produit(s) à améliorer de votre dernier import`, href: "/seo", icon: Package, prio: "medium", time: "10 min" });
+  if (analysis?.englishTexts?.length) nextActions.push({ label: `Corriger ${analysis.englishTexts.length} texte(s) anglais avant Merchant Center`, href: "/merchant", icon: Languages, prio: "high", time: "15 min" });
+  if (analysis?.metrics?.imagesWithoutAlt) nextActions.push({ label: `Ajouter un alt text sur ${analysis.metrics.imagesWithoutAlt} image(s)`, href: "/merchant", icon: ImageOff, prio: "low", time: "20 min" });
+  if (recentImport) nextActions.push({ label: "Relancer Merchant Shield après votre dernier import", href: "/merchant", icon: ShieldCheck, prio: "medium", time: "2 min" });
+  if (recentImport && importPresets.length === 0) nextActions.push({ label: "Créer un preset depuis votre dernier CSV optimisé", href: "/seo", icon: Sparkles, prio: "low", time: "3 min" });
+  const PRIO_ORDER: Record<Prio, number> = { high: 0, medium: 1, low: 2 };
+  nextActions.sort((a, b) => PRIO_ORDER[a.prio] - PRIO_ORDER[b.prio]);
+  const PRIO_META: Record<Prio, { label: string; tone: "bad" | "warn" | "neutral" }> = { high: { label: "Priorité haute", tone: "bad" }, medium: { label: "Priorité moyenne", tone: "warn" }, low: { label: "À planifier", tone: "neutral" } };
   const aiConnected = providers.length > 0;
   const profileComplete = Boolean(brand.storeName.trim() && brand.niche.trim());
   const storeReady = analysis != null; // source de vérité unique
@@ -93,10 +98,13 @@ export default function DashboardPage() {
           <h2 className="flex items-center gap-1.5 text-sm font-bold"><ArrowUpRight className="h-4 w-4 text-brand-600" /> Prochaines actions</h2>
           <p className="mt-0.5 text-xs text-[var(--text-muted)]">Voici ce qui mérite votre attention pour avancer.</p>
           <div className="mt-3 space-y-1.5">
-            {nextActions.slice(0, 5).map((a, i) => { const Icon = a.icon; return (
+            {nextActions.slice(0, 5).map((a, i) => { const Icon = a.icon; const pm = PRIO_META[a.prio]; return (
               <Link key={i} href={a.href} className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm transition hover:border-brand-300">
                 <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300"><Icon className="h-3.5 w-3.5" /></span>
-                <span className="min-w-0 flex-1 truncate text-[var(--text)]">{a.label}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[var(--text)]">{a.label}</div>
+                  <div className="mt-0.5 flex items-center gap-1.5"><Badge tone={pm.tone}>{pm.label}</Badge><span className="text-[10px] text-[var(--text-muted)]">~{a.time}</span></div>
+                </div>
                 <ArrowRight className="h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
               </Link>
             ); })}

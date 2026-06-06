@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { liveEnabled } from "@/lib/ai/generate";
 import { getEncrypted } from "@/lib/server/keyStore";
 import { decryptSecret } from "@/lib/crypto";
-import { refineEditorialWithClaude } from "@/lib/ai/import-editorial";
+import { refineEditorialWithClaude, type EditorialFocus } from "@/lib/ai/import-editorial";
 import type { ImportProductInput, ImportRules, ImportContext, ImportMemory, TransformedProduct } from "@/lib/import-factory";
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -35,10 +35,11 @@ export async function POST(req: Request) {
   const rules = body.rules as ImportRules;
   const ctx = (body.context as ImportContext) || {};
   const mem = (body.memory as ImportMemory) || { brandNames: [], anchors: [] };
+  const focus = (body.focus as EditorialFocus) || "all";
   if (!products.length) return NextResponse.json({ ok: false, error: "Aucun produit à relire." });
 
   try {
-    const ref = await refineEditorialWithClaude(products, sources, rules, ctx, claudeKey, mem);
+    const ref = await refineEditorialWithClaude(products, sources, rules, ctx, claudeKey, mem, focus);
     return NextResponse.json({ ok: true, results: ref.results, used: ref.used, tokens: ref.tokens });
   } catch {
     return NextResponse.json({ ok: false, error: "La relecture Claude a échoué. Réessayez." });

@@ -138,7 +138,8 @@ export default function MerchantPage() {
                     <span className="truncate text-sm font-semibold">{r.fileName}</span>
                     <span className="shrink-0 text-[11px] text-[var(--text-muted)]">{new Date(r.date).toLocaleDateString("fr-FR")} · {r.products} produit(s)</span>
                   </div>
-                  <div className="flex shrink-0 gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
+                    {typeof r.avgScore === "number" && <Badge tone={r.avgScore >= 85 ? "good" : r.avgScore >= 65 ? "warn" : "bad"}>Score moyen {r.avgScore}/100</Badge>}
                     {r.warnings > 0 && <Badge tone="warn">{r.warnings} à améliorer</Badge>}
                     {r.risks > 0 && <Badge tone="bad">{r.risks} à risque</Badge>}
                     {r.failed > 0 && <Badge tone="bad">{r.failed} bloqué(s)</Badge>}
