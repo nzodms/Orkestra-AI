@@ -77,6 +77,57 @@ export interface ChatOk {
   tokens: number;
 }
 
+export interface VisionInput {
+  apiKey: string;
+  model: string;
+  system: string;
+  prompt: string;
+  /** URL http(s) OU data URL (data:image/...;base64,...) de l'image à analyser. */
+  imageUrl: string;
+  maxTokens?: number;
+  json?: boolean;
+}
+// Modèles OpenAI capables de vision (sinon repli sur gpt-4o).
+function visionModel(model: string): string {
+  return /gpt-4o|gpt-4\.1|gpt-4-turbo|o4|gpt-5/i.test(model) ? model : "gpt-4o";
+}
+/** Analyse multimodale (image + texte) — utilisée par Orkestra Lens, côté serveur. */
+export async function visionComplete(input: VisionInput): Promise<ChatOk | OpenAIError> {
+  const model = visionModel(input.model);
+  try {
+    return await withTimeout(async (signal) => {
+      const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${input.apiKey}`, "Content-Type": "application/json" },
+        signal,
+        body: JSON.stringify({
+          model,
+          temperature: 0.3,
+          max_tokens: input.maxTokens ?? 900,
+          ...(input.json ? { response_format: { type: "json_object" } } : {}),
+          messages: [
+            { role: "system", content: input.system },
+            { role: "user", content: [
+              { type: "text", text: input.prompt },
+              { type: "image_url", image_url: { url: input.imageUrl } },
+            ] },
+          ],
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        return mapStatus(res.status, body);
+      }
+      const data = (await res.json()) as { choices?: { message?: { content?: string } }[]; usage?: { total_tokens?: number }; model?: string };
+      const text = data.choices?.[0]?.message?.content?.trim() || "";
+      if (!text) return { ok: false, code: "unknown", message: "Réponse OpenAI vide." };
+      return { ok: true, text, model: data.model || model, tokens: data.usage?.total_tokens ?? 0 };
+    });
+  } catch {
+    return { ok: false, code: "network", message: "Impossible de joindre OpenAI (réseau)." };
+  }
+}
+
 export async function chatComplete(input: ChatInput): Promise<ChatOk | OpenAIError> {
   try {
     return await withTimeout(async (signal) => {

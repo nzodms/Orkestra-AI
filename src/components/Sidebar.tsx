@@ -15,6 +15,7 @@ import {
   Plug,
   Store,
   Boxes,
+  ScanSearch,
 } from "lucide-react";
 
 const NAV: { group: string; items: { href: string; label: string; icon: React.ElementType }[] }[] = [
@@ -29,6 +30,7 @@ const NAV: { group: string; items: { href: string; label: string; icon: React.El
     group: "Studios",
     items: [
       { href: "/seo", label: "Import Factory", icon: Boxes },
+      { href: "/lens", label: "Orkestra Lens", icon: ScanSearch },
       { href: "/council", label: "AI Council", icon: MessagesSquare },
       { href: "/merchant", label: "Merchant Shield", icon: ShieldCheck },
       { href: "/assistant", label: "Assistant Shopify", icon: LifeBuoy },

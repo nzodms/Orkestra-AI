@@ -18,8 +18,28 @@ import type { FactoryStatus, FactoryOutput } from "./factory";
 import type { ImportRules, ProfileCollection } from "./import-factory";
 import type { ImportStyleAnalysis } from "./import-analyze";
 import type { ProfileConfig } from "./import-profiles";
+import type { LensSavedItem } from "./lens-store";
 import { PROVIDER_ORDER } from "./providers";
 import { DEFAULT_BRAND_MEMORY } from "./mock-data";
+
+// Brouillon produit transmis par Orkestra Lens → repris tel quel par Import Factory
+// (mêmes champs que le formulaire « Produit manuel »).
+export interface ImportDraft {
+  title: string;
+  description?: string;
+  features?: string;
+  dimensions?: string;
+  materials?: string;
+  colors?: string;
+  price?: string;
+  sku?: string;
+  images?: string;        // une URL par ligne
+  sourceUrl?: string;
+  notes?: string;
+  productType?: string;
+  tags?: string;
+  source?: string;        // ex : « Orkestra Lens · AliExpress »
+}
 
 // État persisté de Import Factory : dernières générations par workflow.
 export interface SeoStudioState {
@@ -190,6 +210,11 @@ interface OrkestraState {
   recentImports: RecentImport[];
   /** Demande ciblée en attente pour AI Council (depuis un autre module). */
   pendingCouncil: { mode: string; question: string } | null;
+  // ── Orkestra Lens (persisté) ──
+  /** Résultats fournisseurs sauvegardés. */
+  lensSaved: LensSavedItem[];
+  /** Brouillon produit en attente d'envoi vers Import Factory (depuis Lens). */
+  importDraft: ImportDraft | null;
 
   setOnboardingComplete: (v: boolean) => void;
   setGuideHidden: (v: boolean) => void;
@@ -228,6 +253,12 @@ interface OrkestraState {
   clearRecentImports: () => void;
   setPendingCouncil: (p: { mode: string; question: string }) => void;
   clearPendingCouncil: () => void;
+  // ── Orkestra Lens ──
+  saveLens: (item: LensSavedItem) => void;
+  removeLens: (id: string) => void;
+  clearLens: () => void;
+  setImportDraft: (d: ImportDraft) => void;
+  clearImportDraft: () => void;
 }
 
 export const useOrkestra = create<OrkestraState>()(
@@ -255,6 +286,8 @@ export const useOrkestra = create<OrkestraState>()(
       importPresets: [],
       recentImports: [],
       pendingCouncil: null,
+      lensSaved: [],
+      importDraft: null,
 
       setOnboardingComplete: (v) => set({ onboardingComplete: v }),
       setGuideHidden: (v) => set({ guideHidden: v }),
@@ -396,6 +429,11 @@ export const useOrkestra = create<OrkestraState>()(
       clearRecentImports: () => set({ recentImports: [] }),
       setPendingCouncil: (p) => set({ pendingCouncil: p }),
       clearPendingCouncil: () => set({ pendingCouncil: null }),
+      saveLens: (item) => set((s) => ({ lensSaved: [item, ...s.lensSaved.filter((x) => x.id !== item.id)].slice(0, 40) })),
+      removeLens: (id) => set((s) => ({ lensSaved: s.lensSaved.filter((x) => x.id !== id) })),
+      clearLens: () => set({ lensSaved: [] }),
+      setImportDraft: (d) => set({ importDraft: d }),
+      clearImportDraft: () => set({ importDraft: null }),
     }),
     {
       name: "orkestra-store",
@@ -404,7 +442,8 @@ export const useOrkestra = create<OrkestraState>()(
       // v4 : atelier Import Factory (statuts + sorties récentes).
       // v5 : Import Factory (mémoire d'import : noms brandés, handles, règles).
       // v6 : presets d'import privés + derniers imports.
-      version: 6,
+      // v7 : Orkestra Lens (résultats sauvegardés + brouillon Import Factory).
+      version: 7,
       migrate: (persisted: unknown, version: number) => {
         const state = (persisted ?? {}) as Partial<OrkestraState>;
         if (version < 2) {
@@ -432,7 +471,10 @@ export const useOrkestra = create<OrkestraState>()(
           return { ...state, importMemory: EMPTY_IMPORT, importPresets: [], recentImports: [] } as OrkestraState;
         }
         if (version < 6) {
-          return { ...state, importPresets: [], recentImports: [] } as OrkestraState;
+          return { ...state, importPresets: [], recentImports: [], lensSaved: [], importDraft: null } as OrkestraState;
+        }
+        if (version < 7) {
+          return { ...state, lensSaved: [], importDraft: null } as OrkestraState;
         }
         return state as OrkestraState;
       },

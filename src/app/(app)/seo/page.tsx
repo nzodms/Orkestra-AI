@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/Button";
 import {
   Upload, FileSpreadsheet, Sparkles, Wand2, Languages, Tag, ImageIcon, Link2, Download, Check,
   CheckCircle2, AlertTriangle, RefreshCw, ChevronDown, Globe, FileText, ArrowRight, Plug, Eye,
-  ListChecks, ShieldCheck, Layers, Boxes, Type as TypeIcon, X, Columns3, ListFilter, Store, Lock, Plus, CheckCheck, Database, Ban, Star, MessagesSquare,
+  ListChecks, ShieldCheck, Layers, Boxes, Type as TypeIcon, X, Columns3, ListFilter, Store, Lock, Plus, CheckCheck, Database, Ban, Star, MessagesSquare, ScanSearch,
 } from "lucide-react";
 import { relativeDate } from "@/lib/utils";
 
@@ -146,7 +146,7 @@ const VALUE = [
 ];
 
 export default function ImportFactoryPage() {
-  const { connections, brand, importProfiles, rememberImportFor, setProfileConfig, addForbidden, resetProfileMemory, selectedProfileId, setImportProfile, importPresets, recentImports, addImportPreset, addRecentImport, setPendingCouncil } = useOrkestra();
+  const { connections, brand, importProfiles, rememberImportFor, setProfileConfig, addForbidden, resetProfileMemory, selectedProfileId, setImportProfile, importPresets, recentImports, addImportPreset, addRecentImport, setPendingCouncil, importDraft, clearImportDraft } = useOrkestra();
   const router = useRouter();
   const openaiConnected = !!connections.openai?.connected;
   const claudeConnected = !!connections.anthropic?.connected;
@@ -193,6 +193,32 @@ export default function ImportFactoryPage() {
   const [manual, setManual] = useState({ title: "", description: "", features: "", dimensions: "", materials: "", colors: "", price: "", sku: "", images: "", sourceUrl: "", notes: "", collection: "", productType: "", tags: "" });
   const [optionName, setOptionName] = useState("");
   const [variants, setVariants] = useState<{ value: string; price: string; sku: string; image: string; stock: string }[]>([]);
+  // Produit reçu d'Orkestra Lens : préremplit le formulaire « Produit manuel ».
+  const [fromLens, setFromLens] = useState("");
+  useEffect(() => {
+    if (!importDraft) return;
+    setSource("manual");
+    setTab("import");
+    setManual((m) => ({
+      ...m,
+      title: importDraft.title || "",
+      description: importDraft.description || "",
+      features: importDraft.features || "",
+      dimensions: importDraft.dimensions || "",
+      materials: importDraft.materials || "",
+      colors: importDraft.colors || "",
+      price: importDraft.price || "",
+      sku: importDraft.sku || "",
+      images: importDraft.images || "",
+      sourceUrl: importDraft.sourceUrl || "",
+      notes: importDraft.notes || "",
+      productType: importDraft.productType || "",
+      tags: importDraft.tags || "",
+    }));
+    setFromLens(importDraft.source || "Orkestra Lens");
+    clearImportDraft();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [importDraft]);
   // Navigation par onglets + presets/derniers imports.
   const [tab, setTab] = useState<ImportTab>("import");
   const [savePresetOpen, setSavePresetOpen] = useState(false);
@@ -818,7 +844,14 @@ export default function ImportFactoryPage() {
                 </Card>
               </>
             ) : (
-              <ManualForm manual={manual} setManual={setManual} optionName={optionName} setOptionName={setOptionName} variants={variants} setVariants={setVariants} onContinue={onContinueManual} error={error} />
+              <>
+                {fromLens && (
+                  <div className="mb-4 flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800 dark:border-brand-900/60 dark:bg-brand-950/40 dark:text-brand-200">
+                    <ScanSearch className="h-4 w-4 shrink-0" /> Produit reçu de <strong>{fromLens}</strong> — vérifiez les champs puis lancez la transformation.
+                  </div>
+                )}
+                <ManualForm manual={manual} setManual={setManual} optionName={optionName} setOptionName={setOptionName} variants={variants} setVariants={setVariants} onContinue={onContinueManual} error={error} />
+              </>
             )}
           </>
         )}
