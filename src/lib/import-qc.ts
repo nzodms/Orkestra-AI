@@ -1,4 +1,4 @@
-import { FORBIDDEN_JARGON, stripHtml, normName, serializeCsv, stripEmoji, hasEmoji, extractPrimaryProductType, enforceProductType, type TransformedProduct, type ProductGroup, type ApplyResult } from "./import-factory";
+import { FORBIDDEN_JARGON, stripHtml, normName, serializeCsv, stripEmoji, hasEmoji, enforceMarketName, slugify, type TransformedProduct, type ProductGroup, type ApplyResult } from "./import-factory";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Import Factory — contrôle qualité DÉTERMINISTE (côté code, pas seulement IA).
@@ -673,17 +673,24 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
     else ctx.usedMetaOpenings.add(opening);
   }
 
-  // ── NAMING PASS : type produit réel (racine) → titre propre → nom brandé unique ──
+  // ── NAMING PASS (universel) : mot-clé marché fidèle → titre propre → nom brandé unique ──
   {
     const { product: cleanedProduct, brandFromTitle } = cleanProductTitle(fixed.title);
-    // RACINE : on identifie le VRAI type produit dans la source (titre → type → tags →
-    // description) et on recadre si l'IA a dérivé vers un usage (« posture » ne change pas
-    // un Reformer en « Correcteur de posture »).
-    const primary = extractPrimaryProductType(ctx.source || { title: ctx.sourceText, type: fixed.productType });
-    const typed = enforceProductType(cleanedProduct, primary);
+    // UNIVERSEL : on garde le titre s'il conserve le mot-clé que le client chercherait ;
+    // sinon on le recadre dessus (le mot-clé IA fidèle, sinon celui du titre source). Aucune
+    // règle par niche : « posture » ne transforme pas un Reformer en « Correcteur de posture ».
+    const typed = enforceMarketName(cleanedProduct, fixed.keyword, ctx.source || { title: ctx.sourceText, type: fixed.productType, tags: fixed.tags }, fr);
     const product = typed.product;
-    if (typed.recadred) { issues.push("Titre recadré sur le vrai type produit (source)"); bump("warning"); }
-    if (typed.generic) { issues.push("Type produit imprécis — vérification recommandée"); bump("risk"); }
+    if (typed.recadred) {
+      issues.push("Titre recadré sur le mot-clé produit (fidélité marché)"); bump("warning");
+      // Cohérence : handle + alt suivent le titre recadré.
+      if (fixed.newHandle) fixed.newHandle = slugify(product);
+      if (fixed.imageAlts.length) {
+        const views = ["", ", en situation", ", vue de détail", ", autre angle"];
+        fixed.imageAlts = fixed.imageAlts.map((_a, i) => `${product}${views[i] || `, vue ${i + 1}`}`);
+      }
+    }
+    if (typed.generic) { issues.push("Nom produit trop vague — vérification recommandée"); bump("risk"); }
     // Un nom brandé ne doit jamais reprendre un mot du titre/type SOURCE (jamais l'invention
     // de l'IA, qui n'est pas dans la source) ni un terme produit/modèle (Cadillac, Reformer…).
     const forbidden = brandStopWords(ctx.sourceText || "", fixed.productType || "");

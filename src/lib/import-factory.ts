@@ -559,112 +559,199 @@ const NICHE_GUIDE: Record<NicheKey, string> = {
   generaliste: "NICHE = GÉNÉRALISTE. Titre : produit + attribut concret. Description : usage, bénéfice, style ; aucune donnée technique inventée. Tags : pertinents au produit.",
 };
 
-// ── Moteur de TYPE PRODUIT (racine du naming) ───────────────────────────────
-// Le titre doit partir du VRAI type produit (titre/type/tags source), jamais d'un
-// mot d'usage vu dans la description (« posture » ne transforme pas un Reformer en
-// « Correcteur de posture »). Table de types canoniques par niche : `re` reconnaît
-// le type dans la SOURCE, `core` est le mot distinctif qui DOIT rester dans le titre
-// final, `canonical` est le repli propre si l'IA a dérivé vers un usage générique.
-interface TypeDef { re: RegExp; core: RegExp; canonical: string }
-const PRODUCT_TYPES: TypeDef[] = [
-  // Pilates / sport (spécifique → générique ; on garde les noms d'appareils).
-  { re: /reformer/i, core: /reformer/i, canonical: "Reformer Pilates" },
-  { re: /cadillac/i, core: /cadillac/i, canonical: "Cadillac Pilates" },
-  { re: /wunda/i, core: /wunda/i, canonical: "Chaise Wunda Pilates" },
-  { re: /ladder\s*barrel/i, core: /ladder|barrel/i, canonical: "Ladder Barrel Pilates" },
-  { re: /spine\s*correct|correcteur\s+de\s+posture/i, core: /spine|correct/i, canonical: "Correcteur de Posture Pilates" },
-  { re: /(?:step\s+|pilates\s+|spine\s+)barrel|\bbarrel\b/i, core: /barrel/i, canonical: "Barrel Pilates" },
-  { re: /combo\s+chair|exo\s+chair|pilates\s+chair|chaise\s+pilates/i, core: /chair|chaise/i, canonical: "Chaise Pilates" },
-  { re: /anneau\s+pilates|magic\s+circle|pilates\s+ring|\bring\b/i, core: /anneau|ring|cercle/i, canonical: "Anneau Pilates" },
-  { re: /tapis(?:\s+de)?\s+(?:pilates|yoga|sport|gym|fitness)|pilates\s+mat|yoga\s+mat/i, core: /tapis|\bmat\b/i, canonical: "Tapis Pilates" },
-  // Bébé / puériculture.
-  { re: /tire[\s-]?lait|breast\s*pump/i, core: /tire[\s-]?lait/i, canonical: "Tire-Lait" },
-  { re: /chauffe[\s-]?biberon|bottle\s*warmer/i, core: /chauffe[\s-]?biberon/i, canonical: "Chauffe-Biberon" },
-  { re: /st[ée]rilisateur/i, core: /st[ée]rilisateur/i, canonical: "Stérilisateur Biberon" },
-  { re: /cododo/i, core: /cododo/i, canonical: "Berceau Cododo" },
-  { re: /porte[\s-]?b[ée]b[ée]|baby\s*carrier/i, core: /porte[\s-]?b[ée]b[ée]/i, canonical: "Porte-Bébé" },
-  { re: /chaise\s+haute|high\s*chair/i, core: /chaise\s+haute|haute/i, canonical: "Chaise Haute" },
-  { re: /coussin\s+d['’\s]?allaitement|nursing\s+pillow/i, core: /coussin|allaitement/i, canonical: "Coussin d'Allaitement" },
-  { re: /barri[èe]re\s+de\s+s[ée]curit[ée]|safety\s+gate/i, core: /barri[èe]re/i, canonical: "Barrière de Sécurité" },
-  { re: /babyphone|baby\s*phone|[ée]coute[\s-]?b[ée]b[ée]/i, core: /babyphone|[ée]coute/i, canonical: "Babyphone" },
-  // Beauté / cosmétique.
-  { re: /s[ée]rum/i, core: /s[ée]rum/i, canonical: "Sérum Visage" },
-  { re: /cr[èe]me\s+(?:hydratante|visage|de\s+jour|de\s+nuit|anti)/i, core: /cr[èe]me/i, canonical: "Crème Hydratante" },
-  { re: /nettoyant\s+visage|cleanser|gel\s+nettoyant/i, core: /nettoyant/i, canonical: "Nettoyant Visage" },
-  { re: /masque\s+(?:visage|tissu|hydratant)|face\s*mask/i, core: /masque/i, canonical: "Masque Visage" },
-  { re: /huile\s+(?:capillaire|cheveux)|hair\s*oil/i, core: /huile/i, canonical: "Huile Capillaire" },
-  { re: /brosse\s+(?:nettoyante|visage)|cleansing\s+brush/i, core: /brosse/i, canonical: "Brosse Nettoyante" },
-  // Mode / vêtements.
-  { re: /robe\s+longue|maxi\s*dress/i, core: /robe/i, canonical: "Robe Longue" },
-  { re: /veste\s+courte|cropped\s+jacket/i, core: /veste/i, canonical: "Veste Courte" },
-  { re: /pull\s+oversize|oversized\s+sweater/i, core: /pull/i, canonical: "Pull Oversize" },
-  { re: /pantalon\s+large|wide[\s-]?leg/i, core: /pantalon/i, canonical: "Pantalon Large" },
-  { re: /chemise\s+fluide|flowy\s+shirt/i, core: /chemise/i, canonical: "Chemise Fluide" },
-  // Luminaire (spécifique → générique).
-  { re: /lampe\s+de\s+chevet|bedside\s+lamp/i, core: /chevet/i, canonical: "Lampe de Chevet" },
-  { re: /lampe\s+(?:[àa])\s+poser|table\s+lamp/i, core: /lampe/i, canonical: "Lampe à Poser" },
-  { re: /applique\s+murale|\bapplique\b|wall\s+light/i, core: /applique/i, canonical: "Applique Murale" },
-  { re: /lampadaire|floor\s+lamp/i, core: /lampadaire/i, canonical: "Lampadaire" },
-  { re: /plafonnier|ceiling\s+light/i, core: /plafonnier/i, canonical: "Plafonnier" },
-  { re: /\blustre\b|chandelier/i, core: /lustre/i, canonical: "Lustre" },
-  { re: /\bsuspension\b|\bpendant\b/i, core: /suspension/i, canonical: "Suspension" },
-];
+// ── Moteur de NAMING UNIVERSEL (toutes niches, sans patch manuel) ───────────
+// Principe : le titre final doit rester FIDÈLE au vrai produit et conserver le
+// mot-clé que le client chercherait. On ne devine pas le type depuis un mot
+// d'usage de la description (« posture » ne transforme pas un Reformer en
+// « Correcteur de posture »). Logique générale, pilotée par :
+//   1) le mot-clé marché fourni par l'IA (champ `keyword`) ;
+//   2) à défaut, le mot-clé extrait du titre source ;
+//   3) un lexique EN→FR de langue (pas de règle métier par niche) pour traduire
+//      proprement quand l'IA a dérivé vers un terme vague.
+// Le QC est CONSERVATEUR : il garde les bons titres, ne corrige que les faibles.
+
+// Lexique EN→FR de NOMS PRODUITS et attributs courants (langue, transverse niches).
+// Sert à (a) reconnaître qu'un titre FR traduit conserve bien le mot-clé source,
+// (b) reconstruire un titre propre quand l'IA a remplacé le produit par du vague.
+const EN_FR_LEX: Record<string, string> = {
+  // Luminaire (phrases avant mots simples).
+  "ceiling light": "plafonnier", "ceiling lamp": "plafonnier", "pendant light": "suspension",
+  "pendant lamp": "suspension", "wall light": "applique murale", "wall lamp": "applique murale",
+  "table lamp": "lampe à poser", "floor lamp": "lampadaire", "bedside lamp": "lampe de chevet",
+  "pendant": "suspension", "chandelier": "lustre",
+  // Mode.
+  "maxi dress": "robe longue", "dress": "robe", "jacket": "veste", "sweater": "pull", "hoodie": "sweat",
+  "pants": "pantalon", "trousers": "pantalon", "shirt": "chemise", "skirt": "jupe", "coat": "manteau",
+  "shoes": "chaussures", "handbag": "sac à main", "bag": "sac", "scarf": "écharpe",
+  // Beauté.
+  "face serum": "sérum visage", "serum": "sérum", "face cream": "crème visage", "moisturizer": "crème hydratante",
+  "cream": "crème", "cleanser": "nettoyant", "face mask": "masque visage", "mask": "masque",
+  "hair oil": "huile capillaire", "oil": "huile", "brush": "brosse", "vitamin": "vitamine",
+  // Bébé.
+  "bottle warmer": "chauffe-biberon", "breast pump": "tire-lait", "baby carrier": "porte-bébé",
+  "high chair": "chaise haute", "stroller": "poussette", "baby monitor": "babyphone",
+  "sterilizer": "stérilisateur", "nursing pillow": "coussin d'allaitement",
+  // Sport (génériques ; Reformer/Pilates/Cadillac/Wunda restent intacts, absents du lexique).
+  "yoga mat": "tapis de yoga", "mat": "tapis", "resistance band": "élastique", "foam roller": "rouleau",
+  "jump rope": "corde à sauter", "chair": "chaise", "ring": "anneau",
+  // Cuisine / maison / électronique.
+  "cutting board": "planche à découper", "knife": "couteau", "frying pan": "poêle", "pan": "poêle",
+  "pot": "casserole", "charger": "chargeur", "headphones": "casque", "earbuds": "écouteurs",
+  "speaker": "enceinte", "cable": "câble",
+  // Matières / couleurs / formats (adjectifs).
+  "stainless steel": "acier inoxydable", "glass": "verre", "wooden": "bois", "wood": "bois", "steel": "acier",
+  "leather": "cuir", "cotton": "coton", "linen": "lin", "silk": "soie", "satin": "satin", "velvet": "velours",
+  "marble": "marbre", "ceramic": "céramique", "black": "noir", "white": "blanc", "gold": "doré", "golden": "doré",
+  "silver": "argenté", "grey": "gris", "gray": "gris", "blue": "bleu", "green": "vert", "red": "rouge",
+  "pink": "rose", "beige": "beige", "brown": "marron", "long": "longue", "short": "courte", "large": "grand",
+  "small": "petit", "portable": "portable", "foldable": "pliable", "adjustable": "réglable",
+  "wireless": "sans fil", "waterproof": "imperméable",
+};
+const LEX_KEYS = Object.keys(EN_FR_LEX).sort((a, b) => b.length - a.length); // phrases d'abord
+function matchCase(orig: string, repl: string): string {
+  if (orig && orig[0] === orig[0].toUpperCase()) return repl.charAt(0).toUpperCase() + repl.slice(1);
+  return repl;
+}
+/** Traduit EN→FR les noms produits / attributs connus (mots entiers, phrases d'abord). */
+function applyEnFr(text: string): string {
+  let out = text || "";
+  for (const k of LEX_KEYS) {
+    const re = new RegExp(`\\b${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+    out = out.replace(re, (m) => matchCase(m, EN_FR_LEX[k]));
+  }
+  return out;
+}
+
 // Attributs utiles à CONSERVER dans un titre (matière / couleur / format) — jamais l'usage.
 const TITLE_ATTRS = new Set<string>([
   "bois", "metal", "acier", "aluminium", "verre", "bambou", "mousse", "cuir", "plastique", "inox",
   "laiton", "rotin", "marbre", "ceramique", "tissu", "cristal", "beton", "pierre", "lin", "coton",
+  "soie", "velours", "satin", "satinee", "satine",
   "noir", "blanc", "gris", "beige", "dore", "argent", "argente", "bleu", "vert", "rouge", "rose",
   "marron", "taupe", "naturel", "creme", "ivoire", "camel", "kaki", "cuivre",
   "pliable", "pliant", "portable", "compact", "mural", "reglable", "nomade", "demontable", "rond",
   "carre", "ovale", "rectangulaire", "double", "triple", "mini", "xl", "large", "long", "longue",
   "court", "courte", "fluide", "oversize", "haute", "antiderapant", "antiderapante", "electrique",
+  "sans", "fil", "impermeable",
 ].map(normName));
-// Mots PUREMENT génériques : un titre ne peut pas s'y résumer (aucun vrai type).
+// Mots PUREMENT génériques : un titre ne peut pas s'y résumer (aucun vrai produit).
 const PURE_GENERIC = new Set<string>([
-  "equipement", "accessoire", "support", "dispositif", "materiel", "article", "produit", "ensemble",
-  "appareil", "gamme", "kit", "set", "objet", "solution", "luminaire", "eclairage", "mobilier",
-  "vetement", "outil", "systeme", "collection", "piece", "produits",
+  "equipement", "accessoire", "support", "dispositif", "materiel", "article", "produit", "produits",
+  "ensemble", "appareil", "gamme", "kit", "set", "objet", "solution", "luminaire", "eclairage",
+  "mobilier", "vetement", "outil", "systeme", "collection", "piece", "tenue", "soin",
 ].map(normName));
-const TITLE_SKIP = new Set<string>(["de", "du", "des", "la", "le", "les", "au", "aux", "en", "et", "ou", "pour", "avec", "sur", "sans", "dans", "a", "d", "l"]);
+// Mots vides (stop) FR + EN pour l'extraction de mots-clés.
+const NAMING_STOP = new Set<string>([
+  "de", "du", "des", "la", "le", "les", "au", "aux", "en", "et", "ou", "pour", "avec", "sur", "sans",
+  "dans", "a", "d", "l", "un", "une", "votre", "notre", "nouveau", "nouvelle",
+  "the", "a", "an", "of", "for", "with", "and", "or", "to", "in", "on", "by", "your", "our", "new",
+].map(normName));
+// Usages / bénéfices / marketing : vont dans la DESCRIPTION, jamais nommer le produit.
+const NAMING_USAGE = new Set<string>([
+  "posture", "posturale", "mobilite", "renforcement", "confort", "soutien", "maintien", "detente",
+  "relaxation", "bienetre", "eclat", "hydratation", "nutrition", "minceur", "tonus", "energie",
+  "ambiance", "elegance", "elegant", "elegante", "raffinement", "charme", "tendance", "chic",
+  "moderne", "contemporain", "design", "premium", "luxe", "luxueux", "qualite", "professionnel",
+  "performance", "ideal", "ideale", "parfait", "essentiel", "incontournable", "stylé", "style",
+].map(normName));
 
-export interface PrimaryType { canonical: string; core: RegExp }
-/** Étape RACINE : identifie le vrai type produit dans l'ordre titre → type → tags →
- *  début de description → options. Ne déduit JAMAIS le type d'un mot d'usage. */
-export function extractPrimaryProductType(src: { title?: string; type?: string; tags?: string; body?: string; options?: string }): PrimaryType | null {
-  const body = (src.body || "").replace(/<[^>]+>/g, " ").slice(0, 240);
-  for (const f of [src.title, src.type, src.tags, body, src.options]) {
-    if (!f || !f.trim()) continue;
-    for (const t of PRODUCT_TYPES) if (t.re.test(f)) return { canonical: t.canonical, core: t.core };
+function nzTokens(text: string): string[] {
+  return (text || "").replace(/<[^>]+>/g, " ").split(/[^A-Za-zÀ-ÿ]+/).filter(Boolean);
+}
+function titleCaseWord(w: string): string { return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w; }
+
+export interface MarketKeyword { tokens: string[]; phrase: string; strong: boolean }
+/** Mots-clés « propres » d'un texte : sans stop / usage / SKU, garde l'ordre. */
+function keywordTokens(text: string): string[] {
+  const out: string[] = [];
+  for (const w of nzTokens(text)) {
+    const n = normName(w);
+    if (!n || n.length < 2 || /\d/.test(w)) continue;
+    if (NAMING_STOP.has(n) || NAMING_USAGE.has(n) || PURE_GENERIC.has(n)) continue;
+    out.push(w);
   }
-  return null;
+  return out;
+}
+function toKeyword(text: string): MarketKeyword {
+  const tokens = keywordTokens(text).slice(0, 6);
+  const strong = tokens.some((w) => !TITLE_ATTRS.has(normName(w)));
+  return { tokens, phrase: tokens.join(" "), strong };
+}
+/** Mot-clé marché extrait de la SOURCE (titre → type → tags). */
+export function extractSourceKeyword(src?: { title?: string; type?: string; tags?: string; body?: string; options?: string }): MarketKeyword {
+  for (const f of [src?.title, src?.type, src?.tags]) {
+    const kw = toKeyword(f || "");
+    if (kw.strong) return kw;
+  }
+  return toKeyword(src?.title || src?.type || "");
+}
+/** Tête du mot-clé = token nom le plus distinctif (le plus long ; à égalité, le nom
+ *  propre / non traduisible l'emporte). C'est lui qui DOIT rester dans le titre. */
+function pickHead(tokens: string[]): string {
+  const nouns = tokens.filter((w) => !TITLE_ATTRS.has(normName(w)));
+  const pool = nouns.length ? nouns : tokens;
+  let head = "";
+  for (const w of pool) {
+    if (!head) { head = w; continue; }
+    const a = normName(w), b = normName(head);
+    if (a.length > b.length) head = w;
+    else if (a.length === b.length && !EN_FR_LEX[w.toLowerCase()] && EN_FR_LEX[head.toLowerCase()]) head = w; // nom propre prioritaire
+  }
+  return head;
+}
+/** Le titre conserve-t-il la tête du mot-clé (en clair ou via sa traduction FR) ? */
+function titleHasHead(product: string, head: string): boolean {
+  if (!head) return true;
+  const toks = new Set(nzTokens(product).map(normName));
+  const n = normName(head);
+  if (toks.has(n)) return true;
+  const tr = EN_FR_LEX[head.toLowerCase()];
+  if (tr) for (const w of nzTokens(tr)) if (toks.has(normName(w))) return true;
+  for (const a of toks) if (a.length >= 4 && n.length >= 4 && a.slice(0, 4) === n.slice(0, 4)) return true; // variante proche
+  return false;
+}
+function isPureGeneric(text: string): boolean {
+  const words = nzTokens(text).map(normName).filter((w) => w && !NAMING_STOP.has(w));
+  return words.length > 0 && words.every((w) => PURE_GENERIC.has(w) || NAMING_USAGE.has(w));
 }
 function salvageAttributes(text: string): string[] {
   const out: string[] = []; const seen = new Set<string>();
-  for (const w of (text || "").split(/\s+/)) {
+  for (const w of nzTokens(text)) {
     const n = normName(w);
     if (!n || seen.has(n) || !TITLE_ATTRS.has(n)) continue;
-    seen.add(n);
-    const clean = w.replace(/[^A-Za-zÀ-ÿ-]/g, "");
-    if (clean) out.push(clean[0].toUpperCase() + clean.slice(1).toLowerCase());
+    seen.add(n); out.push(titleCaseWord(w));
     if (out.length >= 2) break;
   }
   return out;
 }
-function isPureGeneric(text: string): boolean {
-  const words = (text || "").split(/\s+/).map(normName).filter((w) => w && !TITLE_SKIP.has(w));
-  return words.length > 0 && words.every((w) => PURE_GENERIC.has(w));
-}
-/** Ancre le titre sur le vrai type : si l'IA a dérivé vers un usage, on reconstruit
- *  « type canonique + attribut utile ». Renvoie aussi un drapeau de recadrage / généricité. */
-export function enforceProductType(aiProduct: string, primary: PrimaryType | null): { product: string; recadred: boolean; generic: boolean } {
-  const p = (aiProduct || "").trim();
-  if (primary) {
-    if (primary.core.test(p)) return { product: p, recadred: false, generic: false }; // fidèle → on garde l'IA
-    let words = `${primary.canonical} ${salvageAttributes(p).join(" ")}`.trim().split(/\s+/).filter(Boolean);
-    if (words.length > 6) words = words.slice(0, 6);
-    return { product: words.join(" "), recadred: true, generic: false };
+/** Reconstruit un titre propre depuis le mot-clé (traduit FR si besoin) + attributs salvables :
+ *  noms d'abord, attributs (matière/couleur/format) ensuite. */
+function buildFromKeyword(phrase: string, aiProduct: string, fr: boolean): string {
+  const base = fr ? applyEnFr(phrase) : phrase;
+  const toks = base.split(/\s+/).filter((w) => { const n = normName(w); return n && !NAMING_STOP.has(n) && !NAMING_USAGE.has(n) && !/\d/.test(w); });
+  const nouns = toks.filter((w) => !TITLE_ATTRS.has(normName(w)));
+  const attrs = toks.filter((w) => TITLE_ATTRS.has(normName(w)));
+  const seen = new Set<string>(); const words: string[] = [];
+  for (const w of [...nouns, ...attrs, ...salvageAttributes(aiProduct)]) {
+    const n = normName(w); if (!n || seen.has(n)) continue; seen.add(n); words.push(titleCaseWord(w));
+    if (words.length >= 6) break;
   }
-  return { product: p, recadred: false, generic: isPureGeneric(p) };
+  return words.join(" ");
+}
+/** Choisit le meilleur nom produit, de manière UNIVERSELLE et conservatrice :
+ *  garde le titre de l'IA s'il conserve le mot-clé marché ; sinon recadre dessus. */
+export function enforceMarketName(aiProduct: string, aiKeyword: string | undefined, src: { title?: string; type?: string; tags?: string; body?: string; options?: string } | undefined, fr: boolean): { product: string; recadred: boolean; generic: boolean } {
+  const p = (aiProduct || "").trim();
+  const srcKw = extractSourceKeyword(src);
+  const aiKw = toKeyword(aiKeyword || "");
+  // Ancre = mot-clé IA s'il est fort ET fidèle à la source ; sinon mot-clé source.
+  const aiFaithful = aiKw.strong && srcKw.strong && aiKw.tokens.some((w) => srcKw.tokens.some((s) => normName(s) === normName(w)));
+  const anchor = aiFaithful ? aiKw : (srcKw.strong ? srcKw : (aiKw.strong ? aiKw : null));
+  if (!anchor) return { product: p, recadred: false, generic: isPureGeneric(p) };
+  if (titleHasHead(p, pickHead(anchor.tokens))) return { product: p, recadred: false, generic: false }; // bon titre → on garde
+  const rebuilt = buildFromKeyword(anchor.phrase, p, fr);
+  if (!rebuilt || normName(rebuilt) === normName(p)) return { product: p, recadred: false, generic: false };
+  return { product: rebuilt, recadred: true, generic: false };
 }
 
 export function buildTransformPrompt(products: ImportProductInput[], rules: ImportRules, mem: ImportMemory, ctx: ImportContext): string {
@@ -688,8 +775,14 @@ export function buildTransformPrompt(products: ImportProductInput[], rules: Impo
   const niche = detectNiche(`${ctx.niche || ""} ${products.slice(0, 8).map((p) => `${p.title} ${p.type} ${p.tags}`).join(" ")}`);
   directives.push(NICHE_GUIDE[niche]);
   directives.push("Analyse produit : déduis type, usage, pièce adaptée, style, couleur/matière SEULEMENT si présents. Ce qui est inconnu reste non mentionné (jamais inventé).");
-  directives.push("TYPE PRODUIT (étape racine, AVANT le titre) : identifie le VRAI type produit dans cet ordre — titre source, product_type, tags, début de description — JAMAIS à partir d'un mot d'usage de la description. Le titre DOIT contenir ce type réel et ne JAMAIS le remplacer par un usage/bénéfice générique. Ex : « Pilates Reformer » → « Reformer Pilates » (jamais « Correcteur de posture » ni « Équipement de mobilité ») ; « Wunda Chair » → « Chaise Wunda Pilates » (jamais « Chaise de fitness ») ; « Tire-Lait » → « Tire-Lait » (jamais « Accessoire allaitement ») ; « Sérum Visage » → « Sérum Visage » (jamais « Soin beauté ») ; « Suspension » → « Suspension » (jamais « Luminaire » ni « Éclairage intérieur »). L'usage (posture, mobilité, confort, ambiance) va dans la DESCRIPTION, pas dans le type du titre. Format : « Type Produit précis + attribut utile (matière/couleur/format) ».");
-  directives.push("Mot-clé : déduis 1 mot-clé principal d'achat par produit + des termes naturels (usage, pièce, style) ; intègre-les sans bourrage.");
+  directives.push("NAMING (raisonne comme un spécialiste SEO e-commerce, AVANT d'écrire le titre) — universel, toutes niches :\n" +
+    "1) Identifie le VRAI produit à partir du titre source, du product_type et des tags — JAMAIS d'un mot d'usage de la description.\n" +
+    "2) Détermine : primaryProductType (le produit réel), primarySearchKeyword (« comment un client chercherait ce produit sur Google/Shopify dans cette niche »), secondaryAttributes (matière/couleur/format SI sourcés), usageTerms (posture, mobilité, confort, éclat… → vont en DESCRIPTION), forbiddenTitleTerms (un usage qui n'est pas le produit).\n" +
+    "3) Imagine 3 à 5 titres candidats : (a) fidèle à la source nettoyé, (b) basé sur le mot-clé marché, (c) commercial court premium, (d) avec un attribut utile sourcé. Choisis le meilleur (fidélité produit + potentiel SEO + naturel + clarté + zéro invention + longueur courte + cohérence niche).\n" +
+    "4) Le titre final DOIT contenir le primarySearchKeyword (ou une variante très proche). Ne remplace JAMAIS un produit précis par une catégorie ou un usage vague.\n" +
+    "5) NE SUR-TRADUIS PAS : si le terme anglais est le mot-clé du marché cible, garde-le (ex. « Pilates Reformer », « Reformer Pilates », « Wunda Chair », « Cadillac Reformer », « Spine Corrector »). Traduis seulement quand il existe un équivalent FR courant qui ne fait pas perdre le mot-clé (« ceiling light » → « Plafonnier », « long satin dress » → « Robe Longue Satinée »).\n" +
+    "Exemples (BON vs MAUVAIS) : « Pilates Reformer » → « Reformer Pilates » (pas « Correcteur de posture » ni « Équipement Pilates ») ; « portable bottle warmer » → « Chauffe-Biberon Portable » (pas « Accessoire Repas Bébé ») ; « vitamin C face serum » → « Sérum Vitamine C Visage » (pas « Soin Beauté Éclat ») ; « glass pendant light » → « Suspension Verre » (pas « Éclairage Intérieur Design »).");
+  directives.push("Mot-clé : le champ `keyword` = primarySearchKeyword (la requête d'achat que taperait un client pour CE produit dans cette niche). Le titre doit le contenir. Ajoute des termes naturels (usage, pièce, style) dans la description, sans bourrage.");
   // Titres (profil).
   const titleNat = "Le titre doit ressembler à celui d'un e-commerçant premium : COURT (3 à 6 mots), naturel, commercial, propre. INTERDIT : clause après un tiret (« – Éclairage LED Contemporain », « – Cadre Doré »), accumulation de caractéristiques, jargon technique dans le titre (« soufflé à la main », « éclairage LED contemporain », « finition chromée », « hauteur ajustable », « base ronde », « linéaire ») — ces détails vont dans la description SI sourcés. PAS de traduction mot-à-mot, PAS de titre fournisseur, PAS d'info inventée, PAS d'anglais. Ex BONS : « Suspension Verre Craquelé Doré », « Lustre Bulles de Verre », « Lustre Spirale Cristal », « Lustre Rond Aluminium ». Ex MAUVAIS : « Lustre à Sphères en Verre Bullé Soufflé à la Main », « Lustre Rond Linéaire en Aluminium – Éclairage LED Contemporain ». Capitalisation FRANÇAISE (minuscule aux connecteurs et après apostrophe : « Goutte d'eau »).";
   if (ctx.titleFormat === "brand_suffix" || (rules.titleFormat === "brand_suffix" && !ctx.titleFormat)) {
@@ -1029,7 +1122,7 @@ function cleanOptionValue(value: string, french: boolean, convert: boolean): str
   return out;
 }
 
-function slugify(s: string): string {
+export function slugify(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
