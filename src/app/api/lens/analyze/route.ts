@@ -12,7 +12,7 @@ export const maxDuration = 45;
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const input = (body.input as LensAnalyzeInput) || { kind: "upload" };
-  const keyRef = (body.keyRefs?.openai as string | undefined) ?? null;
-  const result = await analyzeLens(input, keyRef);
+  const keyRefs = (body.keyRefs || {}) as { openai?: string | null; claude?: string | null; gemini?: string | null };
+  const result = await analyzeLens(input, keyRefs);
   return NextResponse.json(result);
 }

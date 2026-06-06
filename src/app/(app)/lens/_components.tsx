@@ -4,10 +4,10 @@ import { useRef, useState } from "react";
 import { Card, CardHeader, Badge, ScoreRing, EmptyState } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import { riskMeta } from "@/lib/supplier-score";
-import type { LensAnalysis, SupplierResult } from "@/lib/lens-store";
+import type { LensAnalysis, SupplierResult, SupplierSearchMethod, AssistedQuery } from "@/lib/lens-store";
 import {
   Upload, Link2, ScanLine, ImageIcon, Sparkles, Star, Truck, Package, ExternalLink,
-  Bookmark, GitCompare, ArrowRight, Check, Store, Info, Copy, ShoppingBag,
+  Bookmark, GitCompare, ArrowRight, Check, Store, Info, Copy, ShoppingBag, Search,
 } from "lucide-react";
 
 // Visuel placeholder déterministe (V1 : pas d'image fournisseur réelle).
@@ -196,21 +196,46 @@ function SupplierCard({ r, selected, onToggle, onSend, onSave, saved }: {
   );
 }
 
-// ── 6. Grille de résultats ──────────────────────────────────────────────────
-export function SupplierResults({ results, selected, onToggle, onSend, onSave, savedIds, real }: {
+// ── 6a. Recherches préremplies (mode assisté) ───────────────────────────────
+export function AssistedQueries({ queries }: { queries: AssistedQuery[] }) {
+  if (!queries.length) return null;
+  return (
+    <Card>
+      <CardHeader title="Ouvrir la recherche fournisseur" subtitle="Aucune recherche web automatique disponible — ouvrez ces recherches préremplies (vous verrez les vrais prix / MOQ sur la source)." icon={<Search className="h-5 w-5" />} />
+      <div className="flex flex-wrap gap-2">
+        {queries.map((q) => (
+          <a key={q.url} href={q.url} target="_blank" rel="noopener noreferrer" className="inline-flex h-9 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-medium text-[var(--text)] hover:bg-ink-50 dark:hover:bg-ink-900">
+            <Search className="h-3.5 w-3.5 text-brand-600" /> {q.source} <ExternalLink className="h-3 w-3 text-[var(--text-muted)]" />
+          </a>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+const METHOD_BANNER: Record<SupplierSearchMethod, { text: string; cls: string }> = {
+  structured: { text: "Résultats fournisseurs structurés — à vérifier avant achat (fournisseur, qualité, conditions).", cls: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300" },
+  "multi-ai-search": { text: "Recherche multi-IA — résultats web assistés par IA. Les prix / MOQ / notes ne sont pas garantis : à vérifier sur la source.", cls: "border-brand-200 bg-brand-50 text-brand-800 dark:border-brand-900/60 dark:bg-brand-950/40 dark:text-brand-200" },
+  assisted: { text: "Recherche assistée — ouvrez les recherches préremplies ci-dessus. Les fiches ci-dessous sont des exemples simulés.", cls: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300" },
+  simulated: { text: "Résultats simulés — source réelle non connectée. À vérifier avant achat.", cls: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300" },
+};
+
+// ── 6b. Grille de résultats ──────────────────────────────────────────────────
+export function SupplierResults({ results, selected, onToggle, onSend, onSave, savedIds, method }: {
   results: SupplierResult[];
   selected: Set<string>;
   onToggle: (id: string) => void;
   onSend: (r: SupplierResult) => void;
   onSave: (r: SupplierResult) => void;
   savedIds: Set<string>;
-  real: boolean;
+  method: SupplierSearchMethod;
 }) {
-  if (!results.length) return <EmptyState icon={<Store className="h-6 w-6" />} title="Aucun résultat" description="Réessayez avec une autre image ou une URL plus précise." />;
+  if (!results.length) return <EmptyState icon={<Store className="h-6 w-6" />} title="Aucun résultat" description="Réessayez avec une autre image, d'autres mots-clés ou une URL plus précise." />;
+  const banner = METHOD_BANNER[method];
   return (
     <div>
-      <div className={`mb-3 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${real ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300" : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300"}`}>
-        <Info className="h-4 w-4 shrink-0" /> {real ? "Résultats fournisseurs réels — à vérifier avant achat (fournisseur, qualité, conditions)." : "Résultats simulés — source réelle non connectée. À vérifier avant achat."}
+      <div className={`mb-3 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${banner.cls}`}>
+        <Info className="h-4 w-4 shrink-0" /> {banner.text}
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {results.map((r) => (

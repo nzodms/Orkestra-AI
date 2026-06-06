@@ -9,6 +9,12 @@ export type LensInputKind = "upload" | "image_url" | "product_url" | "clipper";
 /** Sources fournisseurs branchables. Le reste de l'app n'en dépend pas. */
 export type SupplierSearchProvider = "simulated" | "alibaba" | "aliexpress" | "apify" | "custom";
 
+/** Méthode RÉELLEMENT utilisée pour produire les résultats (badge honnête). */
+export type SupplierSearchMethod = "structured" | "multi-ai-search" | "assisted" | "simulated";
+
+/** Requête de recherche préremplie (mode assisté : l'utilisateur ouvre la source). */
+export interface AssistedQuery { label: string; url: string; source: "Alibaba" | "AliExpress" | "1688" | "Google" }
+
 /** Analyse produit d'une image / page (vision OpenAI ou simulation). */
 export interface LensAnalysis {
   productType: string;
@@ -38,6 +44,8 @@ export interface SupplierResult {
   title: string;
   imageUrl?: string;
   productUrl: string;
+  /** Extrait / description courte (recherche multi-IA). */
+  snippet?: string;
   price?: string;            // affichage prêt (« 4.20 – 9.90 $ »)
   minPrice?: number;
   maxPrice?: number;
@@ -52,6 +60,8 @@ export interface SupplierResult {
   raw?: unknown;             // payload source brut (debug / V2)
   similarityScore: number;   // 0-100
   supplierScore: number;     // 0-100 (Score Orkestra)
+  /** Confiance du résultat (multi-IA : pertinence/cohérence estimée). */
+  confidence?: number;
   riskLevel: "low" | "medium" | "high";
   reasons: string[];
   /** Résultat simulé (pas de source réelle) ? */
@@ -60,13 +70,19 @@ export interface SupplierResult {
   hue: number;
 }
 
-/** Réponse de la couche de recherche (provider-agnostique). */
+/** Réponse de la couche de recherche (méthode-agnostique pour le front). */
 export interface SupplierSearchResponse {
   results: SupplierResult[];
+  /** Méthode réelle utilisée (badge honnête). */
+  method: SupplierSearchMethod;
   provider: SupplierSearchProvider;
-  /** true = source réelle ; false = simulé (démo / repli). */
+  /** true = données réelles (structuré ou web multi-IA) ; false = simulé. */
   real: boolean;
   keywords: string[];
+  /** Recherches préremplies (mode assisté ou complément). */
+  assistedQueries?: AssistedQuery[];
+  /** IA utilisées pour la recherche multi-IA (ex. ["Gemini", "Claude"]). */
+  models?: string[];
   error?: string;
 }
 

@@ -12,6 +12,8 @@ export type { ImportDraft };
 export type {
   LensInputKind,
   SupplierSearchProvider,
+  SupplierSearchMethod,
+  AssistedQuery,
   LensAnalysis,
   SupplierResult,
   SupplierSearchResponse,

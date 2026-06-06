@@ -65,6 +65,7 @@ function buildSimulated(analysis: LensAnalysis, keywords: string[], maxItems: nu
   return resolveProvider("simulated").provider.search({ keywords, productType: analysis.productType, niche: analysis.niche, maxItems })
     .then((items) => ({
       results: rank(items.map((it, i) => finalize(it, Math.max(45, 90 - i * 7), true))),
+      method: "simulated" as const,
       provider: "simulated" as SupplierSearchProvider,
       real: false,
       keywords,
@@ -89,7 +90,7 @@ export async function searchSuppliers(analysis: LensAnalysis, options: SearchOpt
     );
     if (!items.length) return buildSimulated(analysis, keywords, maxItems, "Aucun fournisseur réel trouvé pour ces mots-clés — résultats simulés affichés.");
     const results = rank(items.map((it) => finalize(it, titleSimilarity(keywords, analysis.productType, it.title), false)));
-    return { results, provider: provider.id, real: true, keywords };
+    return { results, method: "structured", provider: provider.id, real: true, keywords };
   } catch {
     return buildSimulated(analysis, keywords, maxItems, "Impossible de récupérer les fournisseurs réels pour l'instant — résultats simulés affichés.");
   }

@@ -7,10 +7,13 @@
 
 import { liveEnabled } from "./ai/generate";
 import { visionComplete } from "./ai/openai";
+import { geminiVision } from "./ai/gemini";
 import { getEncrypted } from "./server/keyStore";
 import { decryptSecret } from "./crypto";
 import { detectNiche, type NicheKey } from "./import-factory";
 import type { LensAnalysis, LensInputKind } from "./lens-types";
+
+export interface LensKeyRefs { openai?: string | null; claude?: string | null; gemini?: string | null }
 
 export interface LensAnalyzeInput {
   kind: LensInputKind;
@@ -127,20 +130,20 @@ function mockAnalysis(input: LensAnalyzeInput): LensAnalysis {
   };
 }
 
-export async function analyzeLens(input: LensAnalyzeInput, keyRef?: string | null): Promise<LensAnalyzeResult> {
+export async function analyzeLens(input: LensAnalyzeInput, keyRefs?: LensKeyRefs): Promise<LensAnalyzeResult> {
   const hasImage = !!input.image && /^data:image\/|^https?:\/\//i.test(input.image);
-  // Analyse réelle (vision) possible uniquement avec image + clé + live.
+  // Analyse réelle (vision) : OpenAI en priorité, sinon Gemini multimodal.
   if (hasImage && liveEnabled()) {
-    const key = await resolveKey(keyRef);
-    if (key) {
-      const r = await visionComplete({ apiKey: key.apiKey, model: key.model, system: SYSTEM, prompt: buildPrompt(input), imageUrl: input.image!, json: true, maxTokens: 900 });
-      if (r.ok) {
-        try {
-          const a = coerce(JSON.parse(r.text), true);
-          a.sourceUrl = input.url;
-          return { ok: true, analysis: a, live: true };
-        } catch { /* JSON invalide → repli simulé */ }
-      }
+    const tryCoerce = (text: string): LensAnalysis | null => { try { const a = coerce(JSON.parse(text), true); a.sourceUrl = input.url; return a; } catch { return null; } };
+    const openai = await resolveKey(keyRefs?.openai);
+    if (openai) {
+      const r = await visionComplete({ apiKey: openai.apiKey, model: openai.model, system: SYSTEM, prompt: buildPrompt(input), imageUrl: input.image!, json: true, maxTokens: 900 });
+      if (r.ok) { const a = tryCoerce(r.text); if (a) return { ok: true, analysis: a, live: true }; }
+    }
+    const gem = await resolveKey(keyRefs?.gemini);
+    if (gem) {
+      const r = await geminiVision(gem.apiKey, gem.model || "gemini-2.0-flash", SYSTEM, buildPrompt(input), input.image!, true);
+      if (r.ok) { const a = tryCoerce(r.text); if (a) return { ok: true, analysis: a, live: true }; }
     }
   }
   const a = mockAnalysis(input);

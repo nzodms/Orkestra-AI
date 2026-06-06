@@ -4,6 +4,7 @@ import { PROVIDERS } from "@/lib/providers";
 import { isMockMode } from "@/lib/ai/adapter";
 import { testOpenAIKey } from "@/lib/ai/openai";
 import { testClaudeKey } from "@/lib/ai/claude";
+import { testGeminiKey } from "@/lib/ai/gemini";
 import { saveKey, keyStoreBackend } from "@/lib/server/keyStore";
 import type { AIProviderId } from "@/lib/types";
 
@@ -18,7 +19,7 @@ import type { AIProviderId } from "@/lib/types";
 export const runtime = "nodejs";
 
 // Providers réellement branchés en live dans cette version.
-const AVAILABLE: AIProviderId[] = ["openai", "anthropic"];
+const AVAILABLE: AIProviderId[] = ["openai", "anthropic", "gemini"];
 
 // Choisit un modèle par défaut sûr selon le provider et les modèles renvoyés.
 function pickModel(provider: AIProviderId, models: string[], fallback: string): string {
@@ -26,6 +27,11 @@ function pickModel(provider: AIProviderId, models: string[], fallback: string): 
   if (provider === "anthropic") {
     const sonnet = models.find((m) => /sonnet/.test(m));
     return sonnet || models[0] || fallback;
+  }
+  if (provider === "gemini") {
+    const flash = models.find((m) => /2\.0-flash|2\.5-flash|1\.5-flash/.test(m));
+    const pro = models.find((m) => /1\.5-pro|2\.5-pro/.test(m));
+    return flash || pro || models[0] || fallback;
   }
   return models[0] || fallback;
 }
@@ -88,7 +94,7 @@ export async function POST(req: Request) {
   // 6) Vrai ping du provider (la validation principale, pas le préfixe).
   let model = meta.defaultModel;
   try {
-    const test = provider === "anthropic" ? await testClaudeKey(key) : await testOpenAIKey(key);
+    const test = provider === "anthropic" ? await testClaudeKey(key) : provider === "gemini" ? await testGeminiKey(key) : await testOpenAIKey(key);
     if (!test.ok) {
       return NextResponse.json({ ok: false, error: test.message, code: test.code });
     }

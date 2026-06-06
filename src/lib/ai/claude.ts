@@ -54,6 +54,41 @@ export async function testClaudeKey(apiKey: string): Promise<ClaudeTestResult> {
   }
 }
 
+/** Résultat de recherche web Claude : liens réels + synthèse. */
+export interface ClaudeWebResult { ok: true; text: string; web: { url: string; title: string }[] }
+
+/** Recherche web Claude (outil web_search) — si disponible avec la clé/plan. */
+export async function claudeWebSearch(apiKey: string, model: string, query: string, maxUses = 4): Promise<ClaudeWebResult | OpenAIError> {
+  try {
+    return await withTimeout(async (signal) => {
+      const res = await fetch(`${ANTHROPIC_BASE}/messages`, {
+        method: "POST",
+        headers: { "x-api-key": apiKey, "anthropic-version": ANTHROPIC_VERSION, "Content-Type": "application/json" },
+        signal,
+        body: JSON.stringify({
+          model,
+          max_tokens: 1500,
+          messages: [{ role: "user", content: query }],
+          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: maxUses }],
+        }),
+      });
+      if (!res.ok) { const body = await res.text().catch(() => ""); return mapStatus(res.status, body); }
+      const data = (await res.json()) as { content?: Array<{ type: string; text?: string; content?: Array<{ type: string; url?: string; title?: string }> }> };
+      const blocks = data.content || [];
+      const text = blocks.filter((b) => b.type === "text").map((b) => b.text || "").join("").trim();
+      const web: { url: string; title: string }[] = [];
+      for (const b of blocks) {
+        if (b.type === "web_search_tool_result" && Array.isArray(b.content)) {
+          for (const r of b.content) if (r.type === "web_search_result" && r.url) web.push({ url: r.url, title: r.title || "" });
+        }
+      }
+      return { ok: true, text, web };
+    });
+  } catch {
+    return { ok: false, code: "network", message: "Impossible de joindre Claude (réseau)." };
+  }
+}
+
 /** Complétion Claude (Anthropic Messages). `json:true` demande une sortie JSON pure. */
 export async function claudeComplete(input: ChatInput): Promise<ChatOk | OpenAIError> {
   try {

@@ -4,21 +4,28 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useOrkestra } from "@/lib/store";
-import { useLens, type LensAnalysis, type SupplierResult, type LensInputKind, type SupplierSearchProvider } from "@/lib/lens-store";
+import { useLens, type LensAnalysis, type SupplierResult, type LensInputKind, type SupplierSearchProvider, type SupplierSearchMethod, type AssistedQuery } from "@/lib/lens-store";
 import { draftFromSupplier } from "@/lib/send-to-import-factory";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
-import { LensUploader, LensUrlInput, LensClipperGuide, LensAnalysisCard, SupplierResults, SupplierComparison } from "./_components";
-import { ScanSearch, Loader2, RotateCcw, Plug, Bookmark, ArrowRight, RefreshCw, Pencil, Check, X } from "lucide-react";
+import { LensUploader, LensUrlInput, LensClipperGuide, LensAnalysisCard, SupplierResults, SupplierComparison, AssistedQueries } from "./_components";
+import { ScanSearch, Loader2, RotateCcw, Plug, Bookmark, ArrowRight, RefreshCw, Pencil, Check, X, Sparkles } from "lucide-react";
 
 type Step = "input" | "analyzing" | "results";
-interface SearchMeta { provider: SupplierSearchProvider; real: boolean; keywords: string[]; error?: string }
+interface SearchMeta { method: SupplierSearchMethod; provider: SupplierSearchProvider; real: boolean; keywords: string[]; models?: string[]; assistedQueries?: AssistedQuery[]; error?: string }
+
+const METHOD_BADGE: Record<SupplierSearchMethod, { label: string; tone: "good" | "warn" | "brand" | "neutral" }> = {
+  structured: { label: "Fournisseurs structurés", tone: "good" },
+  "multi-ai-search": { label: "Recherche multi-IA", tone: "brand" },
+  assisted: { label: "Recherche assistée", tone: "warn" },
+  simulated: { label: "Résultats simulés", tone: "warn" },
+};
 
 export default function OrkestraLensPage() {
   const { connections } = useOrkestra();
   const { saveLens, lensSaved, setImportDraft } = useLens();
   const router = useRouter();
-  const openaiConnected = !!connections.openai?.connected;
+  const anyAiConnected = !!(connections.openai?.connected || connections.anthropic?.connected || connections.gemini?.connected);
 
   const [step, setStep] = useState<Step>("input");
   const [analysis, setAnalysis] = useState<LensAnalysis | null>(null);
@@ -40,14 +47,14 @@ export default function OrkestraLensPage() {
     try {
       const res = await fetch("/api/lens/search", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ analysis: a, provider: opts.provider, keywords: opts.keywords }),
+        body: JSON.stringify({ analysis: a, provider: opts.provider, keywords: opts.keywords, keyRefs: { openai: connections.openai?.keyId, claude: connections.anthropic?.keyId, gemini: connections.gemini?.keyId } }),
       });
       const data = await res.json();
       setResults(data.results || []);
-      setMeta({ provider: data.provider || "simulated", real: !!data.real, keywords: data.keywords || [], error: data.error });
+      setMeta({ method: data.method || "simulated", provider: data.provider || "simulated", real: !!data.real, keywords: data.keywords || [], models: data.models, assistedQueries: data.assistedQueries, error: data.error });
     } catch {
       setResults([]);
-      setMeta({ provider: "simulated", real: false, keywords: [], error: "Impossible de joindre la recherche fournisseurs. Réessayez." });
+      setMeta({ method: "simulated", provider: "simulated", real: false, keywords: [], error: "Impossible de joindre la recherche fournisseurs. Réessayez." });
     } finally { setSearching(false); }
   }
 
@@ -56,7 +63,7 @@ export default function OrkestraLensPage() {
     try {
       const res = await fetch("/api/lens/analyze", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input, keyRefs: { openai: connections.openai?.keyId } }),
+        body: JSON.stringify({ input, keyRefs: { openai: connections.openai?.keyId, claude: connections.anthropic?.keyId, gemini: connections.gemini?.keyId } }),
       });
       const data = await res.json();
       if (!data.ok || !data.analysis) { setError(data.error || "Analyse impossible."); setStep("input"); return; }
@@ -117,12 +124,12 @@ export default function OrkestraLensPage() {
         actions={step === "results" ? <Button variant="outline" onClick={reset} icon={<RotateCcw className="h-4 w-4" />}>Nouvelle recherche</Button> : undefined}
       />
 
-      {!openaiConnected && (
+      {!anyAiConnected && (
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-gradient-to-br from-brand-50 to-transparent p-4 dark:from-brand-950/40">
           <div className="flex items-center gap-2 text-sm text-[var(--text)]">
-            <Plug className="h-4 w-4 text-brand-600" /> Connectez OpenAI pour une analyse d'image réelle. Sans clé, l'analyse est simulée mais l'outil reste utilisable.
+            <Plug className="h-4 w-4 text-brand-600" /> Connectez OpenAI, Claude ou Gemini pour l'analyse d'image réelle et la recherche multi-IA. Sans clé, l'analyse est simulée et l'outil propose des recherches préremplies.
           </div>
-          <Link href="/connect"><Button size="sm" variant="secondary">Connecter OpenAI</Button></Link>
+          <Link href="/connect"><Button size="sm" variant="secondary">Connecter mes IA</Button></Link>
         </div>
       )}
 
@@ -162,8 +169,9 @@ export default function OrkestraLensPage() {
           {/* Bandeau source + mots-clés utilisés (modifiables) */}
           <Card className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                {meta?.real ? <Badge tone="good">Source réelle · {meta.provider}</Badge> : <Badge tone="warn">Résultats simulés</Badge>}
+              <div className="flex flex-wrap items-center gap-2">
+                {meta && <Badge tone={METHOD_BADGE[meta.method].tone}>{METHOD_BADGE[meta.method].label}{meta.method === "structured" && meta.provider ? ` · ${meta.provider}` : ""}</Badge>}
+                {meta?.models?.length ? <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]"><Sparkles className="h-3 w-3 text-brand-600" /> {meta.models.join(" + ")}</span> : null}
                 <span className="text-xs text-[var(--text-muted)]">{results.length} résultat(s)</span>
               </div>
               {!editKw && <Button size="sm" variant="ghost" onClick={() => setEditKw(true)} icon={<Pencil className="h-3.5 w-3.5" />}>Modifier les mots-clés</Button>}
@@ -188,6 +196,8 @@ export default function OrkestraLensPage() {
             )}
           </Card>
 
+          {meta?.assistedQueries?.length ? <AssistedQueries queries={meta.assistedQueries} /> : null}
+
           {compareList.length >= 2 && <SupplierComparison results={compareList} onSend={send} />}
 
           <div>
@@ -197,7 +207,7 @@ export default function OrkestraLensPage() {
               {selected.size > 0 && <span className="text-xs text-[var(--text-muted)]">· {selected.size} sélectionné(s) pour comparer (max 4)</span>}
               {searching && <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-600" />}
             </div>
-            <SupplierResults results={results} selected={selected} onToggle={toggle} onSend={send} onSave={save} savedIds={savedIds} real={!!meta?.real} />
+            <SupplierResults results={results} selected={selected} onToggle={toggle} onSend={send} onSave={save} savedIds={savedIds} method={meta?.method || "simulated"} />
           </div>
         </div>
       )}
