@@ -39,6 +39,13 @@ export interface ImportTransformResult {
   editorial?: boolean;
 }
 
+// Meilleur modèle OpenAI pour Import Factory Ultra. Surchargeable par variable
+// d'env (IMPORT_FACTORY_ULTRA_MODEL) sans hardcoder un modèle peut-être absent.
+// Repli sur le modèle connecté par l'utilisateur si la variable n'est pas définie.
+function ultraModel(connected: string): string {
+  return (process.env.IMPORT_FACTORY_ULTRA_MODEL || "").trim() || connected;
+}
+
 async function resolveKey(ref?: string | null, fallbackModel = "gpt-4o"): Promise<{ apiKey: string; model: string } | null> {
   if (!ref) return null;
   const stored = await getEncrypted(ref);
@@ -62,10 +69,12 @@ export async function runImportTransform(
   const key = await resolveKey(refs?.openai, "gpt-4o");
   if (!key) return { ok: false, live: false, error: "Aucune clé OpenAI connectée. Connectez OpenAI pour transformer votre catalogue." };
 
-  // 1) Transformation structurée — OpenAI (obligatoire).
+  // 1) Transformation structurée — OpenAI (obligatoire). Ultra = meilleur modèle.
+  const ultra = rules.level === "ultra complet";
+  const model = ultra ? ultraModel(key.model) : key.model;
   const system = buildTransformSystem(rules);
   const prompt = buildTransformPrompt(products, rules, mem, ctx);
-  const r = await chatComplete({ apiKey: key.apiKey, model: key.model, system, prompt, temperature: 0.5, maxTokens: 4096, json: true });
+  const r = await chatComplete({ apiKey: key.apiKey, model, system, prompt, temperature: ultra ? 0.45 : 0.5, maxTokens: 4096, json: true });
   if (!r.ok) return { ok: false, live: true, error: r.message };
 
   let results: TransformedProduct[];

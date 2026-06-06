@@ -389,6 +389,10 @@ function cleanProductTitle(title: string): { product: string; brandFromTitle: st
   let product = (pipe >= 0 ? t.slice(0, pipe) : t).trim();
   product = product.replace(/\s+[–—]\s+.*$/u, "").replace(/\s+-\s+\S.*$/u, "");
   for (const re of TITLE_FILLER) product = product.replace(re, " ");
+  // « Luminaire » redondant si un vrai type produit est déjà présent.
+  if (/\b(suspension|lustre|plafonnier|lampe|applique|lampadaire|spot|guirlande)\b/i.test(product)) {
+    product = product.replace(/\bluminaires?\b/gi, " ");
+  }
   product = collapse(product).replace(/[\s,–—-]+$/u, "").trim();
   let words = product.split(/\s+/).filter(Boolean);
   if (words.length > 7) words = words.slice(0, 7);
@@ -558,11 +562,19 @@ export function qualityControl(r: TransformedProduct, ctx: QCContext): QCReport 
       }
       fixed.brandName = brand;
       fixed.title = product ? `${product} | ${brand}` : brand;
+      // SEO Title cohérent : « mot-clé | NomBrandé » (jamais le vendor seul).
+      if (fixed.metaTitle) {
+        const mp = fixed.metaTitle.indexOf("|");
+        const kw = (mp >= 0 ? fixed.metaTitle.slice(0, mp) : fixed.metaTitle).trim();
+        if (kw) fixed.metaTitle = `${kw} | ${brand}`;
+      }
     } else {
       fixed.brandName = undefined;
       if (fixed.title !== product) { fixed.title = product; }
     }
     if (product && product.split(/\s+/).length > 7) { issues.push("Titre produit trop long (raccourci)"); bump("warning"); }
+    // §10 — règle de sortie : si noms brandés activés, le titre DOIT contenir « | NomBrandé ».
+    if (ctx.brandNames && !fixed.title.includes("|")) { issues.push("Nom brandé manquant dans le titre"); bump("risk"); }
   }
 
   // Handle : doublon (exact ou après normalisation) ?

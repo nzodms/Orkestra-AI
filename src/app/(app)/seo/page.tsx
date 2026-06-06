@@ -283,13 +283,16 @@ export default function ImportFactoryPage() {
     const usedMetaOpenings = new Set<string>();
     // Anti-doublon des titres : amorcé par les titres déjà générés (mémoire profil).
     const usedTitles = new Set(mem.titles.map(titleKey).filter(Boolean));
+    // Noms brandés activés = option brandNames OU format de titre « brand_suffix »
+    // (cohérence avec le prompt qui génère sur titleFormat).
+    const brandEnabled = rules.brandNames || rules.titleFormat === "brand_suffix";
     const reports: Record<string, QCReport> = {};
     const fixed = list.map((r) => {
       const g = groups.find((x) => x.handle === r.handle);
       const sourceText = g ? `${g.title} ${g.body} ${g.tags} ${g.type} ${g.variants.map((v) => v.option1).join(" ")}` : "";
       const rep = qualityControl(r, {
         metaSuffix: eff.metaSuffix || rules.metaSuffix, vendor: eff.vendor || rules.vendor, level: rules.level, oldTerms: eff.oldTerms,
-        brandNames: rules.brandNames, language: rules.language, tagsType: rules.tagsType, sourceText,
+        brandNames: brandEnabled, language: rules.language, tagsType: rules.tagsType, sourceText,
         usedBrand, usedHandle, usedMetaOpenings, usedTitles,
       });
       reports[r.handle] = rep;
@@ -372,38 +375,43 @@ export default function ImportFactoryPage() {
     const brandAcc = [...mem.brandNames];
     const anchorAcc = [...mem.anchors];
     let processed = 0;
-    for (let b = 0; b < batches.length; b++) {
-      const batch = batches[b];
-      for (const g of batch) ps[g.handle] = "processing";
-      setProductStatus({ ...ps });
-      const inputs = batch.map(toProductInput);
-      let data: { ok: boolean; results?: TransformedProduct[]; error?: string; editorial?: boolean };
-      try {
-        const res = await fetch("/api/import", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            products: inputs, rules, memory: { brandNames: brandAcc, anchors: anchorAcc, handles: mem.handles, titles: mem.titles },
-            context: { ...profileContext(eff), brandName: eff.brand || brand.storeName || undefined, niche: eff.niche || brand.niche || undefined, positioning: brand.positioning },
-            keyRefs: { openai: connections.openai?.keyId, claude: connections.anthropic?.keyId },
-          }),
-        });
-        data = await res.json();
-      } catch {
-        data = { ok: false, error: "Connexion interrompue." };
-      }
-      processed += batch.length;
-      if (!data.ok || !data.results) {
-        for (const g of batch) { ps[g.handle] = "error"; errored.push(g); } // §10 : on garde les autres
+    // §2/§3 — file de jobs à concurrence contrôlée (chaque produit = un agent).
+    const CONCURRENCY = Math.min(batches.length, rules.level === "ultra complet" ? 4 : 3);
+    if (rules.level === "ultra complet") setProcStep(`${stepLabelFor(rules, claudeOn)} · ${CONCURRENCY} agents en parallèle`);
+    let nextIdx = 0;
+    async function worker() {
+      while (nextIdx < batches.length) {
+        const batch = batches[nextIdx++];
+        for (const g of batch) ps[g.handle] = "processing";
         setProductStatus({ ...ps });
-      } else {
-        acc.push(...data.results);
-        for (const r of data.results) if (r.brandName) brandAcc.push(r.brandName);
-        if (data.editorial) setEditorialApplied(true);
-        for (const g of batch) ps[g.handle] = data.editorial ? "claude" : "done";
+        let data: { ok: boolean; results?: TransformedProduct[]; error?: string; editorial?: boolean };
+        try {
+          const res = await fetch("/api/import", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              products: batch.map(toProductInput), rules, memory: { brandNames: brandAcc, anchors: anchorAcc, handles: mem.handles, titles: mem.titles },
+              context: { ...profileContext(eff), brandName: eff.brand || brand.storeName || undefined, niche: eff.niche || brand.niche || undefined, positioning: brand.positioning },
+              keyRefs: { openai: connections.openai?.keyId, claude: connections.anthropic?.keyId },
+            }),
+          });
+          data = await res.json();
+        } catch {
+          data = { ok: false, error: "Connexion interrompue." };
+        }
+        processed += batch.length;
+        if (!data.ok || !data.results) {
+          for (const g of batch) { ps[g.handle] = "error"; errored.push(g); } // §10 : on garde les autres
+        } else {
+          acc.push(...data.results);
+          for (const rr of data.results) if (rr.brandName) brandAcc.push(rr.brandName);
+          if (data.editorial) setEditorialApplied(true);
+          for (const g of batch) ps[g.handle] = data.editorial ? "claude" : "done";
+        }
         setProductStatus({ ...ps });
+        setProgress({ done: processed, total: target.length });
       }
-      setProgress({ done: processed, total: target.length });
     }
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
     if (!acc.length) {
       setError(append ? "La relance a échoué. Réessayez." : "Échec de la transformation. Vérifiez votre clé OpenAI et réessayez.");
