@@ -4,6 +4,7 @@ import { useOrkestra, connectedProviders } from "@/lib/store";
 import { Moon, Sun, Search, Sparkles, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "./ui/primitives";
+import { OrkestraVoice } from "./voice/OrkestraVoice";
 
 export function Topbar() {
   const { theme, toggleTheme, connections, brand } = useOrkestra();
@@ -34,6 +35,8 @@ export function Topbar() {
             </Link>
           )}
         </div>
+
+        <OrkestraVoice />
 
         <button
           onClick={toggleTheme}

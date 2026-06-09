@@ -148,6 +148,35 @@ body {
   transform: translateY(0) scale(0.995);
 }
 
+/* ── Surfaces « nouvelle génération » (futuriste subtil, jamais sci-fi) ─────── */
+@keyframes ork-aura {
+  0% { transform: scale(1); opacity: 0.55; }
+  70% { transform: scale(1.65); opacity: 0; }
+  100% { opacity: 0; }
+}
+@keyframes ork-wave {
+  0%, 100% { height: 6px; opacity: 0.55; }
+  50% { height: 22px; opacity: 1; }
+}
+/* Anneau d'écoute autour de l'orbe micro Orkestra Voice */
+.ork-aura {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 2px rgba(139, 124, 246, 0.45);
+  animation: ork-aura 1.6s ease-out infinite;
+}
+/* Halo doux derrière un en-tête premium */
+.ork-halo {
+  background: radial-gradient(closest-side, rgba(139, 124, 246, 0.28), transparent 70%);
+  filter: blur(6px);
+}
+/* Barre de waveform animée (écoute) */
+.ork-wave {
+  height: 6px;
+  animation: ork-wave 1s ease-in-out infinite;
+}
+
 /* Respect total de prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {
   *,
