@@ -15,6 +15,7 @@ const MODULE_OF: Record<VoiceIntentId, VoiceModule> = {
   "lens.search": "lens", "lens.compare": "lens", "lens.send": "import", "lens.open": "lens",
   "merchant.status": "merchant", "merchant.risks": "merchant", "merchant.checklist": "merchant", "merchant.monitor": "merchant",
   "shopify.path": "assistant",
+  "seo.review": "import", "store.english": "assistant",
   "dashboard.status": "dashboard", "dashboard.priority": "dashboard", "dashboard.metric": "dashboard",
   "council.ask": "none", "connect.status": "none",
   unknown: "none",
@@ -86,8 +87,11 @@ const RULES: Rule[] = [
   { id: "import.analyze", re: /(analyse|analyser|regarde|regarder|verifie|verifier|montre|montrer|resume|resumer|etat|statut|status).{0,20}(import|csv|fichier|catalogue)|mon (dernier )?(import|csv|fichier|catalogue)|dernier import/ },
   // ── Assistant Shopify (chemins) ──
   { id: "shopify.path", re: /\bou\b.{0,44}(shopify|importer|modifier|changer|creer|coller|mettre|met|csv|meta|alt|description|collection|redirection|menu|liquid|section|theme|code|vendor|fournisseur|livraison|contact|page)|comment.{0,26}(importer|modifier|creer|coller|dans shopify)|dans shopify|chemin shopify|ou je (met|mets|modifie|change)/ },
+  // ── Analyse boutique (SEO / anglais) ──
+  { id: "store.english", re: /mots? anglais|textes? anglais|anglais.{0,18}(boutique|site|magasin|fiche|theme|page)|\benglish\b|en anglais|comment.{0,16}(enlever|corriger|retirer|traduire).{0,16}(mot|anglais|texte|ca|cela)/ },
+  { id: "seo.review", re: /(tu penses quoi|ton avis|qu en penses tu|comment est|analyse|analyser|diagnostic|evalue|c est comment).{0,18}(seo|referencement)|mon seo|le seo de|avis seo|seo de (ma|la) boutique/ },
   // ── Dashboard ──
-  { id: "dashboard.metric", re: /\b(mon|le|la|l)\b.{0,8}(seo|confiance|trust|conversion|merchant|contenu).{0,12}(est|bon|bas|faible|mauvais|nul)?|score (seo|confiance|conversion|global|merchant|contenu)|pourquoi.{0,18}(score|seo|confiance|conversion).{0,12}(bas|faible|mauvais)|est ce que mon (seo|confiance) est/ },
+  { id: "dashboard.metric", re: /\b(mon|le|la|l)\b.{0,8}(confiance|trust|conversion|merchant|contenu).{0,12}(est|bon|bas|faible|mauvais|nul)?|score (confiance|conversion|global|merchant|contenu)|pourquoi.{0,18}(score|confiance|conversion).{0,12}(bas|faible|mauvais)|est ce que mon confiance est/ },
   { id: "dashboard.priority", re: /(le )?plus urgent|priorite|prioritaire|quoi faire maintenant|que dois.?je faire|qu.?est.?ce que je dois faire|qu.?est.?ce qui bloque le plus|prochaines? actions?|par quoi (je )?commence|aujourd hui/ },
   { id: "dashboard.status", re: /resume.{0,14}(ma )?boutique|resume.?moi|fais le point|vue d ensemble|etat (de )?(ma )?boutique|comment va (ma )?boutique|vite fait/ },
   // ── AI Council / connecteurs ──

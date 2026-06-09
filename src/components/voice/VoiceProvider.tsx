@@ -3,10 +3,9 @@
 import { createContext, useContext, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useOrkestra, connectedProviders } from "@/lib/store";
-import {
-  createSpeechRecognition, handleVoiceCommand, speakReply, stopSpeaking, speechSupported,
-} from "@/lib/voice/voice-orchestrator";
-import type { VoiceContext as VCtx, VoiceReply } from "@/lib/voice/voice-types";
+import { createSpeechRecognition, speakReply, stopSpeaking, speechSupported } from "@/lib/voice/voice-orchestrator";
+import { runVoiceCommand } from "@/lib/voice/voice-command-center";
+import type { VoiceContext as VCtx, VoiceResult } from "@/lib/voice/voice-types";
 
 // Suggestions intelligentes selon la page courante.
 const SUGGESTIONS: { match: RegExp; items: string[] }[] = [
@@ -32,7 +31,7 @@ interface VoiceContextValue {
   listening: boolean;
   partial: string;
   transcript: string;
-  reply: VoiceReply | null;
+  result: VoiceResult | null;
   history: string[];
   error: string;
   supported: boolean;
@@ -61,12 +60,11 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [partial, setPartial] = useState("");
   const [transcript, setTranscript] = useState("");
-  const [reply, setReply] = useState<VoiceReply | null>(null);
+  const [result, setResult] = useState<VoiceResult | null>(null);
   const [readAloud, setReadAloud] = useState(false);
   const [error, setError] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const recRef = useRef<{ start: () => void; stop: () => void } | null>(null);
-  const thinkRef = useRef<number | null>(null);
   const supported = useMemo(() => speechSupported(), []);
   const suggestions = useMemo(() => suggestionsFor(pathname || "/"), [pathname]);
 
@@ -84,20 +82,22 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       connectedCount: connectedProviders(connections).length,
     };
   }
-  function process(text: string) {
+  async function process(text: string) {
     if (!text.trim()) return;
-    setTranscript(text); setPartial(""); setReply(null); setStatus("thinking");
+    setTranscript(text); setPartial(""); setResult(null); setStatus("thinking"); setError("");
     const ctx = buildCtx();
-    if (thinkRef.current) window.clearTimeout(thinkRef.current);
-    thinkRef.current = window.setTimeout(() => {
-      const { reply } = handleVoiceCommand(text, ctx);
-      setReply(reply); setStatus("reply");
+    const keyRefs = { openai: connections.openai?.keyId, claude: connections.anthropic?.keyId, gemini: connections.gemini?.keyId };
+    try {
+      const res = await runVoiceCommand(text, ctx, keyRefs);
+      setResult(res); setStatus("reply");
       setHistory((h) => [text, ...h.filter((x) => x !== text)].slice(0, 3));
-      if (readAloud) speakReply(reply.text);
-    }, 280);
+      if (readAloud) speakReply(res.spokenSummary);
+    } catch {
+      setStatus("idle"); setError("Action impossible pour l'instant. Réessayez.");
+    }
   }
   function start() {
-    setError(""); setReply(null); setTranscript(""); setPartial("");
+    setError(""); setResult(null); setTranscript(""); setPartial("");
     const r = createSpeechRecognition({
       onPartial: setPartial,
       onFinal: (t) => process(t),
@@ -108,15 +108,15 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     recRef.current = r; r.start(); setStatus("listening");
   }
   function stop() { recRef.current?.stop(); setStatus((s) => (s === "listening" ? "idle" : s)); }
-  function openPanel() { setOpen(true); setError(""); setReply(null); setTranscript(""); setPartial(""); setStatus("idle"); if (supported) start(); }
+  function openPanel() { setOpen(true); setError(""); setResult(null); setTranscript(""); setPartial(""); setStatus("idle"); if (supported) start(); }
   function closePanel() { stop(); stopSpeaking(); setOpen(false); setStatus("idle"); }
-  function retry() { setReply(null); setTranscript(""); setStatus("idle"); if (supported) start(); }
+  function retry() { setResult(null); setTranscript(""); setStatus("idle"); if (supported) start(); }
 
   const value: VoiceContextValue = {
     open, openPanel, closePanel,
     status, statusLabel: STATUS_LABEL[status],
     listening: status === "listening",
-    partial, transcript, reply, history, error, supported,
+    partial, transcript, result, history, error, supported,
     readAloud, setReadAloud, suggestions,
     start, stop, process, retry,
   };

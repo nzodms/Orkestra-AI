@@ -13,6 +13,7 @@ export type VoiceIntentId =
   | "lens.search" | "lens.compare" | "lens.send" | "lens.open"
   | "merchant.status" | "merchant.risks" | "merchant.checklist" | "merchant.monitor"
   | "shopify.path"
+  | "seo.review" | "store.english"
   | "dashboard.status" | "dashboard.priority" | "dashboard.metric"
   | "council.ask" | "connect.status"
   | "unknown";
@@ -43,13 +44,39 @@ export interface VoiceContext {
   connectedCount: number;
 }
 
-export interface VoiceLink { source: string; url: string }
+export type VoiceCardKind =
+  | "supplier" | "search-link" | "seo-issue" | "english-term"
+  | "import-issue" | "merchant-risk" | "shopify-step" | "metric" | "info";
 
-/** Réponse vocale : texte COURT + module concerné + lien d'ouverture. */
-export interface VoiceReply {
-  text: string;
+/** Une carte de résultat affichée DANS le panel Voice. */
+export interface VoiceCard {
+  kind: VoiceCardKind;
+  title: string;
+  subtitle?: string;
+  meta?: string;        // ex. « Alibaba · score 87 » / « produit · thème »
+  detail?: string;      // recommandation / emplacement / correction
+  href?: string;        // ouvrir la source / l'emplacement
+  tone?: "good" | "warn" | "bad" | "neutral" | "brand";
+  badge?: string;
+}
+/** Action rapide sous le résultat. */
+export interface VoiceAction {
+  label: string;
+  kind: "link" | "navigate" | "command";
+  href?: string;        // link (externe) ou navigate (route interne)
+  command?: string;     // relancer une commande vocale
+  primary?: boolean;
+}
+/** Résultat structuré rendu directement dans Orkestra Voice (Voice = couche d'exécution). */
+export interface VoiceResult {
+  intent: string;
   module: VoiceModule;
-  href?: string;
-  label?: string;     // ex. « Ouvrir Import Factory »
-  links?: VoiceLink[];
+  title: string;
+  spokenSummary: string;   // réponse courte (et lue en TTS)
+  cards: VoiceCard[];
+  actions: VoiceAction[];
+  moduleLink?: { href: string; label: string };
+  confidence: number;
+  /** Recherche en cours (résultats web Lens à venir) ? */
+  pending?: boolean;
 }

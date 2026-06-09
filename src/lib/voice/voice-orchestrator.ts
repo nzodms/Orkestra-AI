@@ -7,10 +7,6 @@
 // streamVoiceSession via Gemini Live / OpenAI Realtime). Aucune clé loggée.
 // ──────────────────────────────────────────────────────────────────────────
 
-import { classifyVoiceIntent } from "./voice-intents";
-import { runVoiceTool } from "./voice-tools";
-import type { VoiceContext, VoiceIntent, VoiceReply } from "./voice-types";
-
 export function vlog(event: string, extra: Record<string, unknown> = {}): void {
   console.log("[Voice]", { event, ...extra });
 }
@@ -67,27 +63,6 @@ export function createSpeechRecognition(opts: RecognitionOpts): { start: () => v
   };
 }
 
-/** Compose la réponse d'une intention (classification + outil). */
-export function composeVoiceReply(intent: VoiceIntent, ctx: VoiceContext): VoiceReply {
-  return runVoiceTool(intent, ctx);
-}
-
-/** Entrée principale V1 : texte transcrit → intention → outil → réponse courte. */
-export function handleVoiceCommand(text: string, ctx: VoiceContext): { intent: VoiceIntent; reply: VoiceReply } {
-  const intent = classifyVoiceIntent(text);
-  vlog("voice-intent-detected", { id: intent.id, module: intent.module, query: intent.params.query });
-  let reply: VoiceReply;
-  try {
-    vlog("voice-tool-called", { tool: intent.tool });
-    reply = composeVoiceReply(intent, ctx);
-  } catch {
-    vlog("voice-tool-error", { tool: intent.tool });
-    reply = { text: "Je n'ai pas pu exécuter cette action. Réessayez ou ouvrez le module concerné.", module: "none", href: "/dashboard", label: "Ouvrir Orkestra" };
-  }
-  vlog("voice-reply-generated", { module: reply.module });
-  return { intent, reply };
-}
-
 // ── TTS (réponse lue) ────────────────────────────────────────────────────────
 export function speakReply(text: string, opts: { lang?: string } = {}): void {
   if (!ttsSupported() || !text) return;
@@ -110,5 +85,3 @@ export async function transcribeAudio(): Promise<string> {
 export async function streamVoiceSession(): Promise<never> {
   throw new Error("streamVoiceSession() : V2 temps réel (Gemini Live / OpenAI Realtime).");
 }
-
-export { classifyVoiceIntent, runVoiceTool };
