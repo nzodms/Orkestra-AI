@@ -177,6 +177,31 @@ body {
   animation: ork-wave 1s ease-in-out infinite;
 }
 
+/* Orbe Orkestra Voice : respiration douce en veille */
+@keyframes ork-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.045); }
+}
+.ork-breathe { animation: ork-breathe 3.2s ease-in-out infinite; }
+
+/* Anneau d'activité (réflexion) autour de l'orbe */
+@keyframes ork-ring { to { transform: rotate(360deg); } }
+.ork-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  border-top-color: rgba(255, 255, 255, 0.92);
+  border-right-color: rgba(255, 255, 255, 0.4);
+  animation: ork-ring 0.9s linear infinite;
+}
+
+/* Entrées du panneau Voice : drawer latéral / bottom sheet */
+@keyframes ork-drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ork-sheet-in { from { transform: translateY(100%); } to { transform: none; } }
+.ork-drawer-in { animation: ork-drawer-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.ork-sheet-in { animation: ork-sheet-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
 /* Respect total de prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {
   *,

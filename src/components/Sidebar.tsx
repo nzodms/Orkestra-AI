@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { VoiceSidebarEntry } from "./voice/VoiceSidebarEntry";
 import {
   LayoutDashboard,
   Sparkles,
@@ -91,7 +92,9 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="m-3 rounded-2xl border border-[var(--border)] bg-gradient-to-br from-brand-50 to-transparent p-4 dark:from-brand-950/40">
+      <VoiceSidebarEntry />
+
+      <div className="m-3 mt-2 rounded-2xl border border-[var(--border)] bg-gradient-to-br from-brand-50 to-transparent p-4 dark:from-brand-950/40">
         <div className="flex items-center gap-2 text-xs font-semibold text-brand-700 dark:text-brand-300">
           <Store className="h-4 w-4" /> Plan Bêta
         </div>
