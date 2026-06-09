@@ -9,21 +9,19 @@ import type { StoreAnalysis, BrandMemory } from "../types";
 export type VoiceModule = "import" | "lens" | "merchant" | "assistant" | "dashboard" | "none";
 
 export type VoiceIntentId =
-  | "import.analyze"
-  | "import.issues"
-  | "lens.search"
-  | "lens.compare"
-  | "lens.send"
-  | "merchant.status"
+  | "import.analyze" | "import.issues" | "import.ready" | "import.next"
+  | "lens.search" | "lens.compare" | "lens.send" | "lens.open"
+  | "merchant.status" | "merchant.risks" | "merchant.checklist" | "merchant.monitor"
   | "shopify.path"
-  | "dashboard.status"
+  | "dashboard.status" | "dashboard.priority" | "dashboard.metric"
+  | "council.ask" | "connect.status"
   | "unknown";
 
 export interface VoiceIntent {
   id: VoiceIntentId;
   module: VoiceModule;
   tool: string;
-  params: { query?: string; action?: string };
+  params: { query?: string; action?: string; platform?: string; constraint?: string; metric?: string };
   confidence: number; // 0-1
 }
 
@@ -41,6 +39,8 @@ export interface VoiceContext {
   /** Dernier nom produit analysé dans Lens (si disponible). */
   lastProductName?: string;
   hasImportDraft: boolean;
+  /** Nombre d'IA connectées (BYOK). */
+  connectedCount: number;
 }
 
 export interface VoiceLink { source: string; url: string }

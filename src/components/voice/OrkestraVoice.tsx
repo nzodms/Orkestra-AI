@@ -2,25 +2,32 @@
 
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useOrkestra } from "@/lib/store";
+import { usePathname } from "next/navigation";
+import { useOrkestra, connectedProviders } from "@/lib/store";
 import { Button } from "@/components/ui/Button";
 import {
   createSpeechRecognition, handleVoiceCommand, speakReply, stopSpeaking,
   speechSupported, ttsSupported,
 } from "@/lib/voice/voice-orchestrator";
 import type { VoiceContext, VoiceReply } from "@/lib/voice/voice-types";
-import { Mic, X, Volume2, ArrowRight, Sparkles, Send, Square } from "lucide-react";
+import { Mic, X, Volume2, ArrowRight, Sparkles, Send, Square, RotateCcw, History } from "lucide-react";
 
-const EXAMPLES = [
-  "Analyse mon dernier import",
-  "Trouve-moi des fournisseurs pour un Pilates Reformer",
-  "Ma boutique est-elle prête pour Merchant ?",
-  "Où importer un CSV dans Shopify ?",
-  "Résume ma boutique",
+// Suggestions intelligentes selon la page courante.
+const SUGGESTIONS: { match: RegExp; items: string[] }[] = [
+  { match: /^\/seo/, items: ["Est-ce que mon import est prêt ?", "Quels produits sont à corriger ?", "Quelle est la prochaine action ?"] },
+  { match: /^\/lens/, items: ["Trouve des fournisseurs pour un Pilates Reformer", "Compare les meilleurs résultats", "Cherche ça sur Alibaba"] },
+  { match: /^\/merchant/, items: ["Je peux lancer Google Shopping ?", "Quels sont les risques Merchant ?", "3 trucs à corriger avant GMC"] },
+  { match: /^\/assistant/, items: ["Où importer un CSV ?", "Où modifier une meta description ?", "Où créer une redirection ?"] },
 ];
+const DEFAULT_SUGGESTIONS = ["Analyse mon dernier import", "Ma boutique est-elle prête pour Merchant ?", "C'est quoi le plus urgent ?", "Résume ma boutique"];
+function suggestionsFor(path: string): string[] {
+  for (const s of SUGGESTIONS) if (s.match.test(path)) return s.items;
+  return DEFAULT_SUGGESTIONS;
+}
 
 export function OrkestraVoice() {
-  const { recentImports, analysis, brand, merchantResolved, lensSaved, importDraft } = useOrkestra();
+  const { recentImports, analysis, brand, merchantResolved, lensSaved, importDraft, connections } = useOrkestra();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const [partial, setPartial] = useState("");
@@ -29,8 +36,10 @@ export function OrkestraVoice() {
   const [readAloud, setReadAloud] = useState(false);
   const [error, setError] = useState("");
   const [typed, setTyped] = useState("");
+  const [history, setHistory] = useState<string[]>([]);
   const recRef = useRef<{ start: () => void; stop: () => void } | null>(null);
   const supported = useMemo(() => speechSupported(), []);
+  const suggestions = useMemo(() => suggestionsFor(pathname || "/"), [pathname]);
 
   function buildCtx(): VoiceContext {
     return {
@@ -43,6 +52,7 @@ export function OrkestraVoice() {
       lensSavedCount: lensSaved.length,
       lastProductName: lensSaved[0]?.analysis.productName,
       hasImportDraft: !!importDraft,
+      connectedCount: connectedProviders(connections).length,
     };
   }
   function process(text: string) {
@@ -50,6 +60,7 @@ export function OrkestraVoice() {
     setTranscript(text); setPartial("");
     const { reply } = handleVoiceCommand(text, buildCtx());
     setReply(reply);
+    setHistory((h) => [text, ...h.filter((x) => x !== text)].slice(0, 3));
     if (readAloud) speakReply(reply.text);
   }
   function start() {
@@ -145,6 +156,7 @@ export function OrkestraVoice() {
                     {ttsSupported() && (
                       <Button size="sm" variant="ghost" onClick={() => speakReply(reply.text)} icon={<Volume2 className="h-3.5 w-3.5" />}>Lire la réponse</Button>
                     )}
+                    <Button size="sm" variant="ghost" onClick={() => { setReply(null); setTranscript(""); if (supported) start(); }} icon={<RotateCcw className="h-3.5 w-3.5" />}>Réessayer</Button>
                   </div>
                 </div>
               )}
@@ -162,10 +174,24 @@ export function OrkestraVoice() {
               </div>
 
               {!reply && !listening && (
-                <div className="flex flex-wrap gap-1.5">
-                  {EXAMPLES.map((ex) => (
-                    <button key={ex} onClick={() => process(ex)} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--text-muted)] transition hover:border-brand-300 hover:text-brand-600">{ex}</button>
-                  ))}
+                <div>
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-400">Suggestions</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {suggestions.map((ex) => (
+                      <button key={ex} onClick={() => process(ex)} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--text-muted)] transition hover:border-brand-300 hover:text-brand-600">{ex}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {history.length > 0 && (
+                <div>
+                  <p className="mb-1.5 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-ink-400"><History className="h-3 w-3" /> Récent</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {history.map((h) => (
+                      <button key={h} onClick={() => process(h)} className="max-w-full truncate rounded-full bg-ink-50 px-2.5 py-1 text-[11px] text-[var(--text-muted)] transition hover:text-brand-600 dark:bg-ink-900">{h}</button>
+                    ))}
+                  </div>
                 </div>
               )}
 
