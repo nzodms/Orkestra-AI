@@ -8,13 +8,18 @@
 import { classifyVoiceIntent } from "./voice-intents";
 import { runVoiceTool } from "./voice-tools";
 import { runLensSearchInsideVoice, type VoiceKeyRefs } from "./voice-lens";
+import { resolveFollowUp, type VoiceSession } from "./voice-session";
 import { vlog } from "./voice-orchestrator";
 import type { VoiceContext, VoiceResult } from "./voice-types";
 
 export type { VoiceKeyRefs };
 
-/** Point d'entrée central : exécute la commande et renvoie le résultat à afficher. */
-export async function runVoiceCommand(text: string, ctx: VoiceContext, keyRefs: VoiceKeyRefs): Promise<VoiceResult> {
+/** Point d'entrée central : suivi conversationnel d'abord, sinon intention + outil. */
+export async function runVoiceCommand(text: string, ctx: VoiceContext, keyRefs: VoiceKeyRefs, session: VoiceSession): Promise<VoiceResult> {
+  // 0) Commande de SUIVI (garde Alibaba, compare, ouvre le 2e, comment corriger…)
+  const fu = resolveFollowUp(text, session, ctx);
+  if (fu) { vlog("voice-followup", { intent: fu.intent }); return fu; }
+
   const intent = classifyVoiceIntent(text);
   vlog("voice-intent-detected", { id: intent.id, module: intent.module, query: intent.params.query });
   try {

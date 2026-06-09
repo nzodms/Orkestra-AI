@@ -5,10 +5,10 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { speakReply, ttsSupported } from "@/lib/voice/voice-orchestrator";
 import { useVoice } from "./VoiceProvider";
-import type { VoiceCard, VoiceCardKind } from "@/lib/voice/voice-types";
+import type { VoiceCard, VoiceCardKind, VoiceResult } from "@/lib/voice/voice-types";
 import {
   Mic, Square, X, Volume2, ArrowRight, Sparkles, Send, RotateCcw, History,
-  Package, Search, AlertTriangle, Languages, ShieldAlert, Gauge, Info, ExternalLink, ListChecks,
+  Package, Search, AlertTriangle, Languages, ShieldAlert, Gauge, Info, ExternalLink, ListChecks, Eraser,
 } from "lucide-react";
 
 const CARD_ICON: Record<VoiceCardKind, React.ElementType> = {
@@ -18,7 +18,6 @@ const CARD_ICON: Record<VoiceCardKind, React.ElementType> = {
 function accentFor(tone?: VoiceCard["tone"]): string {
   return tone === "bad" ? "border-l-red-400" : tone === "warn" ? "border-l-amber-400" : tone === "good" ? "border-l-emerald-400" : tone === "brand" ? "border-l-brand-400" : "border-l-[var(--border)]";
 }
-
 function VoiceCardView({ card }: { card: VoiceCard }) {
   const Icon = CARD_ICON[card.kind] || Info;
   const inner = (
@@ -40,6 +39,7 @@ function VoiceCardView({ card }: { card: VoiceCard }) {
 
 function Orb() {
   const { status, listening, start, stop } = useVoice();
+  const active = status === "thinking" || status === "searching";
   return (
     <button
       onClick={() => (listening ? stop() : start())}
@@ -48,7 +48,7 @@ function Orb() {
       style={{ background: "radial-gradient(120% 120% at 30% 24%, #9d8efc, #5b4fd1 58%, #45399f)", boxShadow: "0 16px 50px -14px rgba(109,94,242,.75), inset 0 1px 0 rgba(255,255,255,.35)" }}
     >
       {listening && <span className="ork-aura" />}
-      {status === "thinking" && <span className="ork-ring" />}
+      {active && <span className="ork-ring" />}
       {listening ? <Square className="h-7 w-7" /> : <Mic className="h-8 w-8" />}
     </button>
   );
@@ -64,8 +64,32 @@ function Waveform() {
   );
 }
 
+function ResultActions({ res }: { res: VoiceResult }) {
+  const { closePanel, process, retry } = useVoice();
+  if (!res.actions.length && !res.moduleLink) return null;
+  return (
+    <>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {res.actions.map((a, i) => a.kind === "command" ? (
+          <Button key={i} size="sm" variant={a.primary ? "primary" : "outline"} onClick={() => process(a.command || "")}>{a.label}</Button>
+        ) : a.kind === "navigate" ? (
+          <Link key={i} href={a.href || "/"} onClick={closePanel}><Button size="sm" variant={a.primary ? "primary" : "outline"}>{a.label}</Button></Link>
+        ) : (
+          <a key={i} href={a.href} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" icon={<ExternalLink className="h-3.5 w-3.5" />}>{a.label}</Button></a>
+        ))}
+        <Button size="sm" variant="ghost" onClick={retry} icon={<RotateCcw className="h-3.5 w-3.5" />}>Réessayer</Button>
+      </div>
+      {res.moduleLink && (
+        <Link href={res.moduleLink.href} onClick={closePanel} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[var(--text-muted)] transition hover:text-brand-600">
+          <ArrowRight className="h-3.5 w-3.5" /> {res.moduleLink.label}
+        </Link>
+      )}
+    </>
+  );
+}
+
 export function VoicePanelBody() {
-  const { closePanel, statusLabel, status, listening, partial, transcript, result, history, error, supported, readAloud, setReadAloud, suggestions, process, retry } = useVoice();
+  const { closePanel, statusLabel, status, listening, partial, transcript, turns, runtime, history, error, supported, readAloud, setReadAloud, suggestions, process, clearConversation } = useVoice();
   const [typed, setTyped] = useState("");
   const send = () => { if (typed.trim()) { process(typed); setTyped(""); } };
 
@@ -77,81 +101,68 @@ export function VoicePanelBody() {
           <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft"><Sparkles className="h-4 w-4" /></span>
           <div className="leading-tight">
             <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--text)]">Orkestra Voice <span className="rounded-full bg-brand-50 px-1.5 py-px text-[9px] font-bold text-brand-700 dark:bg-brand-950 dark:text-brand-300">V1</span></div>
-            <div className="text-[11px] text-[var(--text-muted)]">{statusLabel}</div>
+            <div className="text-[11px] text-[var(--text-muted)]">{statusLabel} · {runtime.label}</div>
           </div>
         </div>
-        <button onClick={closePanel} aria-label="Fermer" className="grid h-8 w-8 place-items-center rounded-lg text-[var(--text-muted)] transition hover:bg-ink-100 hover:text-[var(--text)] dark:hover:bg-ink-900"><X className="h-4 w-4" /></button>
+        <div className="relative flex items-center gap-1">
+          {turns.length > 0 && <button onClick={clearConversation} aria-label="Nouvelle conversation" className="grid h-8 w-8 place-items-center rounded-lg text-[var(--text-muted)] transition hover:bg-ink-100 hover:text-[var(--text)] dark:hover:bg-ink-900"><Eraser className="h-4 w-4" /></button>}
+          <button onClick={closePanel} aria-label="Fermer" className="grid h-8 w-8 place-items-center rounded-lg text-[var(--text-muted)] transition hover:bg-ink-100 hover:text-[var(--text)] dark:hover:bg-ink-900"><X className="h-4 w-4" /></button>
+        </div>
       </div>
 
       <div className="grid place-items-center px-5 py-4">
         <Orb />
         <div className="mt-3.5"><Waveform /></div>
         <p className="mt-2 text-xs text-[var(--text-muted)]">
-          {status === "listening" ? "À l'écoute… parlez maintenant" : status === "thinking" ? "Orkestra exécute votre demande…" : result ? "Voici le résultat" : supported ? "Touchez l'orbe pour parler" : "Tapez votre demande ci-dessous"}
+          {status === "listening" ? "À l'écoute… parlez naturellement" : status === "searching" ? "Je cherche des fournisseurs…" : status === "thinking" ? "Je traite votre demande…" : turns.length ? "Vous pouvez enchaîner" : supported ? "Touchez l'orbe pour parler" : "Tapez votre demande ci-dessous"}
         </p>
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 pb-4">
-        {(partial || transcript) && (
-          <div className="ork-rise rounded-2xl border border-[var(--border)] bg-[var(--bg)]/60 px-4 py-2.5 text-sm text-[var(--text)] backdrop-blur">
-            {transcript || <span className="italic text-[var(--text-muted)]">{partial}…</span>}
-          </div>
+        {/* Fil de conversation */}
+        {turns.map((turn, i) => {
+          const isLast = i === turns.length - 1;
+          const res = turn.result;
+          return (
+            <div key={i} className="ork-rise space-y-2">
+              <div className="flex justify-end"><div className="max-w-[85%] rounded-2xl rounded-br-md bg-brand-500/10 px-3.5 py-2 text-sm text-[var(--text)]">{turn.user}</div></div>
+              <div className="rounded-2xl rounded-bl-md border border-brand-200/60 bg-gradient-to-br from-brand-50/60 to-transparent p-3.5 backdrop-blur dark:border-brand-900/50 dark:from-brand-950/40">
+                {isLast && res.title && <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">{res.title}</p>}
+                <p className="text-sm leading-relaxed text-[var(--text)]">{res.spokenSummary}</p>
+                {isLast && (
+                  <>
+                    {ttsSupported() && <button onClick={() => speakReply(res.spokenSummary)} className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-brand-600 hover:underline"><Volume2 className="h-3 w-3" /> Lire (voix navigateur)</button>}
+                    {res.cards.length > 0 && <div className="mt-2.5 space-y-2">{res.cards.map((c, j) => <VoiceCardView key={j} card={c} />)}</div>}
+                    <ResultActions res={res} />
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+
+        {(partial || (listening && transcript)) && (
+          <div className="flex justify-end"><div className="max-w-[85%] rounded-2xl rounded-br-md bg-ink-100/70 px-3.5 py-2 text-sm italic text-[var(--text-muted)] dark:bg-ink-900/70">{transcript || partial}…</div></div>
         )}
 
         {error && <p className="text-xs text-amber-600">{error}</p>}
 
-        {result && (
-          <div className="ork-rise space-y-3">
-            <div className="rounded-2xl border border-brand-200/70 bg-gradient-to-br from-brand-50/70 to-transparent p-4 backdrop-blur dark:border-brand-900/50 dark:from-brand-950/40">
-              {result.title && <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">{result.title}</p>}
-              <p className="text-sm leading-relaxed text-[var(--text)]">{result.spokenSummary}</p>
-              {ttsSupported() && (
-                <button onClick={() => speakReply(result.spokenSummary)} className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-brand-600 hover:underline"><Volume2 className="h-3 w-3" /> Lire</button>
-              )}
-            </div>
-
-            {result.cards.length > 0 && <div className="space-y-2">{result.cards.map((c, i) => <VoiceCardView key={i} card={c} />)}</div>}
-
-            {(result.actions.length > 0 || result.moduleLink) && (
-              <div className="flex flex-wrap items-center gap-2">
-                {result.actions.map((a, i) => a.kind === "command" ? (
-                  <Button key={i} size="sm" variant={a.primary ? "primary" : "outline"} onClick={() => process(a.command || "")}>{a.label}</Button>
-                ) : a.kind === "navigate" ? (
-                  <Link key={i} href={a.href || "/"} onClick={closePanel}><Button size="sm" variant={a.primary ? "primary" : "outline"}>{a.label}</Button></Link>
-                ) : (
-                  <a key={i} href={a.href} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" icon={<ExternalLink className="h-3.5 w-3.5" />}>{a.label}</Button></a>
-                ))}
-                <Button size="sm" variant="ghost" onClick={retry} icon={<RotateCcw className="h-3.5 w-3.5" />}>Réessayer</Button>
-              </div>
-            )}
-
-            {result.moduleLink && (
-              <Link href={result.moduleLink.href} onClick={closePanel} className="inline-flex items-center gap-1 text-xs font-medium text-[var(--text-muted)] transition hover:text-brand-600">
-                <ArrowRight className="h-3.5 w-3.5" /> {result.moduleLink.label}
-              </Link>
-            )}
-          </div>
-        )}
-
-        {!result && !listening && status !== "thinking" && (
+        {turns.length === 0 && !listening && status !== "thinking" && status !== "searching" && (
           <div className="ork-fade">
-            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400">Demandez n'importe quoi</p>
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400">Demandez n'importe quoi sur votre boutique</p>
             <div className="flex flex-wrap gap-1.5">
               {suggestions.map((ex) => (
                 <button key={ex} onClick={() => process(ex)} className="rounded-full border border-[var(--border)] bg-[var(--surface)]/60 px-3 py-1.5 text-[11px] text-[var(--text-muted)] backdrop-blur transition hover:-translate-y-px hover:border-brand-300 hover:text-brand-600">{ex}</button>
               ))}
             </div>
-          </div>
-        )}
-
-        {history.length > 0 && !listening && (
-          <div className="ork-fade">
-            <p className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-ink-400"><History className="h-3 w-3" /> Récent</p>
-            <div className="flex flex-wrap gap-1.5">
-              {history.map((h) => (
-                <button key={h} onClick={() => process(h)} className="max-w-full truncate rounded-full bg-ink-50 px-3 py-1.5 text-[11px] text-[var(--text-muted)] transition hover:text-brand-600 dark:bg-ink-900">{h}</button>
-              ))}
-            </div>
+            {history.length > 0 && (
+              <div className="mt-3">
+                <p className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-ink-400"><History className="h-3 w-3" /> Récent</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {history.map((h) => <button key={h} onClick={() => process(h)} className="max-w-full truncate rounded-full bg-ink-50 px-3 py-1.5 text-[11px] text-[var(--text-muted)] transition hover:text-brand-600 dark:bg-ink-900">{h}</button>)}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -163,7 +174,7 @@ export function VoicePanelBody() {
         </div>
         <label className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
           <input type="checkbox" checked={readAloud} onChange={(e) => setReadAloud(e.target.checked)} className="accent-brand-600" />
-          Lire les réponses à voix haute
+          Lire à voix haute (voix navigateur — fallback, non premium)
         </label>
       </div>
     </div>

@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { useOrkestra, connectedProviders } from "@/lib/store";
 import { createSpeechRecognition, speakReply, stopSpeaking, speechSupported } from "@/lib/voice/voice-orchestrator";
 import { runVoiceCommand } from "@/lib/voice/voice-command-center";
+import { selectVoiceRuntime, interruptAssistantSpeech, type VoiceRuntimeStatus } from "@/lib/voice/voice-runtime";
+import { EMPTY_SESSION, nextSession, type VoiceSession } from "@/lib/voice/voice-session";
 import type { VoiceContext as VCtx, VoiceResult } from "@/lib/voice/voice-types";
 
 // Suggestions intelligentes selon la page courante.
@@ -20,7 +22,8 @@ function suggestionsFor(path: string): string[] {
   return DEFAULT_SUGGESTIONS;
 }
 
-export type VoiceStatus = "idle" | "listening" | "thinking" | "reply";
+export type VoiceStatus = "idle" | "listening" | "thinking" | "searching" | "reply";
+export interface VoiceTurn { user: string; result: VoiceResult }
 
 interface VoiceContextValue {
   open: boolean;
@@ -32,6 +35,8 @@ interface VoiceContextValue {
   partial: string;
   transcript: string;
   result: VoiceResult | null;
+  turns: VoiceTurn[];
+  runtime: VoiceRuntimeStatus;
   history: string[];
   error: string;
   supported: boolean;
@@ -42,6 +47,8 @@ interface VoiceContextValue {
   stop: () => void;
   process: (text: string) => void;
   retry: () => void;
+  interrupt: () => void;
+  clearConversation: () => void;
 }
 
 const Ctx = createContext<VoiceContextValue | null>(null);
@@ -51,7 +58,7 @@ export function useVoice(): VoiceContextValue {
   return v;
 }
 
-const STATUS_LABEL: Record<VoiceStatus, string> = { idle: "Prêt", listening: "À l'écoute", thinking: "Réflexion…", reply: "Réponse" };
+const STATUS_LABEL: Record<VoiceStatus, string> = { idle: "Prêt", listening: "À l'écoute", thinking: "Comprend…", searching: "Recherche…", reply: "Réponse" };
 
 export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const { recentImports, analysis, brand, merchantResolved, lensSaved, importDraft, connections } = useOrkestra();
@@ -61,12 +68,15 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const [partial, setPartial] = useState("");
   const [transcript, setTranscript] = useState("");
   const [result, setResult] = useState<VoiceResult | null>(null);
-  const [readAloud, setReadAloud] = useState(false);
+  const [turns, setTurns] = useState<VoiceTurn[]>([]);
+  const [readAloud, setReadAloud] = useState(false); // voix navigateur = fallback opt-in (jamais auto)
   const [error, setError] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const recRef = useRef<{ start: () => void; stop: () => void } | null>(null);
+  const sessionRef = useRef<VoiceSession>(EMPTY_SESSION);
   const supported = useMemo(() => speechSupported(), []);
   const suggestions = useMemo(() => suggestionsFor(pathname || "/"), [pathname]);
+  const runtime = useMemo(() => selectVoiceRuntime({ gemini: !!connections.gemini?.connected, openai: !!connections.openai?.connected }), [connections.gemini?.connected, connections.openai?.connected]);
 
   function buildCtx(): VCtx {
     return {
@@ -84,13 +94,18 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   }
   async function process(text: string) {
     if (!text.trim()) return;
-    setTranscript(text); setPartial(""); setResult(null); setStatus("thinking"); setError("");
+    setTranscript(text); setPartial(""); setResult(null); setError("");
+    const searching = /fournisseur|alibaba|aliexpress|1688|cherche|trouve|sourcing/.test(text.toLowerCase());
+    setStatus(searching ? "searching" : "thinking");
     const ctx = buildCtx();
     const keyRefs = { openai: connections.openai?.keyId, claude: connections.anthropic?.keyId, gemini: connections.gemini?.keyId };
     try {
-      const res = await runVoiceCommand(text, ctx, keyRefs);
+      const res = await runVoiceCommand(text, ctx, keyRefs, sessionRef.current);
+      sessionRef.current = nextSession(sessionRef.current, res.intent, res);
       setResult(res); setStatus("reply");
+      setTurns((ts) => [...ts, { user: text, result: res }].slice(-6));
       setHistory((h) => [text, ...h.filter((x) => x !== text)].slice(0, 3));
+      // Voix navigateur UNIQUEMENT si l'utilisateur l'a activée (jamais en automatique premium).
       if (readAloud) speakReply(res.spokenSummary);
     } catch {
       setStatus("idle"); setError("Action impossible pour l'instant. Réessayez.");
@@ -111,14 +126,16 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   function openPanel() { setOpen(true); setError(""); setResult(null); setTranscript(""); setPartial(""); setStatus("idle"); if (supported) start(); }
   function closePanel() { stop(); stopSpeaking(); setOpen(false); setStatus("idle"); }
   function retry() { setResult(null); setTranscript(""); setStatus("idle"); if (supported) start(); }
+  function interrupt() { stopSpeaking(); interruptAssistantSpeech(); if (status === "listening") stop(); }
+  function clearConversation() { setTurns([]); setResult(null); setTranscript(""); setHistory([]); sessionRef.current = EMPTY_SESSION; setStatus("idle"); }
 
   const value: VoiceContextValue = {
     open, openPanel, closePanel,
     status, statusLabel: STATUS_LABEL[status],
     listening: status === "listening",
-    partial, transcript, result, history, error, supported,
+    partial, transcript, result, turns, runtime, history, error, supported,
     readAloud, setReadAloud, suggestions,
-    start, stop, process, retry,
+    start, stop, process, retry, interrupt, clearConversation,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
