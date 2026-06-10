@@ -3,13 +3,16 @@
 import { createContext, useContext, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useOrkestra, connectedProviders } from "@/lib/store";
-import { createSpeechRecognition, speakReply, stopSpeaking, speechSupported } from "@/lib/voice/voice-orchestrator";
+import { createSpeechRecognition, speakReply, stopSpeaking, speechSupported, vlog } from "@/lib/voice/voice-orchestrator";
 import { runVoiceCommand } from "@/lib/voice/voice-command-center";
 import { selectVoiceRuntime, interruptAssistantSpeech, type VoiceRuntimeStatus } from "@/lib/voice/voice-runtime";
 import { EMPTY_SESSION, nextSession, type VoiceSession } from "@/lib/voice/voice-session";
-import { startRealtimeSession, type RealtimeHandle, type RealtimeStatus, type RealtimeCallbacks } from "@/lib/voice/voice-realtime";
+import { startRealtimeSession, type RealtimeHandle, type RealtimeStatus, type RealtimeCallbacks, type VoiceDiag } from "@/lib/voice/voice-realtime";
 import { startGeminiLiveSession } from "@/lib/voice/voice-gemini-live";
 import { executeRealtimeTool } from "@/lib/voice/voice-realtime-tools";
+
+export type RealtimeState = "off" | "connecting" | "live" | "failed";
+const EMPTY_DIAG: VoiceDiag = { ws: false, mic: false, audioIn: false, audioOut: false, chunks: 0, messages: 0 };
 import type { VoiceContext as VCtx, VoiceResult } from "@/lib/voice/voice-types";
 
 // Suggestions intelligentes selon la page courante.
@@ -52,8 +55,10 @@ interface VoiceContextValue {
   retry: () => void;
   interrupt: () => void;
   clearConversation: () => void;
-  // ── Temps réel (OpenAI Realtime) ──
+  // ── Temps réel (Gemini Live / OpenAI Realtime) ──
   realtimeActive: boolean;
+  realtimeState: RealtimeState;
+  diag: VoiceDiag;
   muted: boolean;
   assistantLive: string;
   startRealtime: () => void;
@@ -88,6 +93,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const recRef = useRef<{ start: () => void; stop: () => void } | null>(null);
   const sessionRef = useRef<VoiceSession>(EMPTY_SESSION);
   const [realtimeActive, setRealtimeActive] = useState(false);
+  const [realtimeState, setRealtimeState] = useState<RealtimeState>("off");
+  const [diag, setDiag] = useState<VoiceDiag>(EMPTY_DIAG);
   const [muted, setMuted] = useState(false);
   const [assistantLive, setAssistantLive] = useState("");
   const handleRef = useRef<RealtimeHandle | null>(null);
@@ -142,28 +149,36 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   async function startRealtime() {
     if (!runtime.realtimeOption) { setError("La voix temps réel nécessite Gemini ou OpenAI connecté. Orkestra reste disponible en mode texte intelligent."); return; }
     if (handleRef.current) return;
-    setError(""); setStatus("connecting"); if (recRef.current) stop();
+    setError(""); setStatus("connecting"); setRealtimeState("connecting"); setDiag(EMPTY_DIAG); if (recRef.current) stop();
     const callbacks: RealtimeCallbacks = {
       keyRefs: { openai: connections.openai?.keyId, gemini: connections.gemini?.keyId },
-      onStatus: (s) => setStatus(mapRealtime(s)),
+      onStatus: (s) => {
+        setStatus(mapRealtime(s));
+        if (s === "listening" || s === "speaking" || s === "tool") setRealtimeState("live");
+        else if (s === "error" || s === "closed") { handleRef.current = null; setRealtimeActive(false); setRealtimeState((prev) => (prev === "connecting" ? "failed" : "off")); }
+      },
       onUserTranscript: (t) => { lastUserRef.current = t; setTranscript(t); },
       onAssistantText: (t) => setAssistantLive(t),
       onToolCall: handleToolCall,
       onError: (m) => setError(m),
+      onDiag: (patch) => setDiag((d) => ({ ...d, ...patch })),
     };
     try {
       const engine = runtime.provider === "gemini-live" ? startGeminiLiveSession : startRealtimeSession;
       const h = await engine(callbacks);
       handleRef.current = h; setRealtimeActive(true); setMuted(false);
-    } catch {
-      // Repli propre : mode texte intelligent + dictée navigateur.
-      setRealtimeActive(false); setStatus("idle");
-      if (supported) start();
+    } catch (e) {
+      const reason = (e as Error)?.message || "inconnue";
+      vlog("gemini-live-fallback-to-text", { reason });
+      // PAS de bascule silencieuse : on reste honnête (badge « indisponible »),
+      // l'utilisateur voit l'erreur et peut réessayer ou écrire / dicter manuellement.
+      setRealtimeActive(false); setRealtimeState("failed"); setStatus("idle");
+      setDiag((d) => ({ ...d, lastError: reason }));
     }
   }
   function stopRealtime() {
     handleRef.current?.stop(); handleRef.current = null;
-    setRealtimeActive(false); setAssistantLive(""); setStatus("idle");
+    setRealtimeActive(false); setRealtimeState("off"); setAssistantLive(""); setStatus("idle");
   }
   function toggleMute() { const m = !muted; setMuted(m); handleRef.current?.setMuted(m); }
 
@@ -202,7 +217,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     partial, transcript, result, turns, runtime, history, error, supported,
     readAloud, setReadAloud, suggestions,
     start, stop, process, retry, interrupt, clearConversation,
-    realtimeActive, muted, assistantLive, startRealtime, stopRealtime, toggleMute,
+    realtimeActive, realtimeState, diag, muted, assistantLive, startRealtime, stopRealtime, toggleMute,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

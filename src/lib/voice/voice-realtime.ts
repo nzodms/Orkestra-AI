@@ -11,6 +11,9 @@ import { REALTIME_INSTRUCTIONS, REALTIME_TOOLS } from "./voice-realtime-tools";
 
 export type RealtimeStatus = "connecting" | "listening" | "thinking" | "tool" | "speaking" | "error" | "closed";
 
+/** État de diagnostic du runtime temps réel (affiché dans le bloc debug). */
+export interface VoiceDiag { ws: boolean; mic: boolean; audioIn: boolean; audioOut: boolean; chunks: number; messages: number; lastError?: string }
+
 export interface RealtimeCallbacks {
   keyRefs: { openai?: string | null; gemini?: string | null };
   onStatus: (s: RealtimeStatus) => void;
@@ -18,6 +21,7 @@ export interface RealtimeCallbacks {
   onAssistantText: (text: string) => void;
   onToolCall: (name: string, args: Record<string, unknown>) => Promise<string>;
   onError: (msg: string) => void;
+  onDiag?: (patch: Partial<VoiceDiag>) => void;
 }
 export interface RealtimeHandle {
   stop: () => void;

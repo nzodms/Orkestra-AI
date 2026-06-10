@@ -39,11 +39,11 @@ function VoiceCardView({ card }: { card: VoiceCard }) {
 }
 
 function Orb() {
-  const { status, listening, realtimeActive, start, stop, stopRealtime } = useVoice();
+  const { status, listening, realtimeActive, runtime, start, stop, startRealtime, stopRealtime } = useVoice();
   const busy = status === "thinking" || status === "searching" || status === "connecting" || status === "tool";
   const halo = status === "listening" || status === "speaking";
   const stopIcon = realtimeActive || listening;
-  const onClick = () => { if (realtimeActive) stopRealtime(); else (listening ? stop() : start()); };
+  const onClick = () => { if (realtimeActive) stopRealtime(); else if (runtime.realtimeAvailable) startRealtime(); else (listening ? stop() : start()); };
   return (
     <button
       onClick={onClick}
@@ -59,7 +59,7 @@ function Orb() {
 }
 
 function Controls() {
-  const { runtime, realtimeActive, muted, startRealtime, stopRealtime, interrupt, toggleMute } = useVoice();
+  const { runtime, realtimeActive, realtimeState, muted, startRealtime, stopRealtime, interrupt, toggleMute } = useVoice();
   if (realtimeActive) return (
     <div className="flex items-center gap-2">
       <Button size="sm" variant="outline" onClick={interrupt} icon={<Hand className="h-3.5 w-3.5" />}>Interrompre</Button>
@@ -67,7 +67,7 @@ function Controls() {
       <Button size="sm" variant="ghost" onClick={stopRealtime} icon={<Square className="h-3.5 w-3.5" />}>Stop</Button>
     </div>
   );
-  if (runtime.realtimeAvailable) return <Button size="sm" className="ork-glow" onClick={startRealtime} icon={<PhoneCall className="h-3.5 w-3.5" />}>Démarrer la conversation</Button>;
+  if (runtime.realtimeAvailable) return <Button size="sm" className="ork-glow" onClick={startRealtime} icon={<PhoneCall className="h-3.5 w-3.5" />}>{realtimeState === "failed" ? "Réessayer la connexion" : "Démarrer la conversation"}</Button>;
   return null;
 }
 function Waveform() {
@@ -106,9 +106,15 @@ function ResultActions({ res }: { res: VoiceResult }) {
 }
 
 export function VoicePanelBody() {
-  const { closePanel, statusLabel, status, listening, partial, transcript, turns, runtime, history, error, supported, readAloud, setReadAloud, suggestions, process, clearConversation, realtimeActive, assistantLive, startRealtime } = useVoice();
+  const { closePanel, statusLabel, status, listening, partial, transcript, turns, runtime, history, error, supported, readAloud, setReadAloud, suggestions, process, clearConversation, realtimeActive, realtimeState, diag, assistantLive, startRealtime } = useVoice();
   const [typed, setTyped] = useState("");
   const send = () => { if (typed.trim()) { process(typed); setTyped(""); } };
+  const liveName = runtime.provider === "gemini-live" ? "Gemini Live" : "OpenAI Realtime";
+  const runtimeBadge =
+    realtimeState === "live" ? `${liveName} · en direct` :
+    realtimeState === "connecting" ? `Connexion ${liveName}…` :
+    realtimeState === "failed" ? `${liveName} indisponible · Mode texte` :
+    runtime.realtimeAvailable ? `${liveName} (prêt)` : runtime.label;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -117,8 +123,8 @@ export function VoicePanelBody() {
         <div className="relative flex items-center gap-2.5">
           <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft"><Sparkles className="h-4 w-4" /></span>
           <div className="leading-tight">
-            <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--text)]">Orkestra Voice <span className="rounded-full bg-brand-50 px-1.5 py-px text-[9px] font-bold text-brand-700 dark:bg-brand-950 dark:text-brand-300">{realtimeActive ? "Live" : "V1"}</span></div>
-            <div className="text-[11px] text-[var(--text-muted)]">{statusLabel} · {realtimeActive ? (runtime.provider === "gemini-live" ? "Gemini Live" : "OpenAI Realtime") : runtime.label}</div>
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--text)]">Orkestra Voice <span className={`rounded-full px-1.5 py-px text-[9px] font-bold ${realtimeState === "live" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" : "bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300"}`}>{realtimeState === "live" ? "Live" : "V1"}</span></div>
+            <div className="text-[11px] text-[var(--text-muted)]">{statusLabel} · {runtimeBadge}</div>
           </div>
         </div>
         <div className="relative flex items-center gap-1">
@@ -195,6 +201,20 @@ export function VoicePanelBody() {
       </div>
 
       <div className="space-y-2 border-t border-[var(--border)] px-5 py-3.5">
+        {/* Diagnostic temps réel (discret, repliable) */}
+        <details className="rounded-xl border border-[var(--border)] bg-[var(--bg)]/50 px-3 py-1.5">
+          <summary className="cursor-pointer text-[11px] text-[var(--text-muted)]">Diagnostic Voice</summary>
+          <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[10px] text-[var(--text-muted)]">
+            <span>Runtime</span><span className="text-[var(--text)]">{runtime.provider}</span>
+            <span>État</span><span className="text-[var(--text)]">{realtimeState}</span>
+            <span>WebSocket</span><span className={diag.ws ? "text-emerald-600" : "text-[var(--text)]"}>{diag.ws ? "connecté" : "non"}</span>
+            <span>Micro</span><span className={diag.mic ? "text-emerald-600" : "text-[var(--text)]"}>{diag.mic ? "actif" : "inactif"}</span>
+            <span>Audio envoyé</span><span className="text-[var(--text)]">{diag.audioIn ? `oui (${diag.chunks})` : "non"}</span>
+            <span>Audio reçu</span><span className={diag.audioOut ? "text-emerald-600" : "text-[var(--text)]"}>{diag.audioOut ? "oui" : "non"}</span>
+            <span>Messages serveur</span><span className="text-[var(--text)]">{diag.messages}</span>
+            <span>Erreur</span><span className={diag.lastError ? "text-amber-600" : "text-[var(--text)]"}>{diag.lastError || "aucune"}</span>
+          </div>
+        </details>
         <div className="flex items-center gap-2">
           <input className="input flex-1" placeholder={supported ? "…ou écrivez à Orkestra" : "Écrivez à Orkestra"} value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
           <Button size="sm" variant="outline" onClick={send} icon={<Send className="h-3.5 w-3.5" />} aria-label="Envoyer" />
