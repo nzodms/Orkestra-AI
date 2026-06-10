@@ -38,7 +38,7 @@ export async function startGeminiLiveSession(cb: RealtimeCallbacks): Promise<Rea
   }
   vlog("gemini-live-session-ok");
   const token: string = sdata.token;
-  const model: string = sdata.model || "gemini-2.0-flash-live-001";
+  const model: string = sdata.model || "gemini-live-2.5-flash-preview";
 
   // 2) Micro.
   let mic: MediaStream;

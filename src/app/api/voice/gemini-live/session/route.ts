@@ -11,7 +11,11 @@ import { decryptSecret } from "@/lib/crypto";
 export const runtime = "nodejs";
 export const maxDuration = 20;
 
-const MODEL = (process.env.GEMINI_LIVE_MODEL || "gemini-2.0-flash-live-001").trim();
+// Modèle Live par défaut : « half-cascade » 2.5 (stable + function calling fiable,
+// idéal pour nos outils Orkestra). gemini-2.0-flash-live-001 est arrêté (juin 2026).
+// Surchargeable via GEMINI_LIVE_MODEL (ex. gemini-2.5-flash-native-audio-preview-12-2025
+// pour la voix native, au prix d'un tool calling moins fiable).
+const MODEL = (process.env.GEMINI_LIVE_MODEL || "gemini-live-2.5-flash-preview").trim();
 const BASE = "https://generativelanguage.googleapis.com";
 
 async function resolveGeminiKey(ref?: string | null): Promise<string | null> {
