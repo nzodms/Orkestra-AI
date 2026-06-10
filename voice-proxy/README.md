@@ -25,11 +25,23 @@ Tant qu'aucun proxy n'est déployé, Orkestra reste en **mode texte intelligent*
 
 ## Déploiement express
 
-### Railway / Render
-1. Nouveau service → « Deploy from repo » → dossier racine = `voice-proxy/`.
-2. Build : `npm install` · Start : `npm start` (ou utilisez le `Dockerfile`).
-3. Variables d'env : voir `.env.example` (au minimum une option de clé ci-dessous).
-4. Récupérez l'URL publique → en `wss://`, suffixe `/voice`.
+### Railway (recommandé)
+1. **New Project → Deploy from GitHub repo** → choisissez ce repo.
+2. **Settings → Root Directory = `voice-proxy`** (important : le proxy est dans un
+   sous-dossier). Railway lit alors `railway.json` (build Nixpacks, start
+   `node server.mjs`, healthcheck `/health`).
+3. **Variables** → pour un premier test avec une clé unique :
+   `GEMINI_API_KEY = <ta clé Gemini>`. Optionnel/prod :
+   `ALLOWED_ORIGINS = https://<ton-app>.vercel.app`. `PORT` est injecté
+   automatiquement par Railway.
+4. **Deploy**, puis copiez le domaine public (`xxxxx.up.railway.app`).
+5. URL à mettre côté Next : `wss://xxxxx.up.railway.app/voice`.
+
+### Render
+1. Nouveau **Web Service** → repo → **Root Directory = `voice-proxy`**.
+2. Build : `npm install` · Start : `npm start` (ou le `Dockerfile`).
+3. Variable : `GEMINI_API_KEY` (+ `ALLOWED_ORIGINS` en prod).
+4. URL publique → en `wss://…/voice`.
 
 ### Fly.io
 ```bash
