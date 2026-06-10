@@ -39,11 +39,11 @@ function VoiceCardView({ card }: { card: VoiceCard }) {
 }
 
 function Orb() {
-  const { status, listening, realtimeActive, runtime, start, stop, startRealtime, stopRealtime } = useVoice();
+  const { status, listening, realtimeActive, start, stop, stopRealtime } = useVoice();
   const busy = status === "thinking" || status === "searching" || status === "connecting" || status === "tool";
   const halo = status === "listening" || status === "speaking";
   const stopIcon = realtimeActive || listening;
-  const onClick = () => { if (runtime.realtimeAvailable) (realtimeActive ? stopRealtime() : startRealtime()); else (listening ? stop() : start()); };
+  const onClick = () => { if (realtimeActive) stopRealtime(); else (listening ? stop() : start()); };
   return (
     <button
       onClick={onClick}
@@ -58,10 +58,10 @@ function Orb() {
   );
 }
 
+/** Contrôles temps réel — visibles UNIQUEMENT pendant une session avancée. */
 function Controls() {
-  const { runtime, realtimeActive, muted, startRealtime, stopRealtime, interrupt, toggleMute } = useVoice();
-  if (!runtime.realtimeAvailable) return null;
-  if (!realtimeActive) return <Button size="sm" className="ork-glow" onClick={startRealtime} icon={<PhoneCall className="h-3.5 w-3.5" />}>Démarrer la conversation</Button>;
+  const { realtimeActive, muted, stopRealtime, interrupt, toggleMute } = useVoice();
+  if (!realtimeActive) return null;
   return (
     <div className="flex items-center gap-2">
       <Button size="sm" variant="outline" onClick={interrupt} icon={<Hand className="h-3.5 w-3.5" />}>Interrompre</Button>
@@ -106,7 +106,7 @@ function ResultActions({ res }: { res: VoiceResult }) {
 }
 
 export function VoicePanelBody() {
-  const { closePanel, statusLabel, status, listening, partial, transcript, turns, runtime, history, error, supported, readAloud, setReadAloud, suggestions, process, clearConversation, realtimeActive, assistantLive } = useVoice();
+  const { closePanel, statusLabel, status, listening, partial, transcript, turns, runtime, history, error, supported, readAloud, setReadAloud, suggestions, process, clearConversation, realtimeActive, assistantLive, startRealtime } = useVoice();
   const [typed, setTyped] = useState("");
   const send = () => { if (typed.trim()) { process(typed); setTyped(""); } };
 
@@ -117,8 +117,8 @@ export function VoicePanelBody() {
         <div className="relative flex items-center gap-2.5">
           <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft"><Sparkles className="h-4 w-4" /></span>
           <div className="leading-tight">
-            <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--text)]">Orkestra Voice <span className="rounded-full bg-brand-50 px-1.5 py-px text-[9px] font-bold text-brand-700 dark:bg-brand-950 dark:text-brand-300">V1</span></div>
-            <div className="text-[11px] text-[var(--text-muted)]">{statusLabel} · {runtime.label}</div>
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--text)]">Orkestra Voice <span className="rounded-full bg-brand-50 px-1.5 py-px text-[9px] font-bold text-brand-700 dark:bg-brand-950 dark:text-brand-300">{realtimeActive ? "Realtime" : "V1"}</span></div>
+            <div className="text-[11px] text-[var(--text-muted)]">{statusLabel} · {realtimeActive ? "OpenAI Realtime" : runtime.label}</div>
           </div>
         </div>
         <div className="relative flex items-center gap-1">
@@ -139,8 +139,7 @@ export function VoicePanelBody() {
             : status === "speaking" ? (assistantLive ? assistantLive : "Orkestra répond…")
             : realtimeActive ? "Conversation active — parlez ou enchaînez"
             : turns.length ? "Vous pouvez enchaîner"
-            : runtime.realtimeAvailable ? "Démarrez une vraie conversation vocale"
-            : supported ? "Touchez l'orbe pour parler" : "Tapez votre demande ci-dessous"}
+            : supported ? "Dictez ou écrivez votre demande" : "Écrivez votre demande ci-dessous"}
         </p>
         <div className="mt-3"><Controls /></div>
       </div>
@@ -199,10 +198,17 @@ export function VoicePanelBody() {
           <input className="input flex-1" placeholder={supported ? "…ou écrivez à Orkestra" : "Écrivez à Orkestra"} value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
           <Button size="sm" variant="outline" onClick={send} icon={<Send className="h-3.5 w-3.5" />} aria-label="Envoyer" />
         </div>
-        <label className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
-          <input type="checkbox" checked={readAloud} onChange={(e) => setReadAloud(e.target.checked)} className="accent-brand-600" />
-          Lire à voix haute (voix navigateur — fallback, non premium)
-        </label>
+        <div className="flex items-center justify-between gap-2">
+          <label className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
+            <input type="checkbox" checked={readAloud} onChange={(e) => setReadAloud(e.target.checked)} className="accent-brand-600" />
+            Lire à voix haute (voix navigateur)
+          </label>
+          {!realtimeActive && (runtime.realtimeOption ? (
+            <button onClick={startRealtime} className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-600 transition hover:underline"><PhoneCall className="h-3 w-3" /> Voix temps réel (bêta)</button>
+          ) : (
+            <span className="text-[11px] text-[var(--text-muted)]">{runtime.note}</span>
+          ))}
+        </div>
       </div>
     </div>
   );

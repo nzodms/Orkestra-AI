@@ -139,9 +139,9 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     return text;
   }
   async function startRealtime() {
-    if (!runtime.realtimeAvailable) { setError("Connectez OpenAI dans « Connecter mes IA » pour la voix temps réel."); return; }
+    if (!runtime.realtimeOption) { setError("La voix temps réel nécessite un accès OpenAI avancé. Orkestra reste disponible en mode texte intelligent."); return; }
     if (handleRef.current) return;
-    setError(""); setStatus("connecting");
+    setError(""); setStatus("connecting"); if (recRef.current) stop();
     try {
       const h = await startRealtimeSession({
         keyRefs: { openai: connections.openai?.keyId },
@@ -153,7 +153,9 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       });
       handleRef.current = h; setRealtimeActive(true); setMuted(false);
     } catch {
+      // Repli propre : on reste en mode texte intelligent + dictée navigateur.
       setRealtimeActive(false); setStatus("idle");
+      if (supported) start();
     }
   }
   function stopRealtime() {
@@ -176,8 +178,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   function stop() { recRef.current?.stop(); setStatus((s) => (s === "listening" ? "idle" : s)); }
   function openPanel() {
     setOpen(true); setError(""); setResult(null); setTranscript(""); setPartial(""); setStatus("idle");
-    // En mode temps réel : on attend « Démarrer la conversation ». En mode texte : écoute navigateur directe.
-    if (!runtime.realtimeAvailable && supported) start();
+    // Mode principal = texte intelligent : dictée navigateur directe si disponible.
+    if (supported) start();
   }
   function closePanel() {
     if (handleRef.current) stopRealtime();

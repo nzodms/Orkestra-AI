@@ -41,7 +41,7 @@ export async function POST(req: Request) {
       const t = await res.text().catch(() => "");
       const reason = res.status === 401 ? "invalid-key" : res.status === 403 || /must be verified|realtime/i.test(t) ? "no-access" : "http";
       console.log("[Voice]", { event: "realtime-session-create-error", status: res.status, reason });
-      const msg = reason === "invalid-key" ? "Clé OpenAI invalide." : reason === "no-access" ? "Votre compte OpenAI n'a pas accès à l'API Realtime (vérification requise)." : `OpenAI Realtime indisponible (HTTP ${res.status}).`;
+      const msg = "Le mode vocal temps réel nécessite un accès API avancé. Orkestra reste disponible en mode texte intelligent.";
       return NextResponse.json({ ok: false, reason, error: msg });
     }
     const data = (await res.json()) as { client_secret?: { value?: string; expires_at?: number } };

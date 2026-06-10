@@ -9,32 +9,34 @@
 export type VoiceRuntimeProvider = "gemini-live" | "openai-realtime" | "text-fallback";
 
 export interface VoiceRuntimeStatus {
-  /** Runtime ACTIF (V1 = text-fallback). */
+  /** Runtime ACTIF. Mode principal actuel = text-fallback (Command Center intelligent). */
   provider: VoiceRuntimeProvider;
-  /** Le temps réel audio est-il branché ? (false en V1) */
+  /** Le temps réel audio est-il le mode PRINCIPAL ? (false pour l'instant) */
   realtimeAvailable: boolean;
-  /** Une voix premium est-elle configurée ? (false en V1) */
+  /** Le temps réel peut-il être tenté en OPTION AVANCÉE (OpenAI connecté) ? */
+  realtimeOption: boolean;
+  /** Une voix premium est-elle configurée ? */
   premiumVoice: boolean;
-  /** Provider qui SERAIT utilisé en V2 selon les IA connectées. */
+  /** Provider qui SERAIT utilisé en temps réel selon les IA connectées. */
   detected?: "gemini-live" | "openai-realtime";
-  /** Libellé honnête affiché dans le panel. */
+  /** Libellé principal affiché dans le panel. */
   label: string;
+  /** Sous-texte rassurant. */
+  note: string;
 }
 export interface ConnectedFlags { gemini?: boolean; openai?: boolean }
 
-/** Choisit le runtime. Priorité : OpenAI Realtime (branché) → text-fallback.
- *  Gemini Live reste détecté pour un second runtime (à brancher plus tard). */
+/** Mode PRINCIPAL = texte intelligent (Command Center). Le temps réel OpenAI reste
+ *  une option avancée « bientôt », non bloquante. Gemini Live = 2nd runtime futur. */
 export function selectVoiceRuntime(c: ConnectedFlags): VoiceRuntimeStatus {
-  if (c.openai) {
-    return { provider: "openai-realtime", realtimeAvailable: true, premiumVoice: true, detected: "openai-realtime", label: "OpenAI Realtime" };
-  }
-  const detected = c.gemini ? "gemini-live" : undefined;
   return {
     provider: "text-fallback",
     realtimeAvailable: false,
+    realtimeOption: !!c.openai,
     premiumVoice: false,
-    detected,
-    label: detected ? "Mode texte · Gemini Live bientôt" : "Mode texte",
+    detected: c.openai ? "openai-realtime" : c.gemini ? "gemini-live" : undefined,
+    label: "Mode texte intelligent",
+    note: "Voix temps réel bientôt disponible",
   };
 }
 
