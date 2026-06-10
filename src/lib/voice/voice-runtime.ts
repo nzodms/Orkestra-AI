@@ -22,15 +22,19 @@ export interface VoiceRuntimeStatus {
 }
 export interface ConnectedFlags { gemini?: boolean; openai?: boolean }
 
-/** Choisit le runtime. Priorité V2 : Gemini Live → OpenAI Realtime → text-fallback. */
+/** Choisit le runtime. Priorité : OpenAI Realtime (branché) → text-fallback.
+ *  Gemini Live reste détecté pour un second runtime (à brancher plus tard). */
 export function selectVoiceRuntime(c: ConnectedFlags): VoiceRuntimeStatus {
-  const detected = c.gemini ? "gemini-live" : c.openai ? "openai-realtime" : undefined;
+  if (c.openai) {
+    return { provider: "openai-realtime", realtimeAvailable: true, premiumVoice: true, detected: "openai-realtime", label: "OpenAI Realtime" };
+  }
+  const detected = c.gemini ? "gemini-live" : undefined;
   return {
     provider: "text-fallback",
-    realtimeAvailable: false, // V2
-    premiumVoice: false,      // V2
+    realtimeAvailable: false,
+    premiumVoice: false,
     detected,
-    label: detected ? `Mode texte · voix premium bientôt (${detected === "gemini-live" ? "Gemini Live" : "OpenAI Realtime"})` : "Mode texte",
+    label: detected ? "Mode texte · Gemini Live bientôt" : "Mode texte",
   };
 }
 

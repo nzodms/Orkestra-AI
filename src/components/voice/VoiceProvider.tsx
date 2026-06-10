@@ -7,6 +7,8 @@ import { createSpeechRecognition, speakReply, stopSpeaking, speechSupported } fr
 import { runVoiceCommand } from "@/lib/voice/voice-command-center";
 import { selectVoiceRuntime, interruptAssistantSpeech, type VoiceRuntimeStatus } from "@/lib/voice/voice-runtime";
 import { EMPTY_SESSION, nextSession, type VoiceSession } from "@/lib/voice/voice-session";
+import { startRealtimeSession, type RealtimeHandle, type RealtimeStatus } from "@/lib/voice/voice-realtime";
+import { executeRealtimeTool } from "@/lib/voice/voice-realtime-tools";
 import type { VoiceContext as VCtx, VoiceResult } from "@/lib/voice/voice-types";
 
 // Suggestions intelligentes selon la page courante.
@@ -22,7 +24,7 @@ function suggestionsFor(path: string): string[] {
   return DEFAULT_SUGGESTIONS;
 }
 
-export type VoiceStatus = "idle" | "listening" | "thinking" | "searching" | "reply";
+export type VoiceStatus = "idle" | "listening" | "thinking" | "searching" | "connecting" | "tool" | "speaking" | "reply";
 export interface VoiceTurn { user: string; result: VoiceResult }
 
 interface VoiceContextValue {
@@ -49,6 +51,13 @@ interface VoiceContextValue {
   retry: () => void;
   interrupt: () => void;
   clearConversation: () => void;
+  // ── Temps réel (OpenAI Realtime) ──
+  realtimeActive: boolean;
+  muted: boolean;
+  assistantLive: string;
+  startRealtime: () => void;
+  stopRealtime: () => void;
+  toggleMute: () => void;
 }
 
 const Ctx = createContext<VoiceContextValue | null>(null);
@@ -58,7 +67,10 @@ export function useVoice(): VoiceContextValue {
   return v;
 }
 
-const STATUS_LABEL: Record<VoiceStatus, string> = { idle: "Prêt", listening: "À l'écoute", thinking: "Comprend…", searching: "Recherche…", reply: "Réponse" };
+const STATUS_LABEL: Record<VoiceStatus, string> = { idle: "Prêt", listening: "À l'écoute", thinking: "Comprend…", searching: "Recherche…", connecting: "Connexion…", tool: "Appel d'outil…", speaking: "Réponse vocale", reply: "Réponse" };
+function mapRealtime(s: RealtimeStatus): VoiceStatus {
+  return s === "connecting" ? "connecting" : s === "listening" ? "listening" : s === "thinking" ? "thinking" : s === "tool" ? "tool" : s === "speaking" ? "speaking" : "idle";
+}
 
 export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const { recentImports, analysis, brand, merchantResolved, lensSaved, importDraft, connections } = useOrkestra();
@@ -74,6 +86,11 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const [history, setHistory] = useState<string[]>([]);
   const recRef = useRef<{ start: () => void; stop: () => void } | null>(null);
   const sessionRef = useRef<VoiceSession>(EMPTY_SESSION);
+  const [realtimeActive, setRealtimeActive] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [assistantLive, setAssistantLive] = useState("");
+  const handleRef = useRef<RealtimeHandle | null>(null);
+  const lastUserRef = useRef("");
   const supported = useMemo(() => speechSupported(), []);
   const suggestions = useMemo(() => suggestionsFor(pathname || "/"), [pathname]);
   const runtime = useMemo(() => selectVoiceRuntime({ gemini: !!connections.gemini?.connected, openai: !!connections.openai?.connected }), [connections.gemini?.connected, connections.openai?.connected]);
@@ -111,6 +128,40 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       setStatus("idle"); setError("Action impossible pour l'instant. Réessayez.");
     }
   }
+  // ── OpenAI Realtime (vraie conversation audio) ──
+  async function handleToolCall(name: string, args: Record<string, unknown>): Promise<string> {
+    const keyRefs = { openai: connections.openai?.keyId, claude: connections.anthropic?.keyId, gemini: connections.gemini?.keyId };
+    const { result, session, text } = await executeRealtimeTool(name, args, buildCtx(), sessionRef.current, keyRefs);
+    sessionRef.current = session;
+    setResult(result);
+    setTurns((ts) => [...ts, { user: lastUserRef.current || "(demande vocale)", result }].slice(-6));
+    lastUserRef.current = "";
+    return text;
+  }
+  async function startRealtime() {
+    if (!runtime.realtimeAvailable) { setError("Connectez OpenAI dans « Connecter mes IA » pour la voix temps réel."); return; }
+    if (handleRef.current) return;
+    setError(""); setStatus("connecting");
+    try {
+      const h = await startRealtimeSession({
+        keyRefs: { openai: connections.openai?.keyId },
+        onStatus: (s) => setStatus(mapRealtime(s)),
+        onUserTranscript: (t) => { lastUserRef.current = t; setTranscript(t); },
+        onAssistantText: (t) => setAssistantLive(t),
+        onToolCall: handleToolCall,
+        onError: (m) => setError(m),
+      });
+      handleRef.current = h; setRealtimeActive(true); setMuted(false);
+    } catch {
+      setRealtimeActive(false); setStatus("idle");
+    }
+  }
+  function stopRealtime() {
+    handleRef.current?.stop(); handleRef.current = null;
+    setRealtimeActive(false); setAssistantLive(""); setStatus("idle");
+  }
+  function toggleMute() { const m = !muted; setMuted(m); handleRef.current?.setMuted(m); }
+
   function start() {
     setError(""); setResult(null); setTranscript(""); setPartial("");
     const r = createSpeechRecognition({
@@ -123,11 +174,21 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     recRef.current = r; r.start(); setStatus("listening");
   }
   function stop() { recRef.current?.stop(); setStatus((s) => (s === "listening" ? "idle" : s)); }
-  function openPanel() { setOpen(true); setError(""); setResult(null); setTranscript(""); setPartial(""); setStatus("idle"); if (supported) start(); }
-  function closePanel() { stop(); stopSpeaking(); setOpen(false); setStatus("idle"); }
-  function retry() { setResult(null); setTranscript(""); setStatus("idle"); if (supported) start(); }
-  function interrupt() { stopSpeaking(); interruptAssistantSpeech(); if (status === "listening") stop(); }
-  function clearConversation() { setTurns([]); setResult(null); setTranscript(""); setHistory([]); sessionRef.current = EMPTY_SESSION; setStatus("idle"); }
+  function openPanel() {
+    setOpen(true); setError(""); setResult(null); setTranscript(""); setPartial(""); setStatus("idle");
+    // En mode temps réel : on attend « Démarrer la conversation ». En mode texte : écoute navigateur directe.
+    if (!runtime.realtimeAvailable && supported) start();
+  }
+  function closePanel() {
+    if (handleRef.current) stopRealtime();
+    stop(); stopSpeaking(); setOpen(false); setStatus("idle");
+  }
+  function retry() { setResult(null); setTranscript(""); setStatus("idle"); if (realtimeActive) handleRef.current?.interrupt(); else if (supported) start(); }
+  function interrupt() {
+    if (realtimeActive) handleRef.current?.interrupt();
+    else { stopSpeaking(); interruptAssistantSpeech(); if (status === "listening") stop(); }
+  }
+  function clearConversation() { setTurns([]); setResult(null); setTranscript(""); setHistory([]); sessionRef.current = EMPTY_SESSION; setStatus(realtimeActive ? "listening" : "idle"); }
 
   const value: VoiceContextValue = {
     open, openPanel, closePanel,
@@ -136,6 +197,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     partial, transcript, result, turns, runtime, history, error, supported,
     readAloud, setReadAloud, suggestions,
     start, stop, process, retry, interrupt, clearConversation,
+    realtimeActive, muted, assistantLive, startRealtime, stopRealtime, toggleMute,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

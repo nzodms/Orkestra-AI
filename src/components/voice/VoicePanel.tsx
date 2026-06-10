@@ -7,8 +7,9 @@ import { speakReply, ttsSupported } from "@/lib/voice/voice-orchestrator";
 import { useVoice } from "./VoiceProvider";
 import type { VoiceCard, VoiceCardKind, VoiceResult } from "@/lib/voice/voice-types";
 import {
-  Mic, Square, X, Volume2, ArrowRight, Sparkles, Send, RotateCcw, History,
+  Mic, MicOff, Square, X, Volume2, ArrowRight, Sparkles, Send, RotateCcw, History,
   Package, Search, AlertTriangle, Languages, ShieldAlert, Gauge, Info, ExternalLink, ListChecks, Eraser,
+  PhoneCall, Hand,
 } from "lucide-react";
 
 const CARD_ICON: Record<VoiceCardKind, React.ElementType> = {
@@ -38,19 +39,35 @@ function VoiceCardView({ card }: { card: VoiceCard }) {
 }
 
 function Orb() {
-  const { status, listening, start, stop } = useVoice();
-  const active = status === "thinking" || status === "searching";
+  const { status, listening, realtimeActive, runtime, start, stop, startRealtime, stopRealtime } = useVoice();
+  const busy = status === "thinking" || status === "searching" || status === "connecting" || status === "tool";
+  const halo = status === "listening" || status === "speaking";
+  const stopIcon = realtimeActive || listening;
+  const onClick = () => { if (runtime.realtimeAvailable) (realtimeActive ? stopRealtime() : startRealtime()); else (listening ? stop() : start()); };
   return (
     <button
-      onClick={() => (listening ? stop() : start())}
-      aria-label={listening ? "Arrêter l'écoute" : "Parler"}
+      onClick={onClick}
+      aria-label={stopIcon ? "Arrêter" : "Parler"}
       className={`relative grid h-24 w-24 place-items-center rounded-full text-white transition-transform duration-200 active:scale-95 ${status === "idle" ? "ork-breathe" : ""}`}
       style={{ background: "radial-gradient(120% 120% at 30% 24%, #9d8efc, #5b4fd1 58%, #45399f)", boxShadow: "0 16px 50px -14px rgba(109,94,242,.75), inset 0 1px 0 rgba(255,255,255,.35)" }}
     >
-      {listening && <span className="ork-aura" />}
-      {active && <span className="ork-ring" />}
-      {listening ? <Square className="h-7 w-7" /> : <Mic className="h-8 w-8" />}
+      {halo && <span className="ork-aura" />}
+      {busy && <span className="ork-ring" />}
+      {stopIcon ? <Square className="h-7 w-7" /> : <Mic className="h-8 w-8" />}
     </button>
+  );
+}
+
+function Controls() {
+  const { runtime, realtimeActive, muted, startRealtime, stopRealtime, interrupt, toggleMute } = useVoice();
+  if (!runtime.realtimeAvailable) return null;
+  if (!realtimeActive) return <Button size="sm" className="ork-glow" onClick={startRealtime} icon={<PhoneCall className="h-3.5 w-3.5" />}>Démarrer la conversation</Button>;
+  return (
+    <div className="flex items-center gap-2">
+      <Button size="sm" variant="outline" onClick={interrupt} icon={<Hand className="h-3.5 w-3.5" />}>Interrompre</Button>
+      <Button size="sm" variant="outline" onClick={toggleMute} icon={muted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}>{muted ? "Activer" : "Muet"}</Button>
+      <Button size="sm" variant="ghost" onClick={stopRealtime} icon={<Square className="h-3.5 w-3.5" />}>Stop</Button>
+    </div>
   );
 }
 function Waveform() {
@@ -89,7 +106,7 @@ function ResultActions({ res }: { res: VoiceResult }) {
 }
 
 export function VoicePanelBody() {
-  const { closePanel, statusLabel, status, listening, partial, transcript, turns, runtime, history, error, supported, readAloud, setReadAloud, suggestions, process, clearConversation } = useVoice();
+  const { closePanel, statusLabel, status, listening, partial, transcript, turns, runtime, history, error, supported, readAloud, setReadAloud, suggestions, process, clearConversation, realtimeActive, assistantLive } = useVoice();
   const [typed, setTyped] = useState("");
   const send = () => { if (typed.trim()) { process(typed); setTyped(""); } };
 
@@ -113,9 +130,19 @@ export function VoicePanelBody() {
       <div className="grid place-items-center px-5 py-4">
         <Orb />
         <div className="mt-3.5"><Waveform /></div>
-        <p className="mt-2 text-xs text-[var(--text-muted)]">
-          {status === "listening" ? "À l'écoute… parlez naturellement" : status === "searching" ? "Je cherche des fournisseurs…" : status === "thinking" ? "Je traite votre demande…" : turns.length ? "Vous pouvez enchaîner" : supported ? "Touchez l'orbe pour parler" : "Tapez votre demande ci-dessous"}
+        <p className="mt-2 line-clamp-2 max-w-[280px] text-center text-xs text-[var(--text-muted)]">
+          {status === "connecting" ? "Connexion à OpenAI Realtime…"
+            : status === "listening" ? "À l'écoute… parlez naturellement"
+            : status === "searching" ? "Je cherche des fournisseurs…"
+            : status === "tool" ? "J'exécute votre demande…"
+            : status === "thinking" ? "Je réfléchis…"
+            : status === "speaking" ? (assistantLive ? assistantLive : "Orkestra répond…")
+            : realtimeActive ? "Conversation active — parlez ou enchaînez"
+            : turns.length ? "Vous pouvez enchaîner"
+            : runtime.realtimeAvailable ? "Démarrez une vraie conversation vocale"
+            : supported ? "Touchez l'orbe pour parler" : "Tapez votre demande ci-dessous"}
         </p>
+        <div className="mt-3"><Controls /></div>
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 pb-4">
