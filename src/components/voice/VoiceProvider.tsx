@@ -7,7 +7,8 @@ import { createSpeechRecognition, speakReply, stopSpeaking, speechSupported } fr
 import { runVoiceCommand } from "@/lib/voice/voice-command-center";
 import { selectVoiceRuntime, interruptAssistantSpeech, type VoiceRuntimeStatus } from "@/lib/voice/voice-runtime";
 import { EMPTY_SESSION, nextSession, type VoiceSession } from "@/lib/voice/voice-session";
-import { startRealtimeSession, type RealtimeHandle, type RealtimeStatus } from "@/lib/voice/voice-realtime";
+import { startRealtimeSession, type RealtimeHandle, type RealtimeStatus, type RealtimeCallbacks } from "@/lib/voice/voice-realtime";
+import { startGeminiLiveSession } from "@/lib/voice/voice-gemini-live";
 import { executeRealtimeTool } from "@/lib/voice/voice-realtime-tools";
 import type { VoiceContext as VCtx, VoiceResult } from "@/lib/voice/voice-types";
 
@@ -139,21 +140,23 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     return text;
   }
   async function startRealtime() {
-    if (!runtime.realtimeOption) { setError("La voix temps réel nécessite un accès OpenAI avancé. Orkestra reste disponible en mode texte intelligent."); return; }
+    if (!runtime.realtimeOption) { setError("La voix temps réel nécessite Gemini ou OpenAI connecté. Orkestra reste disponible en mode texte intelligent."); return; }
     if (handleRef.current) return;
     setError(""); setStatus("connecting"); if (recRef.current) stop();
+    const callbacks: RealtimeCallbacks = {
+      keyRefs: { openai: connections.openai?.keyId, gemini: connections.gemini?.keyId },
+      onStatus: (s) => setStatus(mapRealtime(s)),
+      onUserTranscript: (t) => { lastUserRef.current = t; setTranscript(t); },
+      onAssistantText: (t) => setAssistantLive(t),
+      onToolCall: handleToolCall,
+      onError: (m) => setError(m),
+    };
     try {
-      const h = await startRealtimeSession({
-        keyRefs: { openai: connections.openai?.keyId },
-        onStatus: (s) => setStatus(mapRealtime(s)),
-        onUserTranscript: (t) => { lastUserRef.current = t; setTranscript(t); },
-        onAssistantText: (t) => setAssistantLive(t),
-        onToolCall: handleToolCall,
-        onError: (m) => setError(m),
-      });
+      const engine = runtime.provider === "gemini-live" ? startGeminiLiveSession : startRealtimeSession;
+      const h = await engine(callbacks);
       handleRef.current = h; setRealtimeActive(true); setMuted(false);
     } catch {
-      // Repli propre : on reste en mode texte intelligent + dictée navigateur.
+      // Repli propre : mode texte intelligent + dictée navigateur.
       setRealtimeActive(false); setStatus("idle");
       if (supported) start();
     }
@@ -178,8 +181,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   function stop() { recRef.current?.stop(); setStatus((s) => (s === "listening" ? "idle" : s)); }
   function openPanel() {
     setOpen(true); setError(""); setResult(null); setTranscript(""); setPartial(""); setStatus("idle");
-    // Mode principal = texte intelligent : dictée navigateur directe si disponible.
-    if (supported) start();
+    // Gemini Live primaire : on attend « Démarrer la conversation ». Sinon dictée navigateur.
+    if (!runtime.realtimeAvailable && supported) start();
   }
   function closePanel() {
     if (handleRef.current) stopRealtime();

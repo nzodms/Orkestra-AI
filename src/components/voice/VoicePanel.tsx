@@ -58,17 +58,17 @@ function Orb() {
   );
 }
 
-/** Contrôles temps réel — visibles UNIQUEMENT pendant une session avancée. */
 function Controls() {
-  const { realtimeActive, muted, stopRealtime, interrupt, toggleMute } = useVoice();
-  if (!realtimeActive) return null;
-  return (
+  const { runtime, realtimeActive, muted, startRealtime, stopRealtime, interrupt, toggleMute } = useVoice();
+  if (realtimeActive) return (
     <div className="flex items-center gap-2">
       <Button size="sm" variant="outline" onClick={interrupt} icon={<Hand className="h-3.5 w-3.5" />}>Interrompre</Button>
       <Button size="sm" variant="outline" onClick={toggleMute} icon={muted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}>{muted ? "Activer" : "Muet"}</Button>
       <Button size="sm" variant="ghost" onClick={stopRealtime} icon={<Square className="h-3.5 w-3.5" />}>Stop</Button>
     </div>
   );
+  if (runtime.realtimeAvailable) return <Button size="sm" className="ork-glow" onClick={startRealtime} icon={<PhoneCall className="h-3.5 w-3.5" />}>Démarrer la conversation</Button>;
+  return null;
 }
 function Waveform() {
   const { listening } = useVoice();
@@ -117,8 +117,8 @@ export function VoicePanelBody() {
         <div className="relative flex items-center gap-2.5">
           <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft"><Sparkles className="h-4 w-4" /></span>
           <div className="leading-tight">
-            <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--text)]">Orkestra Voice <span className="rounded-full bg-brand-50 px-1.5 py-px text-[9px] font-bold text-brand-700 dark:bg-brand-950 dark:text-brand-300">{realtimeActive ? "Realtime" : "V1"}</span></div>
-            <div className="text-[11px] text-[var(--text-muted)]">{statusLabel} · {realtimeActive ? "OpenAI Realtime" : runtime.label}</div>
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--text)]">Orkestra Voice <span className="rounded-full bg-brand-50 px-1.5 py-px text-[9px] font-bold text-brand-700 dark:bg-brand-950 dark:text-brand-300">{realtimeActive ? "Live" : "V1"}</span></div>
+            <div className="text-[11px] text-[var(--text-muted)]">{statusLabel} · {realtimeActive ? (runtime.provider === "gemini-live" ? "Gemini Live" : "OpenAI Realtime") : runtime.label}</div>
           </div>
         </div>
         <div className="relative flex items-center gap-1">
@@ -138,6 +138,7 @@ export function VoicePanelBody() {
             : status === "thinking" ? "Je réfléchis…"
             : status === "speaking" ? (assistantLive ? assistantLive : "Orkestra répond…")
             : realtimeActive ? "Conversation active — parlez ou enchaînez"
+            : runtime.realtimeAvailable ? "Démarrez une vraie conversation vocale avec Gemini Live"
             : turns.length ? "Vous pouvez enchaîner"
             : supported ? "Dictez ou écrivez votre demande" : "Écrivez votre demande ci-dessous"}
         </p>
@@ -203,7 +204,7 @@ export function VoicePanelBody() {
             <input type="checkbox" checked={readAloud} onChange={(e) => setReadAloud(e.target.checked)} className="accent-brand-600" />
             Lire à voix haute (voix navigateur)
           </label>
-          {!realtimeActive && (runtime.realtimeOption ? (
+          {!realtimeActive && !runtime.realtimeAvailable && (runtime.realtimeOption ? (
             <button onClick={startRealtime} className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-600 transition hover:underline"><PhoneCall className="h-3 w-3" /> Voix temps réel (bêta)</button>
           ) : (
             <span className="text-[11px] text-[var(--text-muted)]">{runtime.note}</span>

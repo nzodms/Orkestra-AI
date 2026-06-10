@@ -12,7 +12,7 @@ import { REALTIME_INSTRUCTIONS, REALTIME_TOOLS } from "./voice-realtime-tools";
 export type RealtimeStatus = "connecting" | "listening" | "thinking" | "tool" | "speaking" | "error" | "closed";
 
 export interface RealtimeCallbacks {
-  keyRefs: { openai?: string | null };
+  keyRefs: { openai?: string | null; gemini?: string | null };
   onStatus: (s: RealtimeStatus) => void;
   onUserTranscript: (text: string) => void;
   onAssistantText: (text: string) => void;

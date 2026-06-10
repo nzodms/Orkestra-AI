@@ -26,18 +26,16 @@ export interface VoiceRuntimeStatus {
 }
 export interface ConnectedFlags { gemini?: boolean; openai?: boolean }
 
-/** Mode PRINCIPAL = texte intelligent (Command Center). Le temps réel OpenAI reste
- *  une option avancée « bientôt », non bloquante. Gemini Live = 2nd runtime futur. */
+/** Priorité : Gemini Live (PRINCIPAL si Gemini connecté) → OpenAI Realtime (option
+ *  avancée) → texte intelligent. Le temps réel reste non bloquant (repli texte). */
 export function selectVoiceRuntime(c: ConnectedFlags): VoiceRuntimeStatus {
-  return {
-    provider: "text-fallback",
-    realtimeAvailable: false,
-    realtimeOption: !!c.openai,
-    premiumVoice: false,
-    detected: c.openai ? "openai-realtime" : c.gemini ? "gemini-live" : undefined,
-    label: "Mode texte intelligent",
-    note: "Voix temps réel bientôt disponible",
-  };
+  if (c.gemini) {
+    return { provider: "gemini-live", realtimeAvailable: true, realtimeOption: true, premiumVoice: true, detected: "gemini-live", label: "Gemini Live", note: "Conversation vocale temps réel" };
+  }
+  if (c.openai) {
+    return { provider: "openai-realtime", realtimeAvailable: false, realtimeOption: true, premiumVoice: false, detected: "openai-realtime", label: "Mode texte intelligent", note: "Voix temps réel (OpenAI) en option avancée" };
+  }
+  return { provider: "text-fallback", realtimeAvailable: false, realtimeOption: false, premiumVoice: false, label: "Mode texte intelligent", note: "Voix temps réel bientôt disponible" };
 }
 
 // ── V2 — architecture prête, NON branchée (stubs documentés) ────────────────

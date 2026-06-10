@@ -36,6 +36,9 @@ export const REALTIME_TOOLS = [
   { type: "function", name: "voice_read_dashboard_status", description: "Résume la boutique (scores + à faire).", parameters: { type: "object", properties: {} } },
 ];
 
+/** Mêmes fonctions au format Gemini Live (functionDeclarations, sans « type »). */
+export const GEMINI_FUNCTION_DECLARATIONS = REALTIME_TOOLS.map(({ name, description, parameters }) => ({ name, description, parameters }));
+
 function res(module: VoiceResult["module"], spokenSummary: string, cards: VoiceCard[] = [], extra: Partial<VoiceResult> = {}): VoiceResult {
   const href: Record<string, { href: string; label: string }> = {
     import: { href: "/seo", label: "Ouvrir Import Factory" }, lens: { href: "/lens", label: "Ouvrir Orkestra Lens" },
