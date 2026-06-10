@@ -47,8 +47,11 @@ export async function startGeminiLiveSession(cb: RealtimeCallbacks): Promise<Rea
   vlog("gemini-live-mic-permission-ok"); diag({ mic: true });
 
   // 3) WebSocket.
-  vlog("gemini-live-ws-connect-start");
-  const ws = new WebSocket(`${WS_BASE}?key=${encodeURIComponent(token)}`);
+  // IMPORTANT : un token ÉPHÉMÈRE se passe en `?access_token=` (et NON `?key=`,
+  // qui est réservé à une vraie clé API). Réf. officielle BidiGenerateContent :
+  // « ephemeral tokens … passed in an access_token query parameter ».
+  vlog("gemini-live-ws-connect-start", { auth: "access_token" });
+  const ws = new WebSocket(`${WS_BASE}?access_token=${encodeURIComponent(token)}`);
   let muted = false, userTxt = "", asstTxt = "";
   let firstChunk = true, firstMsg = true, firstAudio = true, chunkCount = 0, msgCount = 0;
 
