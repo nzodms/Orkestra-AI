@@ -5,13 +5,15 @@ import { usePathname } from "next/navigation";
 import { useOrkestra, connectedProviders } from "@/lib/store";
 import { createSpeechRecognition, speakReply, stopSpeaking, speechSupported, vlog } from "@/lib/voice/voice-orchestrator";
 import { runVoiceCommand } from "@/lib/voice/voice-command-center";
-import { selectVoiceRuntime, interruptAssistantSpeech, type VoiceRuntimeStatus } from "@/lib/voice/voice-runtime";
+import { selectVoiceRuntime, interruptAssistantSpeech, VOICE_PROXY_URL, type VoiceRuntimeStatus } from "@/lib/voice/voice-runtime";
 import { EMPTY_SESSION, nextSession, type VoiceSession } from "@/lib/voice/voice-session";
 import { startRealtimeSession, type RealtimeHandle, type RealtimeStatus, type RealtimeCallbacks, type VoiceDiag } from "@/lib/voice/voice-realtime";
 import { startGeminiLiveSession } from "@/lib/voice/voice-gemini-live";
 import { executeRealtimeTool } from "@/lib/voice/voice-realtime-tools";
 
 export type RealtimeState = "off" | "connecting" | "live" | "failed";
+/** Mode de connexion temps réel réellement actif (pour un badge honnête). */
+export type RealtimeMode = "token" | "proxy" | null;
 const EMPTY_DIAG: VoiceDiag = { ws: false, mic: false, audioIn: false, audioOut: false, chunks: 0, messages: 0 };
 import type { VoiceContext as VCtx, VoiceResult } from "@/lib/voice/voice-types";
 
@@ -58,6 +60,7 @@ interface VoiceContextValue {
   // ── Temps réel (Gemini Live / OpenAI Realtime) ──
   realtimeActive: boolean;
   realtimeState: RealtimeState;
+  realtimeMode: RealtimeMode;
   diag: VoiceDiag;
   muted: boolean;
   assistantLive: string;
@@ -94,6 +97,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const sessionRef = useRef<VoiceSession>(EMPTY_SESSION);
   const [realtimeActive, setRealtimeActive] = useState(false);
   const [realtimeState, setRealtimeState] = useState<RealtimeState>("off");
+  const [realtimeMode, setRealtimeMode] = useState<RealtimeMode>(null);
   const [diag, setDiag] = useState<VoiceDiag>(EMPTY_DIAG);
   const [muted, setMuted] = useState(false);
   const [assistantLive, setAssistantLive] = useState("");
@@ -149,7 +153,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   async function startRealtime() {
     if (!runtime.realtimeOption) { setError("La voix temps réel nécessite Gemini ou OpenAI connecté. Orkestra reste disponible en mode texte intelligent."); return; }
     if (handleRef.current) return;
-    setError(""); setStatus("connecting"); setRealtimeState("connecting"); setDiag(EMPTY_DIAG); if (recRef.current) stop();
+    setError(""); setStatus("connecting"); setRealtimeState("connecting"); setRealtimeMode(null); setDiag(EMPTY_DIAG); if (recRef.current) stop();
     const callbacks: RealtimeCallbacks = {
       keyRefs: { openai: connections.openai?.keyId, gemini: connections.gemini?.keyId },
       onStatus: (s) => {
@@ -163,22 +167,41 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       onError: (m) => setError(m),
       onDiag: (patch) => setDiag((d) => ({ ...d, ...patch })),
     };
-    try {
-      const engine = runtime.provider === "gemini-live" ? startGeminiLiveSession : startRealtimeSession;
-      const h = await engine(callbacks);
-      handleRef.current = h; setRealtimeActive(true); setMuted(false);
-    } catch (e) {
+    const live = (h: RealtimeHandle, mode: RealtimeMode) => { handleRef.current = h; setRealtimeActive(true); setMuted(false); setRealtimeMode(mode); };
+    const fail = (reason: string, msg?: string) => { setRealtimeActive(false); setRealtimeState("failed"); setStatus("idle"); setRealtimeMode(null); setDiag((d) => ({ ...d, lastError: reason })); if (msg) setError(msg); };
+
+    // OpenAI Realtime (option avancée) — pas de chaîne token→proxy.
+    if (runtime.provider !== "gemini-live") {
+      try { live(await startRealtimeSession(callbacks), "token"); setError(""); }
+      catch (e) { const reason = (e as Error)?.message || "inconnue"; vlog("gemini-live-fallback-to-text", { reason }); fail(reason); }
+      return;
+    }
+
+    // Gemini — ordre de connexion : token éphémère → proxy serveur → texte.
+    try { live(await startGeminiLiveSession(callbacks), "token"); setError(""); return; }
+    catch (e) {
       const reason = (e as Error)?.message || "inconnue";
+      // Token refusé (no-access / invalid-key / no-token) → PROXY serveur si configuré.
+      if (reason.startsWith("token:") && VOICE_PROXY_URL) {
+        vlog("gemini-live-token-no-access", { reason });
+        setError("Token Gemini Live indisponible. Connexion via proxy sécurisé…");
+        setRealtimeState("connecting"); setDiag(EMPTY_DIAG);
+        try { live(await startGeminiLiveSession(callbacks, { proxyUrl: VOICE_PROXY_URL }), "proxy"); setError(""); return; }
+        catch (e2) {
+          const r2 = (e2 as Error)?.message || "inconnue";
+          vlog("gemini-live-fallback-to-text", { reason: r2, after: "proxy" });
+          fail(r2, "Proxy Gemini Live indisponible. Orkestra reste en mode texte intelligent.");
+          return;
+        }
+      }
+      // Pas de proxy configuré, ou autre échec → honnête, pas de bascule silencieuse.
       vlog("gemini-live-fallback-to-text", { reason });
-      // PAS de bascule silencieuse : on reste honnête (badge « indisponible »),
-      // l'utilisateur voit l'erreur et peut réessayer ou écrire / dicter manuellement.
-      setRealtimeActive(false); setRealtimeState("failed"); setStatus("idle");
-      setDiag((d) => ({ ...d, lastError: reason }));
+      fail(reason, reason.startsWith("token:") && !VOICE_PROXY_URL ? "Gemini Live nécessite un proxy WebSocket persistant (token éphémère refusé). Mode texte intelligent activé." : undefined);
     }
   }
   function stopRealtime() {
     handleRef.current?.stop(); handleRef.current = null;
-    setRealtimeActive(false); setRealtimeState("off"); setAssistantLive(""); setStatus("idle");
+    setRealtimeActive(false); setRealtimeState("off"); setRealtimeMode(null); setAssistantLive(""); setStatus("idle");
   }
   function toggleMute() { const m = !muted; setMuted(m); handleRef.current?.setMuted(m); }
 
@@ -217,7 +240,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     partial, transcript, result, turns, runtime, history, error, supported,
     readAloud, setReadAloud, suggestions,
     start, stop, process, retry, interrupt, clearConversation,
-    realtimeActive, realtimeState, diag, muted, assistantLive, startRealtime, stopRealtime, toggleMute,
+    realtimeActive, realtimeState, realtimeMode, diag, muted, assistantLive, startRealtime, stopRealtime, toggleMute,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

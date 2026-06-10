@@ -1,0 +1,17 @@
+{
+  "name": "orkestra-voice-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Proxy WebSocket Gemini Live pour Orkestra Voice (repli quand les tokens éphémères sont refusés).",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

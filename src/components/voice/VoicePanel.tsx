@@ -106,12 +106,12 @@ function ResultActions({ res }: { res: VoiceResult }) {
 }
 
 export function VoicePanelBody() {
-  const { closePanel, statusLabel, status, listening, partial, transcript, turns, runtime, history, error, supported, readAloud, setReadAloud, suggestions, process, clearConversation, realtimeActive, realtimeState, diag, assistantLive, startRealtime } = useVoice();
+  const { closePanel, statusLabel, status, listening, partial, transcript, turns, runtime, history, error, supported, readAloud, setReadAloud, suggestions, process, clearConversation, realtimeActive, realtimeState, realtimeMode, diag, assistantLive, startRealtime } = useVoice();
   const [typed, setTyped] = useState("");
   const send = () => { if (typed.trim()) { process(typed); setTyped(""); } };
   const liveName = runtime.provider === "gemini-live" ? "Gemini Live" : "OpenAI Realtime";
   const runtimeBadge =
-    realtimeState === "live" ? `${liveName} · en direct` :
+    realtimeState === "live" ? (realtimeMode === "proxy" ? `${liveName} · Proxy sécurisé` : `${liveName} · en direct`) :
     realtimeState === "connecting" ? `Connexion ${liveName}…` :
     realtimeState === "failed" ? `${liveName} indisponible · Mode texte` :
     runtime.realtimeAvailable ? `${liveName} (prêt)` : runtime.label;
@@ -206,6 +206,7 @@ export function VoicePanelBody() {
           <summary className="cursor-pointer text-[11px] text-[var(--text-muted)]">Diagnostic Voice</summary>
           <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[10px] text-[var(--text-muted)]">
             <span>Runtime</span><span className="text-[var(--text)]">{runtime.provider}</span>
+            <span>Mode</span><span className="text-[var(--text)]">{realtimeMode || "—"}{runtime.proxyAvailable ? " · proxy dispo" : ""}</span>
             <span>État</span><span className="text-[var(--text)]">{realtimeState}</span>
             <span>WebSocket</span><span className={diag.ws ? "text-emerald-600" : "text-[var(--text)]"}>{diag.ws ? "connecté" : "non"}</span>
             <span>Micro</span><span className={diag.mic ? "text-emerald-600" : "text-[var(--text)]"}>{diag.mic ? "actif" : "inactif"}</span>

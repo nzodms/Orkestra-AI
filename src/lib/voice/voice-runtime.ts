@@ -8,6 +8,10 @@
 
 export type VoiceRuntimeProvider = "gemini-live" | "openai-realtime" | "text-fallback";
 
+/** URL du proxy WS Orkestra (repli quand les tokens éphémères Gemini sont refusés).
+ *  Vide tant qu'aucun proxy n'est déployé → repli texte. Jamais la clé : juste l'URL. */
+export const VOICE_PROXY_URL = (process.env.NEXT_PUBLIC_VOICE_PROXY_URL || "").trim();
+
 export interface VoiceRuntimeStatus {
   /** Runtime ACTIF. Mode principal actuel = text-fallback (Command Center intelligent). */
   provider: VoiceRuntimeProvider;
@@ -17,6 +21,8 @@ export interface VoiceRuntimeStatus {
   realtimeOption: boolean;
   /** Une voix premium est-elle configurée ? */
   premiumVoice: boolean;
+  /** Un proxy WS serveur est-il configuré (repli si token éphémère refusé) ? */
+  proxyAvailable: boolean;
   /** Provider qui SERAIT utilisé en temps réel selon les IA connectées. */
   detected?: "gemini-live" | "openai-realtime";
   /** Libellé principal affiché dans le panel. */
@@ -27,15 +33,18 @@ export interface VoiceRuntimeStatus {
 export interface ConnectedFlags { gemini?: boolean; openai?: boolean }
 
 /** Priorité : Gemini Live (PRINCIPAL si Gemini connecté) → OpenAI Realtime (option
- *  avancée) → texte intelligent. Le temps réel reste non bloquant (repli texte). */
+ *  avancée) → texte intelligent. Le temps réel reste non bloquant (repli texte).
+ *  En mode Gemini, l'ordre de connexion réel est : token éphémère → proxy serveur
+ *  (si configuré) → texte — orchestré côté VoiceProvider. */
 export function selectVoiceRuntime(c: ConnectedFlags): VoiceRuntimeStatus {
+  const proxyAvailable = !!VOICE_PROXY_URL;
   if (c.gemini) {
-    return { provider: "gemini-live", realtimeAvailable: true, realtimeOption: true, premiumVoice: true, detected: "gemini-live", label: "Gemini Live", note: "Conversation vocale temps réel" };
+    return { provider: "gemini-live", realtimeAvailable: true, realtimeOption: true, premiumVoice: true, proxyAvailable, detected: "gemini-live", label: "Gemini Live", note: "Conversation vocale temps réel" };
   }
   if (c.openai) {
-    return { provider: "openai-realtime", realtimeAvailable: false, realtimeOption: true, premiumVoice: false, detected: "openai-realtime", label: "Mode texte intelligent", note: "Voix temps réel (OpenAI) en option avancée" };
+    return { provider: "openai-realtime", realtimeAvailable: false, realtimeOption: true, premiumVoice: false, proxyAvailable, detected: "openai-realtime", label: "Mode texte intelligent", note: "Voix temps réel (OpenAI) en option avancée" };
   }
-  return { provider: "text-fallback", realtimeAvailable: false, realtimeOption: false, premiumVoice: false, label: "Mode texte intelligent", note: "Voix temps réel bientôt disponible" };
+  return { provider: "text-fallback", realtimeAvailable: false, realtimeOption: false, premiumVoice: false, proxyAvailable, label: "Mode texte intelligent", note: "Voix temps réel bientôt disponible" };
 }
 
 // ── V2 — architecture prête, NON branchée (stubs documentés) ────────────────
