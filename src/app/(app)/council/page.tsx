@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useOrkestra, connectedProviders } from "@/lib/store";
 import { PROVIDERS } from "@/lib/providers";
-import { PageHeader, Card, Badge, ScoreRing, Progress } from "@/components/ui/primitives";
+import { Card, Badge, ScoreRing, Progress } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import { Markdown } from "@/components/ui/Markdown";
 import type { CouncilMode, CouncilResult, CouncilTurn, GenerationRecord, AIProviderId, SiteReview, ModuleId, GenMeta, StoreAnalysis } from "@/lib/types";
@@ -210,25 +210,38 @@ export default function CouncilPage() {
 
   return (
     <>
-      <PageHeader
-        title="AI Council"
-        description="Posez une demande : Orkestra interroge vos IA connectées en parallèle, compare leurs réponses, puis fusionne la meilleure réponse finale — plus forte que ChatGPT seul."
-        actions={
-          councilMessages.length > 0 ? (
-            <Button variant="ghost" onClick={clearCouncil} icon={<Trash2 className="h-4 w-4" />}>
-              Effacer la conversation
-            </Button>
-          ) : undefined
-        }
-      />
+      {/* Header premium */}
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">
+            AI Council
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-[var(--text)]">
+            La couche IA <span className="text-gradient">transversale</span> d’Orkestra
+          </h1>
+          <p className="mt-1 max-w-2xl text-sm text-[var(--text-muted)]">
+            Analyse vos données, priorise les actions et génère les contenus — en interrogeant vos IA
+            connectées et en fusionnant la meilleure réponse finale.
+          </p>
+        </div>
+        {councilMessages.length > 0 && (
+          <Button variant="ghost" onClick={clearCouncil} icon={<Trash2 className="h-4 w-4" />}>
+            Effacer
+          </Button>
+        )}
+      </div>
 
-      {/* Mode selector */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      {/* Mode selector — segmented glass */}
+      <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/70 p-1.5 backdrop-blur-xl">
         {MODES.map((m) => {
           const Icon = m.icon;
           const active = mode === m.id;
           return (
-            <button key={m.id} onClick={() => setMode(m.id)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition ${active ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300" : "border-[var(--border)] text-[var(--text-muted)] hover:border-brand-300"}`}>
+            <button
+              key={m.id}
+              onClick={() => setMode(m.id)}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium transition ${active ? "bg-brand-600 text-white shadow-[0_6px_16px_-8px_rgba(36,89,230,0.7)]" : "text-[var(--text-muted)] hover:text-[var(--text)]"}`}
+            >
               <Icon className="h-4 w-4" /> {m.label}
             </button>
           );
@@ -238,14 +251,14 @@ export default function CouncilPage() {
       <div className="grid min-w-0 gap-5 lg:grid-cols-3">
         {/* ── Conversation (cœur du produit) ── */}
         <div className="flex min-w-0 flex-col lg:col-span-2">
-          <Card className="flex h-[calc(100vh-15rem)] max-h-[820px] min-h-[460px] flex-col p-0">
+          <div className="glass-card flex h-[calc(100vh-16rem)] max-h-[820px] min-h-[460px] flex-col overflow-hidden p-0">
             {/* Connected AIs bar */}
             <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                 <span className="text-xs font-medium text-[var(--text-muted)]">Orchestre :</span>
                 {providers.length ? (
                   providers.map((p) => (
-                    <span key={p} className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] px-2 py-0.5 text-xs">
+                    <span key={p} className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs">
                       <span className="h-2 w-2 rounded-full" style={{ background: PROVIDERS[p].color }} />
                       {PROVIDERS[p].name}
                     </span>
@@ -254,10 +267,12 @@ export default function CouncilPage() {
                   <Badge tone="warn">Mode simulé — connectez vos IA</Badge>
                 )}
                 {openaiConnected && !claudeConnected && FUSION_MODES_UI.has(mode) && (
-                  <Link href="/connect" className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700 transition hover:underline dark:bg-brand-950/40 dark:text-brand-300"><Sparkles className="h-3 w-3" /> Connectez Claude pour une synthèse multi-IA</Link>
+                  <Link href="/settings" className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700 transition hover:underline dark:bg-brand-950/40 dark:text-brand-300"><Sparkles className="h-3 w-3" /> Connectez Claude pour une synthèse multi-IA</Link>
                 )}
               </div>
-              <span className="hidden shrink-0 text-xs text-[var(--text-muted)] sm:block">Mode {MODES.find((m) => m.id === mode)?.label}</span>
+              <Link href="/settings" className="hidden shrink-0 items-center gap-1 text-xs font-medium text-brand-600 transition hover:underline dark:text-brand-300 sm:inline-flex">
+                Gérer les IA
+              </Link>
             </div>
 
             {/* Messages */}
@@ -278,7 +293,7 @@ export default function CouncilPage() {
 
             {/* Input */}
             <div className="border-t border-[var(--border)] p-3 sm:p-4">
-              <div className="flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-2 transition focus-within:border-brand-400 focus-within:ring-4 focus-within:ring-brand-500/10">
+              <div className="flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-soft transition focus-within:border-brand-400 focus-within:ring-4 focus-within:ring-[var(--ring)]">
                 <textarea
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
@@ -293,7 +308,7 @@ export default function CouncilPage() {
               </div>
               <p className="mt-1.5 hint">Entrée pour envoyer · Maj+Entrée pour un retour à la ligne · Le contexte de la conversation est conservé.</p>
             </div>
-          </Card>
+          </div>
         </div>
 
         {/* ── Colonne droite : analyse de la synthèse ── */}
@@ -344,7 +359,7 @@ function EmptyCouncil({ providers, analysis, onStart }: { providers: AIProviderI
       <div className="grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-pop">
         <MessagesSquare className="h-8 w-8" />
       </div>
-      <h3 className="mt-4 text-lg font-bold">Que voulez-vous améliorer aujourd&apos;hui ?</h3>
+      <h3 className="mt-4 text-xl font-bold tracking-tight">Bonjour, comment puis-je vous aider aujourd&apos;hui ?</h3>
       <p className="mt-1.5 max-w-md text-sm text-[var(--text-muted)]">
         Orkestra interroge {providers.length ? `vos ${providers.length} IA` : "vos IA"}, compare leurs réponses et livre une synthèse finale. Choisissez un point de départ :
       </p>
@@ -643,8 +658,8 @@ function CouncilSidebar({ result, mode }: { result: CouncilResult; mode: Council
 
 // ── Bloc review structuré (homepage order, structure produit, problèmes) ─────
 const MODULE_ROUTE: Record<ModuleId, string> = {
-  dashboard: "/dashboard", seo: "/seo", sections: "/sections", council: "/council",
-  merchant: "/merchant", assistant: "/assistant", memory: "/memory", history: "/history", settings: "/settings",
+  dashboard: "/command-center", seo: "/product-studio", sections: "/council?mode=code", council: "/council",
+  merchant: "/growth-actions", assistant: "/council", memory: "/settings", history: "/settings", settings: "/settings",
 };
 const SEV_TONE: Record<string, "bad" | "warn" | "neutral"> = { critique: "bad", important: "warn", mineur: "neutral" };
 

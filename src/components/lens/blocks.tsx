@@ -37,7 +37,7 @@ export function StoreHealthScore({
   breakdown: { key: string; label: string; value: number }[];
 }) {
   return (
-    <div className="glass-card p-6">
+    <div className="glass-card ork-sheen p-6">
       <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center">
         <div className="relative shrink-0">
           <Ring value={score} size={148} big label="Santé" />

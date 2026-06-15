@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { VoiceSidebarEntry } from "./voice/VoiceSidebarEntry";
 import {
   Gauge,
   Activity,
@@ -14,19 +13,30 @@ import {
   MessagesSquare,
 } from "lucide-react";
 
-const NAV: { href: string; label: string; desc: string; icon: React.ElementType }[] = [
+const NAV: {
+  href: string;
+  label: string;
+  desc: string;
+  icon: React.ElementType;
+  /** Routes annexes qui appartiennent à cette section (outils rangés dedans). */
+  match?: string[];
+}[] = [
   { href: "/command-center", label: "Command Center", desc: "Vue globale & priorités", icon: Gauge },
-  { href: "/data-lens", label: "Data Lens", desc: "Tunnel & fiabilité data", icon: Activity },
-  { href: "/product-studio", label: "Product Studio", desc: "Optimisation produits", icon: Boxes },
+  { href: "/data-lens", label: "Data Lens", desc: "Tunnel & fiabilité data", icon: Activity, match: ["/lens"] },
+  { href: "/product-studio", label: "Product Studio", desc: "Produits, SEO & imports", icon: Boxes, match: ["/seo"] },
   { href: "/growth-actions", label: "Growth Actions", desc: "File d’actions priorisées", icon: ListChecks },
-  { href: "/settings", label: "Réglages & connexions", desc: "Shopify · IA · data", icon: Settings },
+  { href: "/settings", label: "Réglages & connexions", desc: "Shopify · IA · data", icon: Settings, match: ["/connect"] },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const isActive = (item: (typeof NAV)[number]) => {
+    const hrefs = [item.href, ...(item.match ?? [])];
+    return hrefs.some((h) => pathname === h || pathname.startsWith(h + "/"));
+  };
   return (
-    <aside className="relative z-10 hidden w-[264px] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)]/70 backdrop-blur-xl lg:flex">
-      <div className="flex h-16 items-center gap-2.5 px-5">
+    <aside className="sticky top-0 z-10 hidden h-screen w-[264px] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)]/70 backdrop-blur-xl lg:flex">
+      <div className="flex h-16 shrink-0 items-center gap-2.5 px-5">
         <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-[0_8px_20px_-8px_rgba(36,89,230,0.7)]">
           <Sparkles className="h-5 w-5" />
         </div>
@@ -36,9 +46,9 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-3">
         {NAV.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
+          const active = isActive(item);
           const Icon = item.icon;
           return (
             <Link
@@ -71,19 +81,18 @@ export function Sidebar() {
         })}
       </nav>
 
-      <VoiceSidebarEntry />
-
-      <div className="px-3 pb-3">
+      {/* Zone basse ancrée : copilote IA transversal (AI Council) */}
+      <div className="shrink-0 px-3 pb-3 pt-1">
         <Link
           href="/council"
-          className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-gradient-to-br from-brand-50 to-teal-50/50 p-3 transition hover:shadow-soft dark:from-brand-950/40 dark:to-teal-950/20"
+          className="group flex items-center gap-3 rounded-xl border border-[var(--border)] bg-gradient-to-br from-brand-50 to-teal-50/50 p-3 transition hover:shadow-soft dark:from-brand-950/40 dark:to-teal-950/20"
         >
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white/70 text-brand-600 dark:bg-white/5 dark:text-brand-300">
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white/70 text-brand-600 transition group-hover:scale-105 dark:bg-white/5 dark:text-brand-300">
             <MessagesSquare className="h-[18px] w-[18px]" />
           </div>
           <div className="min-w-0">
-            <div className="text-xs font-semibold text-[var(--text)]">Copilote IA</div>
-            <div className="truncate text-[11px] text-[var(--text-muted)]">Posez une question à Orkestra</div>
+            <div className="text-xs font-semibold text-[var(--text)]">AI Council</div>
+            <div className="truncate text-[11px] text-[var(--text-muted)]">Analyser · prioriser · générer</div>
           </div>
         </Link>
       </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useOrkestra, connectedProviders } from "@/lib/store";
-import { Moon, Sun, Search, Sparkles, CheckCircle2, ShieldCheck } from "lucide-react";
+import { Moon, Sun, Search, Sparkles, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "./ui/primitives";
 
@@ -24,7 +24,7 @@ export function Topbar() {
       <div className="flex items-center gap-2">
         <div className="hidden items-center gap-2 lg:flex">
           <span className="chip bg-teal-50 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
-            <ShieldCheck className="h-3.5 w-3.5" /> Data fiable à 79 %
+            <span className="ork-live h-1.5 w-1.5 rounded-full bg-teal-500" /> Data fiable à 79 %
           </span>
           {connected.length > 0 ? (
             <Badge tone="good">

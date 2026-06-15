@@ -2,6 +2,7 @@
 
 import { DemoBadge } from "@/components/lens/atoms";
 import { ActionQueue } from "@/components/lens/blocks";
+import { CouncilCTA } from "@/components/lens/CouncilCTA";
 import { ACTIONS } from "@/lib/lens-mock";
 import { ListChecks, Clock, Target } from "lucide-react";
 
@@ -12,18 +13,26 @@ export default function GrowthActions() {
   const highImpact = ACTIONS.filter((a) => a.impact === "haut" && a.status !== "fait").length;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <div className="mb-1.5 flex items-center gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">
-            Growth Actions
-          </span>
-          <DemoBadge />
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">
+              Growth Actions
+            </span>
+            <DemoBadge />
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-[var(--text)]">File d’actions priorisées</h1>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">
+            Triées par impact réel. Chaque action est applicable maintenant et chiffrée en temps.
+          </p>
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-[var(--text)]">File d’actions priorisées</h1>
-        <p className="mt-1 text-sm text-[var(--text-muted)]">
-          Triées par impact réel. Chaque action est applicable maintenant et chiffrée en temps.
-        </p>
+        <CouncilCTA
+          variant="button"
+          mode="strategy"
+          label="Prioriser avec AI Council"
+          prompt="Classe ma file d’actions par impact business réel, justifie l’ordre et prépare l’exécution des 3 premières (étapes concrètes)."
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-3">

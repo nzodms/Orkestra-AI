@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { DemoBadge } from "@/components/lens/atoms";
 import { ProductOpportunityCard, AIFixPreview } from "@/components/lens/blocks";
+import { SectionTabs, PRODUCT_STUDIO_TABS } from "@/components/lens/SectionTabs";
+import { CouncilCTA } from "@/components/lens/CouncilCTA";
 import { PRODUCTS, euro } from "@/lib/lens-mock";
 import { Boxes, FileWarning, Languages, ImageOff, Download, AlertCircle, ArrowRight, Sparkles } from "lucide-react";
 
@@ -26,13 +28,16 @@ export default function ProductStudio() {
   const totalUplift = PRODUCTS.reduce((s, p) => s + p.uplift, 0);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      <div>
+        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">
+          Product Studio
+        </div>
+        <SectionTabs tabs={PRODUCT_STUDIO_TABS} />
+      </div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="mb-1.5 flex items-center gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">
-              Product Studio
-            </span>
             <DemoBadge />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-[var(--text)]">Optimisez vos fiches produit</h1>
@@ -97,6 +102,13 @@ export default function ProductStudio() {
               Aucune promesse non vérifiable n’est ajoutée — le texte reste descriptif et factuel (compatible Merchant Center).
             </p>
           </div>
+
+          <CouncilCTA
+            mode="seo"
+            label="Générer cette fiche avec AI Council"
+            hint="Titre, meta, description, FAQ et alt text prêts à copier — puis export CSV Shopify."
+            prompt={`Optimise la fiche produit « ${product.title} » : titre SEO, meta description, description longue, FAQ et alt text prêts à copier. Reste descriptif et factuel (compatible Merchant Center).`}
+          />
         </div>
       </div>
     </div>

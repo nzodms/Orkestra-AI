@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useOrkestra } from "@/lib/store";
 import { DemoBadge } from "@/components/lens/atoms";
+import { CouncilCTA } from "@/components/lens/CouncilCTA";
 import {
   StoreHealthScore,
   RevenueLeakMap,
@@ -64,7 +65,7 @@ export default function CommandCenter() {
   const todo = ACTIONS.filter((a) => a.status !== "fait").length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
@@ -81,9 +82,17 @@ export default function CommandCenter() {
             Ce qui marche, ce qui fait perdre de l’argent, et la prochaine action utile.
           </p>
         </div>
-        <Link href="/data-lens" className="btn-ghost shrink-0">
-          Rescanner la boutique
-        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          <CouncilCTA
+            variant="button"
+            mode="strategy"
+            label="Résumer avec AI Council"
+            prompt="Résume l’état de santé de ma boutique à partir des données analysées, puis recommande le prochain meilleur levier à activer en priorité."
+          />
+          <Link href="/data-lens" className="btn-ghost">
+            Rescanner
+          </Link>
+        </div>
       </div>
 
       {/* Alerte critique */}
