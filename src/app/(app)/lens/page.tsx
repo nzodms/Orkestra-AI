@@ -9,7 +9,7 @@ import { draftFromSupplier, draftFromAnalysis } from "@/lib/send-to-import-facto
 import { buildSearchLinks } from "@/lib/lens-links";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
-import { LensUploader, LensUrlInput, LensClipperGuide, LensAnalysisCard, SupplierResults, SupplierComparison, SearchLinks } from "./_components";
+import { LensUploader, LensUrlInput, LensAnalysisCard, SupplierResults, SupplierComparison, SearchLinks } from "./_components";
 import { ScanSearch, Loader2, RotateCcw, Plug, Bookmark, ArrowRight, RefreshCw, Pencil, X, Sparkles, Info } from "lucide-react";
 
 type Step = "input" | "analyzing" | "results";
@@ -176,7 +176,6 @@ export default function OrkestraLensPage() {
               onProductUrl={(u) => analyze({ kind: "product_url", url: u }, "")}
               busy={false}
             />
-            <LensClipperGuide origin={typeof window !== "undefined" ? window.location.origin : ""} />
           </div>
         </div>
       )}

@@ -4,15 +4,16 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useOrkestra, connectedProviders } from "@/lib/store";
 import { PROVIDERS } from "@/lib/providers";
-import { Card, Badge, ScoreRing, Progress } from "@/components/ui/primitives";
+import { Badge, ScoreRing, Progress } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/Button";
 import { Markdown } from "@/components/ui/Markdown";
-import type { CouncilMode, CouncilResult, CouncilTurn, GenerationRecord, AIProviderId, SiteReview, ModuleId, GenMeta, StoreAnalysis } from "@/lib/types";
+import type { CouncilMode, CouncilResult, CouncilTurn, GenerationRecord, AIProviderId, AIConnection, SiteReview, ModuleId, GenMeta, StoreAnalysis } from "@/lib/types";
 import {
-  MessagesSquare, Send, Sparkles, Search, Code2, ShieldCheck, Mail, FileText,
+  MessagesSquare, Sparkles, Search, Code2, ShieldCheck, Mail, FileText,
   TrendingUp, Swords, MessageCircle, Copy, Check, Wand2, Scissors, FileCode2,
-  Trash2, Layers, Clock, ListChecks, CheckCircle2, AlertCircle, ArrowDown,
-  Home, ListOrdered, Wrench, ArrowRight, CornerDownRight,
+  Trash2, Layers, Clock, ListChecks, CheckCircle2, AlertCircle,
+  Home, ListOrdered, Wrench, ArrowRight, CornerDownRight, ChevronDown, Cpu,
+  Loader2, Zap, ArrowUp,
 } from "lucide-react";
 
 const MODES: { id: CouncilMode; label: string; icon: React.ElementType }[] = [
@@ -28,6 +29,16 @@ const MODES: { id: CouncilMode; label: string; icon: React.ElementType }[] = [
 
 // Modes qui bénéficient d'une synthèse multi-IA (OpenAI + Claude).
 const FUSION_MODES_UI = new Set<CouncilMode>(["code", "strategy", "competitive", "free", "email", "quote"]);
+
+// ── Choix du modèle (intégré au composer) ───────────────────────────────────
+type ModelChoice = "auto" | "fusion" | AIProviderId;
+const MODEL_OPTIONS: { id: ModelChoice; name: string; sub: string; provider?: AIProviderId }[] = [
+  { id: "auto", name: "Auto", sub: "Meilleur modèle disponible" },
+  { id: "fusion", name: "Fusion multi-IA", sub: "OpenAI + Claude, synthèse" },
+  { id: "openai", name: "GPT (OpenAI)", sub: "Rapide & polyvalent", provider: "openai" },
+  { id: "anthropic", name: "Claude", sub: "Relecture premium", provider: "anthropic" },
+  { id: "gemini", name: "Gemini", sub: "Analyse & multimodal", provider: "gemini" },
+];
 
 type Directive = "improve" | "shorten" | "premium" | "html";
 const ACTIONS: { label: string; icon: React.ElementType; directive: Directive | null }[] = [
@@ -63,24 +74,28 @@ export default function CouncilPage() {
   const openaiConnected = !!connections.openai?.connected;
   const claudeConnected = !!connections.anthropic?.connected;
   const [mode, setMode] = useState<CouncilMode>("seo");
+  const [modelChoice, setModelChoice] = useState<ModelChoice>("auto");
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Providers réellement envoyés selon le choix de modèle.
+  function providersToSend(): AIProviderId[] {
+    if (modelChoice === "auto" || modelChoice === "fusion") return providers;
+    return providers.includes(modelChoice) ? [modelChoice] : providers;
+  }
+
   // Dernière question utilisateur (continuité de conversation).
   const lastUserQuestion = [...councilMessages].reverse().find((m) => m.role === "user")?.question;
-  // Dernier résultat council (pour la colonne droite).
-  const lastResult = [...councilMessages].reverse().find((m) => m.role === "council")?.result;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [councilMessages, loading]);
 
-  // Question préparée passée par le dashboard (/council?mode=seo&q=...).
+  // Question préparée passée par une section (/council?mode=seo&q=...).
   const autoRan = useRef(false);
   useEffect(() => {
     if (autoRan.current) return;
-    // 1) Demande ciblée déposée par un autre module (Import Factory, Merchant…).
     if (pendingCouncil?.question) {
       autoRan.current = true;
       const m = pendingCouncil.mode as CouncilMode;
@@ -90,7 +105,6 @@ export default function CouncilPage() {
       runCouncil(q, null, m ?? undefined);
       return;
     }
-    // 2) Question préparée passée par l'URL (/council?mode=seo&q=...).
     const params = new URLSearchParams(window.location.search);
     const q = params.get("q");
     const m = params.get("mode") as CouncilMode | null;
@@ -106,7 +120,6 @@ export default function CouncilPage() {
   async function runCouncil(q: string, directive: Directive | null = null, modeOverride?: CouncilMode) {
     if (!q.trim()) return;
     const useMode = modeOverride ?? mode;
-    // Historique AVANT d'ajouter le nouveau tour (provider-agnostique).
     const history = councilMessages
       .slice(-6)
       .map((t) =>
@@ -126,7 +139,7 @@ export default function CouncilPage() {
         kind: "council",
         mode: useMode,
         question: q,
-        providers,
+        providers: providersToSend(),
         keyRefs: { openai: connections.openai?.keyId, claude: connections.anthropic?.keyId },
         context: {
           brandName: brand.storeName || undefined,
@@ -208,140 +221,252 @@ export default function CouncilPage() {
     runCouncil(q);
   }
 
+  const empty = councilMessages.length === 0 && !loading;
+
   return (
-    <>
+    <div className="flex h-[calc(100vh-7rem)] flex-col">
       {/* Header premium */}
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mx-auto flex w-full max-w-3xl items-end justify-between gap-3 pb-3">
         <div>
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">
+          <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">
+            <span className="grid h-5 w-5 place-items-center rounded-md bg-gradient-to-br from-brand-500 to-brand-700 text-white"><Sparkles className="h-3 w-3" /></span>
             AI Council
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-[var(--text)]">
+          <h1 className="text-xl font-bold tracking-tight text-[var(--text)]">
             La couche IA <span className="text-gradient">transversale</span> d’Orkestra
           </h1>
-          <p className="mt-1 max-w-2xl text-sm text-[var(--text-muted)]">
-            Analyse vos données, priorise les actions et génère les contenus — en interrogeant vos IA
-            connectées et en fusionnant la meilleure réponse finale.
-          </p>
         </div>
         {councilMessages.length > 0 && (
-          <Button variant="ghost" onClick={clearCouncil} icon={<Trash2 className="h-4 w-4" />}>
+          <Button variant="ghost" size="sm" onClick={clearCouncil} icon={<Trash2 className="h-4 w-4" />}>
             Effacer
           </Button>
         )}
       </div>
 
-      {/* Mode selector — segmented glass */}
-      <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/70 p-1.5 backdrop-blur-xl">
-        {MODES.map((m) => {
-          const Icon = m.icon;
-          const active = mode === m.id;
-          return (
-            <button
-              key={m.id}
-              onClick={() => setMode(m.id)}
-              className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium transition ${active ? "bg-brand-600 text-white shadow-[0_6px_16px_-8px_rgba(36,89,230,0.7)]" : "text-[var(--text-muted)] hover:text-[var(--text)]"}`}
-            >
-              <Icon className="h-4 w-4" /> {m.label}
-            </button>
-          );
-        })}
+      {/* Zone de conversation centrale */}
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-3xl space-y-5 pb-4">
+          {empty ? (
+            <StarterScreen
+              providers={providers}
+              analysis={analysis}
+              onStart={(m, q) => { setMode(m); runCouncil(q, null, m); }}
+            />
+          ) : (
+            councilMessages.map((turn) =>
+              turn.role === "user" ? (
+                <UserBubble key={turn.id} turn={turn} />
+              ) : (
+                <CouncilTurnCard key={turn.id} result={turn.result!} meta={turn.meta} mode={turn.mode} onAction={(d) => lastUserQuestion && runCouncil(lastUserQuestion, d)} onFollow={(q) => runCouncil(q)} />
+              )
+            )
+          )}
+          {loading && <ActivityFeed providers={providersToSend()} modelChoice={modelChoice} />}
+        </div>
       </div>
 
-      <div className="grid min-w-0 gap-5 lg:grid-cols-3">
-        {/* ── Conversation (cœur du produit) ── */}
-        <div className="flex min-w-0 flex-col lg:col-span-2">
-          <div className="glass-card flex h-[calc(100vh-16rem)] max-h-[820px] min-h-[460px] flex-col overflow-hidden p-0">
-            {/* Connected AIs bar */}
-            <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                <span className="text-xs font-medium text-[var(--text-muted)]">Orchestre :</span>
-                {providers.length ? (
-                  providers.map((p) => (
-                    <span key={p} className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs">
-                      <span className="h-2 w-2 rounded-full" style={{ background: PROVIDERS[p].color }} />
-                      {PROVIDERS[p].name}
-                    </span>
-                  ))
-                ) : (
-                  <Badge tone="warn">Mode simulé — connectez vos IA</Badge>
-                )}
-                {openaiConnected && !claudeConnected && FUSION_MODES_UI.has(mode) && (
-                  <Link href="/settings" className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700 transition hover:underline dark:bg-brand-950/40 dark:text-brand-300"><Sparkles className="h-3 w-3" /> Connectez Claude pour une synthèse multi-IA</Link>
-                )}
-              </div>
-              <Link href="/settings" className="hidden shrink-0 items-center gap-1 text-xs font-medium text-brand-600 transition hover:underline dark:text-brand-300 sm:inline-flex">
-                Gérer les IA
-              </Link>
-            </div>
+      {/* Composer docké premium */}
+      <div className="mx-auto w-full max-w-3xl pt-2">
+        <Composer
+          value={question}
+          onChange={setQuestion}
+          onSubmit={submit}
+          loading={loading}
+          mode={mode}
+          setMode={setMode}
+          modelChoice={modelChoice}
+          setModelChoice={setModelChoice}
+          connections={connections}
+          hasMessages={councilMessages.length > 0}
+        />
+        {openaiConnected && !claudeConnected && FUSION_MODES_UI.has(mode) && (
+          <p className="mt-2 text-center text-[11px] text-[var(--text-muted)]">
+            <Link href="/settings" className="font-medium text-brand-600 hover:underline dark:text-brand-300">Connectez Claude</Link> pour activer la synthèse multi-IA.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
-            {/* Messages */}
-            <div ref={scrollRef} className="flex-1 space-y-5 overflow-y-auto p-4 sm:p-5">
-              {councilMessages.length === 0 && !loading ? (
-                <EmptyCouncil providers={providers} analysis={analysis} onStart={(m, q) => { setMode(m); runCouncil(q, null, m); }} />
-              ) : (
-                councilMessages.map((turn) =>
-                  turn.role === "user" ? (
-                    <UserBubble key={turn.id} turn={turn} />
-                  ) : (
-                    <CouncilTurnCard key={turn.id} result={turn.result!} meta={turn.meta} mode={turn.mode} onAction={(d) => lastUserQuestion && runCouncil(lastUserQuestion, d)} onFollow={(q) => runCouncil(q)} />
-                  )
-                )
-              )}
-              {loading && <Thinking providers={providers} />}
-            </div>
+// ── Composer (sticky / dock premium + sélecteurs intégrés) ──────────────────
+function Composer({
+  value, onChange, onSubmit, loading, mode, setMode, modelChoice, setModelChoice, connections, hasMessages,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSubmit: () => void;
+  loading: boolean;
+  mode: CouncilMode;
+  setMode: (m: CouncilMode) => void;
+  modelChoice: ModelChoice;
+  setModelChoice: (m: ModelChoice) => void;
+  connections: Record<AIProviderId, AIConnection>;
+  hasMessages: boolean;
+}) {
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
+  }, [value]);
 
-            {/* Input */}
-            <div className="border-t border-[var(--border)] p-3 sm:p-4">
-              <div className="flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-soft transition focus-within:border-brand-400 focus-within:ring-4 focus-within:ring-[var(--ring)]">
-                <textarea
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
-                  placeholder={councilMessages.length ? "Poser une question de suivi…" : `Posez votre demande en mode « ${MODES.find((m) => m.id === mode)?.label} »…`}
-                  rows={1}
-                  className="max-h-40 min-h-[40px] flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-ink-400"
-                />
-                <Button onClick={submit} loading={loading} icon={!loading ? <Send className="h-4 w-4" /> : undefined}>
-                  Demander
-                </Button>
-              </div>
-              <p className="mt-1.5 hint">Entrée pour envoyer · Maj+Entrée pour un retour à la ligne · Le contexte de la conversation est conservé.</p>
-            </div>
-          </div>
+  return (
+    <div className="glass-card ork-sheen overflow-hidden rounded-3xl border-brand-100 p-2.5 shadow-lift transition focus-within:border-brand-300 focus-within:shadow-pop dark:border-brand-950/60">
+      <textarea
+        ref={taRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSubmit(); } }}
+        placeholder={hasMessages ? "Poser une question de suivi…" : "Écrivez votre demande à Orkestra — ou choisissez un départ ci-dessus…"}
+        rows={1}
+        className="max-h-52 min-h-[44px] w-full resize-none bg-transparent px-3 py-2.5 text-[15px] leading-relaxed outline-none placeholder:text-ink-400"
+      />
+      <div className="flex items-center justify-between gap-2 px-1 pt-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <ModePicker mode={mode} setMode={setMode} />
+          <ModelPicker modelChoice={modelChoice} setModelChoice={setModelChoice} connections={connections} />
         </div>
+        <button
+          onClick={onSubmit}
+          disabled={loading || !value.trim()}
+          aria-label="Envoyer"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-brand-600 text-white shadow-[0_8px_20px_-8px_rgba(36,89,230,0.7)] transition enabled:hover:bg-brand-700 enabled:active:scale-95 disabled:opacity-40"
+        >
+          {loading ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <ArrowUp className="h-[18px] w-[18px]" />}
+        </button>
+      </div>
+    </div>
+  );
+}
 
-        {/* ── Colonne droite : analyse de la synthèse ── */}
-        <div className="min-w-0 space-y-4 lg:sticky lg:top-20 lg:self-start">
-          {lastResult ? (
-            <CouncilSidebar result={lastResult} mode={mode} />
-          ) : (
-            <Card>
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <Layers className="h-4 w-4 text-brand-600" /> Analyse de l'orchestre
-              </div>
-              <p className="mt-2 text-sm text-[var(--text-muted)]">
-                Après votre première demande, retrouvez ici le score qualité, les modèles interrogés, le temps gagné et les prochaines actions recommandées.
-              </p>
-            </Card>
-          )}
-        </div>
+// ── Popover générique ───────────────────────────────────────────────────────
+function Popover({ open, onClose, children }: { open: boolean; onClose: () => void; children: React.ReactNode }) {
+  if (!open) return null;
+  return (
+    <>
+      <button className="fixed inset-0 z-30 cursor-default" aria-hidden onClick={onClose} />
+      <div className="absolute bottom-full left-0 z-40 mb-2 w-64 origin-bottom-left animate-scale-in rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-pop">
+        {children}
       </div>
     </>
   );
 }
 
-// ── Empty state premium ─────────────────────────────────────────────────────
-const COUNCIL_START: { mode: CouncilMode; icon: React.ElementType; label: string; q: string }[] = [
-  { mode: "seo", icon: Search, label: "Améliorer mon SEO", q: "Comment améliorer le SEO de ma boutique à partir des données analysées ?" },
-  { mode: "merchant", icon: ShieldCheck, label: "Préparer Merchant Center", q: "Fais un audit Merchant Center de ma boutique et liste les risques à corriger en priorité." },
-  { mode: "code", icon: Code2, label: "Créer du code Shopify", q: "Crée une section Shopify premium adaptée à ma boutique." },
-  { mode: "email", icon: Mail, label: "Répondre à un client", q: "Aide-moi à rédiger un email professionnel pour répondre à un client." },
-  { mode: "strategy", icon: TrendingUp, label: "Analyser ma stratégie", q: "Analyse ma boutique et propose une stratégie de croissance priorisée." },
-  { mode: "competitive", icon: Swords, label: "Trouver mes concurrents", q: "Identifie mes concurrents directs probables et mes angles de différenciation." },
+function ModePicker({ mode, setMode }: { mode: CouncilMode; setMode: (m: CouncilMode) => void }) {
+  const [open, setOpen] = useState(false);
+  const current = MODES.find((m) => m.id === mode)!;
+  const Icon = current.icon;
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-medium text-[var(--text)] transition hover:border-brand-300"
+      >
+        <Icon className="h-3.5 w-3.5 text-brand-600 dark:text-brand-300" />
+        <span className="hidden sm:inline">{current.label}</span>
+        <ChevronDown className="h-3 w-3 text-ink-400" />
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)}>
+        <div className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400">Type de demande</div>
+        <div className="grid grid-cols-2 gap-1">
+          {MODES.map((m) => {
+            const MIcon = m.icon;
+            const active = m.id === mode;
+            return (
+              <button
+                key={m.id}
+                onClick={() => { setMode(m.id); setOpen(false); }}
+                className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition ${active ? "bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300" : "text-[var(--text-muted)] hover:bg-[var(--bg)]"}`}
+              >
+                <MIcon className="h-3.5 w-3.5" /> {m.label}
+              </button>
+            );
+          })}
+        </div>
+      </Popover>
+    </div>
+  );
+}
+
+function ModelPicker({
+  modelChoice, setModelChoice, connections,
+}: {
+  modelChoice: ModelChoice;
+  setModelChoice: (m: ModelChoice) => void;
+  connections: Record<AIProviderId, AIConnection>;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = MODEL_OPTIONS.find((m) => m.id === modelChoice)!;
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-medium text-[var(--text)] transition hover:border-brand-300"
+      >
+        {current.provider ? (
+          <span className="h-2.5 w-2.5 rounded-full" style={{ background: PROVIDERS[current.provider].color }} />
+        ) : current.id === "fusion" ? (
+          <Layers className="h-3.5 w-3.5 text-brand-600 dark:text-brand-300" />
+        ) : (
+          <Cpu className="h-3.5 w-3.5 text-brand-600 dark:text-brand-300" />
+        )}
+        <span className="hidden sm:inline">{current.name}</span>
+        <ChevronDown className="h-3 w-3 text-ink-400" />
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)}>
+        <div className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400">Modèle / orchestration</div>
+        {MODEL_OPTIONS.map((m) => {
+          const connected = m.provider ? !!connections[m.provider]?.connected : true;
+          const active = m.id === modelChoice;
+          return (
+            <button
+              key={m.id}
+              onClick={() => { setModelChoice(m.id); setOpen(false); }}
+              className={`flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition ${active ? "bg-brand-50 dark:bg-brand-950/60" : "hover:bg-[var(--bg)]"}`}
+            >
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[var(--bg)]">
+                {m.provider ? (
+                  <span className="h-3 w-3 rounded-full" style={{ background: PROVIDERS[m.provider].color }} />
+                ) : m.id === "fusion" ? (
+                  <Layers className="h-4 w-4 text-brand-600 dark:text-brand-300" />
+                ) : (
+                  <Zap className="h-4 w-4 text-brand-600 dark:text-brand-300" />
+                )}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--text)]">
+                  {m.name}
+                  {active && <Check className="h-3.5 w-3.5 text-brand-600 dark:text-brand-300" />}
+                </span>
+                <span className="block truncate text-[11px] text-[var(--text-muted)]">{m.sub}</span>
+              </span>
+              {m.provider && !connected && (
+                <span className="shrink-0 text-[10px] font-medium text-amber-600 dark:text-amber-400">non connecté</span>
+              )}
+            </button>
+          );
+        })}
+        <Link href="/settings" onClick={() => setOpen(false)} className="mt-1 flex items-center justify-center gap-1 rounded-xl border border-dashed border-[var(--border)] px-2 py-1.5 text-[11px] font-medium text-brand-600 transition hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950/40">
+          <Sparkles className="h-3 w-3" /> Gérer mes IA connectées
+        </Link>
+      </Popover>
+    </div>
+  );
+}
+
+// ── Écran de départ premium ─────────────────────────────────────────────────
+const COUNCIL_START: { mode: CouncilMode; icon: React.ElementType; label: string; desc: string; q: string }[] = [
+  { mode: "seo", icon: Search, label: "Améliorer mon SEO", desc: "Titres, meta, contenu, maillage", q: "Comment améliorer le SEO de ma boutique à partir des données analysées ?" },
+  { mode: "strategy", icon: TrendingUp, label: "Corriger mon tunnel", desc: "Trouver et colmater les fuites", q: "Analyse mon tunnel de conversion, identifie les fuites de revenu et propose les priorités." },
+  { mode: "seo", icon: Wand2, label: "Générer une fiche produit", desc: "Titre, meta, description, FAQ", q: "Génère une fiche produit optimisée (titre, meta, description, FAQ, alt) prête à copier." },
+  { mode: "merchant", icon: ShieldCheck, label: "Préparer Merchant Center", desc: "Lever les risques avant Ads", q: "Fais un audit Merchant Center de ma boutique et liste les risques à corriger en priorité." },
+  { mode: "strategy", icon: ListChecks, label: "Prioriser mes actions", desc: "Par impact business réel", q: "Classe mes actions par impact business réel et justifie l'ordre de priorité." },
+  { mode: "strategy", icon: Sparkles, label: "Analyser ma boutique", desc: "Diagnostic global + prochain levier", q: "Analyse ma boutique et propose une stratégie de croissance priorisée." },
 ];
 
-function EmptyCouncil({ providers, analysis, onStart }: { providers: AIProviderId[]; analysis: StoreAnalysis | null; onStart: (mode: CouncilMode, q: string) => void }) {
+function StarterScreen({ providers, analysis, onStart }: { providers: AIProviderId[]; analysis: StoreAnalysis | null; onStart: (mode: CouncilMode, q: string) => void }) {
   const scan: { label: string; mode: CouncilMode; q: string }[] = [];
   if (analysis) {
     const eng = analysis.englishTexts?.length ?? 0;
@@ -352,31 +477,36 @@ function EmptyCouncil({ providers, analysis, onStart }: { providers: AIProviderI
     if (meta) scan.push({ label: `Meta manquantes (${meta})`, mode: "seo", q: "Donne-moi uniquement les meta titles et descriptions prêts à copier pour mes pages prioritaires." });
     if (noType) scan.push({ label: `Product_type (${noType})`, mode: "merchant", q: "Contexte : des product_type sont manquants. Réponds uniquement : produits concernés, types à ajouter et chemin Shopify." });
     if (alt) scan.push({ label: `Alt text (${alt})`, mode: "seo", q: "Comment ajouter des alt text descriptifs à mes images, et où dans Shopify ?" });
-    if ((analysis.collectionsFound ?? 0) > 0) scan.push({ label: "Collections à enrichir", mode: "seo", q: "Comment enrichir mes pages collections (texte, FAQ, maillage interne) ?" });
   }
   return (
-    <div className="ork-rise flex flex-col items-center py-8 text-center">
-      <div className="grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-pop">
-        <MessagesSquare className="h-8 w-8" />
+    <div className="ork-rise flex flex-col items-center pt-6 text-center sm:pt-10">
+      <div className="relative">
+        <div className="ork-breathe grid h-16 w-16 place-items-center rounded-3xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-[0_18px_40px_-14px_rgba(36,89,230,0.7)]">
+          <MessagesSquare className="h-8 w-8" />
+        </div>
+        <span className="ork-aura" />
       </div>
-      <h3 className="mt-4 text-xl font-bold tracking-tight">Bonjour, comment puis-je vous aider aujourd&apos;hui ?</h3>
-      <p className="mt-1.5 max-w-md text-sm text-[var(--text-muted)]">
-        Orkestra interroge {providers.length ? `vos ${providers.length} IA` : "vos IA"}, compare leurs réponses et livre une synthèse finale. Choisissez un point de départ :
+      <h2 className="mt-5 text-2xl font-bold tracking-tight text-[var(--text)]">Bonjour, comment puis-je vous aider aujourd&apos;hui&nbsp;?</h2>
+      <p className="mt-2 max-w-lg text-sm text-[var(--text-muted)]">
+        Orkestra interroge {providers.length ? `vos ${providers.length} IA connectée${providers.length > 1 ? "s" : ""}` : "vos IA"}, compare leurs réponses et livre une synthèse orientée action. Choisissez un départ ou écrivez directement ci-dessous.
       </p>
-      <div className="ork-stagger mt-6 grid w-full max-w-xl gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="ork-stagger mt-7 grid w-full gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
         {COUNCIL_START.map((c) => {
           const Icon = c.icon;
           return (
-            <button key={c.mode} onClick={() => onStart(c.mode, c.q)} className="ork-interactive group flex flex-col items-start gap-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5 text-left hover:border-brand-300">
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-600 transition group-hover:scale-105 dark:bg-brand-950 dark:text-brand-300"><Icon className="h-[18px] w-[18px]" /></span>
-              <span className="mt-1 text-sm font-semibold">{c.label}</span>
+            <button key={c.label} onClick={() => onStart(c.mode, c.q)} className="ork-interactive group flex items-start gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3.5 text-left transition hover:border-brand-300">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 transition group-hover:scale-105 dark:bg-brand-950 dark:text-brand-300"><Icon className="h-[18px] w-[18px]" /></span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-[var(--text)]">{c.label}</span>
+                <span className="mt-0.5 block text-[11px] leading-snug text-[var(--text-muted)]">{c.desc}</span>
+              </span>
             </button>
           );
         })}
       </div>
       {scan.length > 0 && (
-        <div className="mt-6 w-full max-w-xl">
-          <div className="mb-2 text-xs text-[var(--text-muted)]">D&apos;après votre scan, Orkestra peut déjà vous aider sur :</div>
+        <div className="mt-6 w-full">
+          <div className="mb-2 text-xs text-[var(--text-muted)]">D&apos;après votre scan, Orkestra peut déjà vous aider sur&nbsp;:</div>
           <div className="flex flex-wrap justify-center gap-2">
             {scan.map((s) => (
               <button key={s.label} onClick={() => onStart(s.mode, s.q)} className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium transition hover:-translate-y-0.5 hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300">
@@ -390,18 +520,48 @@ function EmptyCouncil({ providers, analysis, onStart }: { providers: AIProviderI
   );
 }
 
-function Thinking({ providers }: { providers: AIProviderId[] }) {
+// ── Activity feed (« Ce qu'Orkestra fait maintenant ») ──────────────────────
+const ACTIVITY_STEPS = [
+  "Analyse du contexte boutique",
+  "Lecture des données du module concerné",
+  "Interrogation des IA connectées",
+  "Comparaison des réponses",
+  "Synthèse de la meilleure réponse",
+  "Préparation des actions recommandées",
+];
+
+function ActivityFeed({ providers, modelChoice }: { providers: AIProviderId[]; modelChoice: ModelChoice }) {
+  const [active, setActive] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setActive((a) => Math.min(a + 1, ACTIVITY_STEPS.length - 1)), 850);
+    return () => clearInterval(t);
+  }, []);
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-4">
-      <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-muted)]">
-        <Sparkles className="h-4 w-4 animate-pulse text-brand-600" />
-        L'orchestre délibère{providers.length ? ` — ${providers.length} IA en parallèle` : ""}…
+    <div className="ork-rise glass-card overflow-hidden p-4">
+      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--text)]">
+        <span className="relative grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white">
+          <Sparkles className="h-4 w-4" />
+          <span className="ork-aura" />
+        </span>
+        Ce qu’Orkestra fait maintenant
+        <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-normal text-[var(--text-muted)]">
+          {modelChoice === "fusion" ? <><Layers className="h-3 w-3" /> Fusion multi-IA</> : `${providers.length || 1} IA`}
+        </span>
       </div>
-      <div className="mt-3 space-y-2">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-3.5 rounded ork-skeleton" style={{ width: `${55 + ((i * 17) % 40)}%` }} />
-        ))}
-      </div>
+      <ol className="space-y-2">
+        {ACTIVITY_STEPS.map((s, i) => {
+          const done = i < active;
+          const current = i === active;
+          return (
+            <li key={s} className={`flex items-center gap-2.5 text-sm transition-opacity ${i > active ? "opacity-40" : "opacity-100"}`}>
+              <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full ${done ? "bg-teal-500 text-white" : current ? "bg-brand-100 text-brand-600 dark:bg-brand-950 dark:text-brand-300" : "bg-[var(--bg)] text-ink-400"}`}>
+                {done ? <Check className="h-3 w-3" /> : current ? <Loader2 className="h-3 w-3 animate-spin" /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+              </span>
+              <span className={done ? "text-[var(--text-muted)]" : "text-[var(--text)]"}>{s}</span>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
@@ -409,7 +569,7 @@ function Thinking({ providers }: { providers: AIProviderId[] }) {
 function UserBubble({ turn }: { turn: CouncilTurn }) {
   return (
     <div className="flex justify-end">
-      <div className="ork-rise max-w-[85%] break-words rounded-2xl rounded-br-md bg-brand-600 px-4 py-2.5 text-sm text-white shadow-soft">
+      <div className="ork-rise max-w-[85%] break-words rounded-3xl rounded-br-lg bg-brand-600 px-4 py-2.5 text-sm text-white shadow-[0_10px_24px_-12px_rgba(36,89,230,0.6)]">
         {turn.question}
       </div>
     </div>
@@ -425,32 +585,24 @@ function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: C
   const hasWhy = result.synthesisReasons && result.synthesisReasons.length > 0;
 
   return (
-    <div className="ork-rise min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-card">
-      {/* Header */}
+    <div className="ork-rise min-w-0 overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)] shadow-card">
+      {/* Header assistant */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white">
+        <div className="flex items-center gap-2.5">
+          <div className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-[0_8px_18px_-8px_rgba(36,89,230,0.7)]">
             <Sparkles className="h-4 w-4" />
           </div>
-          <span className="text-sm font-bold">Réponse finale Orkestra</span>
-          {!meta?.live ? <Badge tone="neutral">Mode démo</Badge>
-            : fusion ? <Badge tone="brand"><Sparkles className="h-3 w-3" /> OpenAI + Claude · Synthèse</Badge>
-            : <Badge tone="good">{result.modelsUsed.map((m) => PROVIDERS[m].name).join(" · ")} live</Badge>}
+          <div className="leading-tight">
+            <div className="text-sm font-bold text-[var(--text)]">Réponse finale Orkestra</div>
+            <div className="text-[11px] text-[var(--text-muted)]">
+              {meta?.live
+                ? fusion ? "Synthèse OpenAI + Claude" : result.modelsUsed.map((m) => PROVIDERS[m].name).join(" · ") + " · live"
+                : "Mode démo · template contextualisé"}
+              {time ? ` · ${time}` : ""}
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-          <Badge tone="good">Qualité {result.qualityScore}</Badge>
-        </div>
-      </div>
-
-      {/* Bandeau méta : réel vs démo */}
-      <div className="border-b border-[var(--border)] bg-[var(--bg)] px-4 py-1.5 text-[11px] text-[var(--text-muted)]">
-        {meta?.live
-          ? fusion
-            ? `Synthèse Orkestra fusionnée · ${meta.models || meta.model}${meta.tokens ? ` · ${meta.tokens} tokens` : ""} · ${time}`
-            : `Réponse générée avec ${result.modelsUsed.map((m) => PROVIDERS[m].name).join(" · ")} · ${meta.model}${meta.tokens ? ` · ${meta.tokens} tokens` : ""} · ${time}`
-          : `Réponse simulée (template contextualisé)${meta?.fallbackReason ? ` · ${meta.fallbackReason}` : ""}`}
-        {meta?.fallbackReason && meta?.live ? ` · ${meta.fallbackReason}` : ""}
-        {meta?.routingNote ? ` · ${meta.routingNote}` : ""}
+        <Badge tone="good">Qualité {result.qualityScore}</Badge>
       </div>
 
       {/* Tabs */}
@@ -494,15 +646,16 @@ function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: C
           </div>
         ) : tab === "final" ? (
           <>
-            <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
-              <span className="inline-flex items-center gap-1"><Layers className="h-3.5 w-3.5" /> {result.modelsUsed.map((m) => PROVIDERS[m].name).join(" · ")}</span>
-            </div>
             <div className="min-w-0 break-words">
               <Markdown content={result.finalAnswer} />
             </div>
             {result.review && <ReviewBlock review={result.review} />}
+
+            {/* Bloc exécution structuré */}
+            <ExecutionFooter result={result} />
+
             {/* Actions sur la réponse */}
-            <div className="mt-5 flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
+            <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
               {ACTIONS.map((a) => {
                 const Icon = a.icon;
                 return (
@@ -514,7 +667,7 @@ function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: C
               <CopyBtn text={result.finalAnswer} label="Exporter" />
             </div>
 
-            {/* Suivi rapide — envoie une question de suivi dans la conversation */}
+            {/* Suivi rapide */}
             <div className="mt-3">
               <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
                 <CornerDownRight className="h-3.5 w-3.5" /> Continuer la conversation
@@ -539,6 +692,49 @@ function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: C
           <ProviderTab answer={current} />
         ) : null}
       </div>
+    </div>
+  );
+}
+
+// ── Bloc exécution (modèles · temps · scores · actions prêtes) ──────────────
+function ExecutionFooter({ result }: { result: CouncilResult }) {
+  const scoreRows: { label: string; value: number }[] = [
+    { label: "Clarté", value: result.scores.clarity },
+    { label: "Actionnable", value: result.scores.actionable },
+    ...(result.scores.seo ? [{ label: "SEO", value: result.scores.seo }] : []),
+  ];
+  return (
+    <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-4">
+      <div className="grid gap-4 sm:grid-cols-[auto,1fr]">
+        <div className="flex items-center gap-3 sm:flex-col sm:items-center sm:gap-1">
+          <ScoreRing value={result.qualityScore} size={70} label="qualité" />
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-700 dark:bg-brand-950/50 dark:text-brand-300">
+            <Clock className="h-3 w-3" /> {result.timeSaved}
+          </div>
+        </div>
+        <div className="min-w-0 space-y-2.5">
+          {scoreRows.map((r) => (
+            <div key={r.label}>
+              <div className="mb-1 flex items-center justify-between text-[11px]"><span className="text-[var(--text-muted)]">{r.label}</span><span className="font-semibold text-[var(--text)]">{r.value}</span></div>
+              <Progress value={r.value} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {result.nextActions.length > 0 && (
+        <div className="mt-4 border-t border-[var(--border)] pt-3.5">
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-[var(--text)]"><ListChecks className="h-4 w-4 text-brand-600" /> Actions prêtes à appliquer</div>
+          <div className="space-y-1.5">
+            {result.nextActions.map((a, i) => (
+              <div key={i} className="flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs">
+                <span className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-brand-50 text-[9px] font-bold text-brand-700 dark:bg-brand-950 dark:text-brand-300">{i + 1}</span>
+                <span className="text-[var(--text)]">{a}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -589,73 +785,6 @@ function ProviderTab({ answer }: { answer: CouncilResult["providerAnswers"][numb
   );
 }
 
-// ── Colonne droite enrichie ──────────────────────────────────────────────────
-function CouncilSidebar({ result, mode }: { result: CouncilResult; mode: CouncilMode }) {
-  const scoreRows: { label: string; value: number }[] = [
-    { label: "Qualité globale", value: result.scores.quality },
-    { label: "Clarté", value: result.scores.clarity },
-    { label: "Actionnable", value: result.scores.actionable },
-    ...(result.scores.seo ? [{ label: "Score SEO", value: result.scores.seo }] : []),
-  ];
-  return (
-    <>
-      <Card className="flex flex-col items-center text-center">
-        <ScoreRing value={result.qualityScore} size={92} label="qualité" />
-        <p className="mt-2 text-xs text-[var(--text-muted)]">Synthèse finale de l'orchestre</p>
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
-          {result.modelsUsed.map((m) => (
-            <span key={m} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-[11px]">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: PROVIDERS[m].color }} />
-              {PROVIDERS[m].name}
-            </span>
-          ))}
-        </div>
-      </Card>
-
-      <Card>
-        <h3 className="mb-3 text-sm font-semibold">Scores détaillés</h3>
-        <div className="space-y-3">
-          {scoreRows.map((r) => (
-            <div key={r.label}>
-              <div className="mb-1 flex items-center justify-between text-xs">
-                <span className="text-[var(--text-muted)]">{r.label}</span>
-                <span className="font-semibold">{r.value}</span>
-              </div>
-              <Progress value={r.value} />
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 flex items-center justify-between rounded-xl bg-brand-50 px-3 py-2.5 dark:bg-brand-950/40">
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 dark:text-brand-300"><Clock className="h-3.5 w-3.5" /> Temps estimé gagné</span>
-          <span className="text-sm font-bold text-brand-700 dark:text-brand-300">{result.timeSaved}</span>
-        </div>
-      </Card>
-
-      <Card>
-        <h3 className="mb-2.5 flex items-center gap-1.5 text-sm font-semibold"><Layers className="h-4 w-4 text-brand-600" /> Pourquoi cette synthèse ?</h3>
-        <ul className="space-y-2">
-          {result.synthesisReasons.map((r, i) => (
-            <li key={i} className="flex gap-2 text-xs text-[var(--text-muted)]">
-              <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600" /> {r}
-            </li>
-          ))}
-        </ul>
-      </Card>
-
-      <Card>
-        <h3 className="mb-2.5 flex items-center gap-1.5 text-sm font-semibold"><ListChecks className="h-4 w-4 text-brand-600" /> Prochaines actions</h3>
-        <ul className="space-y-2">
-          {result.nextActions.map((a, i) => (
-            <li key={i} className="flex items-start gap-2 text-xs">
-              <ArrowDown className="mt-0.5 h-3.5 w-3.5 shrink-0 rotate-[-45deg] text-brand-500" /> <span className="text-[var(--text-muted)]">{a}</span>
-            </li>
-          ))}
-        </ul>
-      </Card>
-    </>
-  );
-}
-
 // ── Bloc review structuré (homepage order, structure produit, problèmes) ─────
 const MODULE_ROUTE: Record<ModuleId, string> = {
   dashboard: "/command-center", seo: "/product-studio", sections: "/council?mode=code", council: "/council",
@@ -666,7 +795,6 @@ const SEV_TONE: Record<string, "bad" | "warn" | "neutral"> = { critique: "bad", 
 function ReviewBlock({ review }: { review: SiteReview }) {
   return (
     <div className="mt-5 space-y-4 border-t border-[var(--border)] pt-5">
-      {/* Ordres recommandés */}
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-[var(--border)] p-3.5">
           <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-[var(--text)]"><Home className="h-3.5 w-3.5 text-brand-600" /> Ordre des sections recommandé (Home)</div>
@@ -692,7 +820,6 @@ function ReviewBlock({ review }: { review: SiteReview }) {
         </div>
       </div>
 
-      {/* Problèmes détectés */}
       <div>
         <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><Wrench className="h-4 w-4 text-brand-600" /> Problèmes détectés ({review.issues.length})</div>
         <div className="space-y-2.5">

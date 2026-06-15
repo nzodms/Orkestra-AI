@@ -64,31 +64,33 @@ body {
   content: "";
   position: absolute;
   border-radius: 50%;
-  filter: blur(90px);
-  opacity: 0.55;
+  filter: blur(80px);
+  opacity: 0.85;
 }
 .app-mesh::before {
-  width: 46rem;
-  height: 46rem;
-  top: -14rem;
-  left: -8rem;
-  background: radial-gradient(circle, rgba(59, 115, 245, 0.30), transparent 65%);
-  animation: float-slow 16s ease-in-out infinite;
+  width: 50rem;
+  height: 50rem;
+  top: -16rem;
+  left: -10rem;
+  background: radial-gradient(circle, rgba(59, 115, 245, 0.42), transparent 64%);
+  animation: float-slow 18s ease-in-out infinite;
 }
 .app-mesh::after {
-  width: 40rem;
-  height: 40rem;
-  bottom: -16rem;
-  right: -6rem;
-  background: radial-gradient(circle, rgba(16, 183, 127, 0.20), transparent 65%);
-  animation: float-slow 20s ease-in-out infinite reverse;
+  width: 44rem;
+  height: 44rem;
+  bottom: -18rem;
+  right: -8rem;
+  background: radial-gradient(circle, rgba(16, 183, 127, 0.30), transparent 64%);
+  animation: float-slow 22s ease-in-out infinite reverse;
 }
-.dark .app-mesh::before { opacity: 0.30; }
-.dark .app-mesh::after { opacity: 0.22; }
+/* Troisième halo central très diffus pour donner de la vie au fond clair */
+.app-mesh::after { box-shadow: -34rem -10rem 0 -6rem rgba(99, 102, 241, 0.10); }
+.dark .app-mesh::before { opacity: 0.42; }
+.dark .app-mesh::after { opacity: 0.32; }
 
 @keyframes float-slow {
   0%, 100% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(3%, -4%) scale(1.06); }
+  50% { transform: translate(5%, -6%) scale(1.09); }
 }
 
 /* Scrollbar premium */
@@ -328,18 +330,26 @@ body {
   animation: ork-gradient 9s ease-in-out infinite;
 }
 
-/* Point « live / data fiable » : halo doux qui respire */
+/* Point « live / data fiable » : halo doux qui respire (bien visible en clair) */
 @keyframes ork-live {
-  0% { box-shadow: 0 0 0 0 rgba(16, 183, 127, 0.45); }
-  70% { box-shadow: 0 0 0 5px rgba(16, 183, 127, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(16, 183, 127, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(16, 183, 127, 0); }
   100% { box-shadow: 0 0 0 0 rgba(16, 183, 127, 0); }
 }
-.ork-live { animation: ork-live 2.6s ease-out infinite; }
+.ork-live { animation: ork-live 2.4s ease-out infinite; }
 
-/* Reflet de verre qui balaie très lentement une surface glass */
+/* Variante bleue pour indicateurs de marque */
+@keyframes ork-live-brand {
+  0% { box-shadow: 0 0 0 0 rgba(36, 89, 230, 0.5); }
+  70% { box-shadow: 0 0 0 8px rgba(36, 89, 230, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(36, 89, 230, 0); }
+}
+.ork-live-brand { animation: ork-live-brand 2.4s ease-out infinite; }
+
+/* Reflet de verre qui balaie lentement une surface glass (visible en clair) */
 @keyframes ork-sheen {
-  0% { transform: translateX(-130%) skewX(-18deg); }
-  100% { transform: translateX(230%) skewX(-18deg); }
+  0% { transform: translateX(-130%) skewX(-16deg); }
+  100% { transform: translateX(240%) skewX(-16deg); }
 }
 .ork-sheen { position: relative; overflow: hidden; }
 .ork-sheen::after {
@@ -347,14 +357,21 @@ body {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 38%;
+  width: 42%;
   pointer-events: none;
-  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.22), transparent);
-  animation: ork-sheen 7s ease-in-out infinite;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  animation: ork-sheen 6s ease-in-out infinite;
 }
 .dark .ork-sheen::after {
-  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.08), transparent);
 }
+
+/* Glow de surface très discret qui respire (cartes mises en avant) */
+@keyframes ork-glow-pulse {
+  0%, 100% { box-shadow: 0 14px 44px -22px rgba(36, 89, 230, 0.18); }
+  50% { box-shadow: 0 18px 52px -20px rgba(36, 89, 230, 0.34); }
+}
+.ork-glow-pulse { animation: ork-glow-pulse 5s ease-in-out infinite; }
 
 /* Liseré conique lent autour d'une surface mise en avant */
 @keyframes ork-orbit { to { transform: rotate(360deg); } }

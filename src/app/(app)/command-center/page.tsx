@@ -100,7 +100,8 @@ export default function CommandCenter() {
         href="/product-studio"
         className="flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50/60 p-4 transition hover:bg-red-50 dark:border-red-900/50 dark:bg-red-950/30"
       >
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-red-100 text-red-600 dark:bg-red-900/50 dark:text-red-300">
+        <span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-red-100 text-red-600 dark:bg-red-900/50 dark:text-red-300">
+          <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-red-500 ork-live" />
           <AlertTriangle className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
