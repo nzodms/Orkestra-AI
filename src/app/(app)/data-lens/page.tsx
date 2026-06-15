@@ -112,6 +112,27 @@ export default function DataLens() {
           ))}
         </div>
       </div>
+
+      {/* Méthodologie — comment Orkestra fiabilise les données */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        {[
+          { icon: Activity, title: "On mesure le brut", text: "Sessions, vues, paniers et commandes tels que remontés par vos sources." },
+          { icon: GitCompareArrows, title: "On réconcilie", text: "Doublons, bots et sessions non attribuées sont écartés avant tout calcul." },
+          { icon: ShoppingBag, title: "On fiabilise", text: "Vous décidez sur des chiffres nets — pas sur du bruit d’attribution." },
+        ].map((s, i) => {
+          const Icon = s.icon;
+          return (
+            <div key={s.title} className="card p-4">
+              <div className="flex items-center gap-2">
+                <span className="grid h-7 w-7 place-items-center rounded-lg bg-teal-50 text-teal-600 dark:bg-teal-900/40 dark:text-teal-300"><Icon className="h-4 w-4" /></span>
+                <span className="text-[11px] font-bold text-teal-600 dark:text-teal-400">Étape {i + 1}</span>
+              </div>
+              <p className="mt-2 text-sm font-semibold text-[var(--text)]">{s.title}</p>
+              <p className="mt-0.5 text-xs text-[var(--text-muted)]">{s.text}</p>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

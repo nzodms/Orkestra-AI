@@ -13,7 +13,7 @@ import {
   TrendingUp, Swords, MessageCircle, Copy, Check, Wand2, Scissors, FileCode2,
   Trash2, Layers, Clock, ListChecks, CheckCircle2, AlertCircle,
   Home, ListOrdered, Wrench, ArrowRight, CornerDownRight, ChevronDown, Cpu,
-  Loader2, Zap, ArrowUp,
+  Loader2, Zap, ArrowUp, Plus, Brain,
 } from "lucide-react";
 
 const MODES: { id: CouncilMode; label: string; icon: React.ElementType }[] = [
@@ -75,6 +75,7 @@ export default function CouncilPage() {
   const claudeConnected = !!connections.anthropic?.connected;
   const [mode, setMode] = useState<CouncilMode>("seo");
   const [modelChoice, setModelChoice] = useState<ModelChoice>("auto");
+  const [reasoning, setReasoning] = useState(false);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -245,7 +246,7 @@ export default function CouncilPage() {
 
       {/* Zone de conversation centrale */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl space-y-5 pb-4">
+        <div className={`mx-auto w-full max-w-3xl ${empty ? "flex min-h-full flex-col justify-center" : "space-y-5 pb-2"}`}>
           {empty ? (
             <StarterScreen
               providers={providers}
@@ -261,12 +262,14 @@ export default function CouncilPage() {
               )
             )
           )}
-          {loading && <ActivityFeed providers={providersToSend()} modelChoice={modelChoice} />}
+          {loading && <ActivityFeed providers={providersToSend()} modelChoice={modelChoice} reasoning={reasoning} />}
         </div>
       </div>
 
       {/* Composer docké premium */}
-      <div className="mx-auto w-full max-w-3xl pt-2">
+      <div className="relative mx-auto w-full max-w-3xl">
+        {/* fondu qui ancre le composer au bas de la conversation */}
+        <div className="pointer-events-none absolute -top-6 left-0 right-0 h-6 bg-gradient-to-t from-[var(--bg)] to-transparent" />
         <Composer
           value={question}
           onChange={setQuestion}
@@ -278,20 +281,18 @@ export default function CouncilPage() {
           setModelChoice={setModelChoice}
           connections={connections}
           hasMessages={councilMessages.length > 0}
+          reasoning={reasoning}
+          setReasoning={setReasoning}
+          connectHint={openaiConnected && !claudeConnected && FUSION_MODES_UI.has(mode)}
         />
-        {openaiConnected && !claudeConnected && FUSION_MODES_UI.has(mode) && (
-          <p className="mt-2 text-center text-[11px] text-[var(--text-muted)]">
-            <Link href="/settings" className="font-medium text-brand-600 hover:underline dark:text-brand-300">Connectez Claude</Link> pour activer la synthèse multi-IA.
-          </p>
-        )}
       </div>
     </div>
   );
 }
 
-// ── Composer (sticky / dock premium + sélecteurs intégrés) ──────────────────
+// ── Composer (dock premium + sélecteurs intégrés, inspiré chat-input moderne) ─
 function Composer({
-  value, onChange, onSubmit, loading, mode, setMode, modelChoice, setModelChoice, connections, hasMessages,
+  value, onChange, onSubmit, loading, mode, setMode, modelChoice, setModelChoice, connections, hasMessages, reasoning, setReasoning, connectHint,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -303,6 +304,9 @@ function Composer({
   setModelChoice: (m: ModelChoice) => void;
   connections: Record<AIProviderId, AIConnection>;
   hasMessages: boolean;
+  reasoning: boolean;
+  setReasoning: (v: boolean) => void;
+  connectHint: boolean;
 }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -313,30 +317,61 @@ function Composer({
   }, [value]);
 
   return (
-    <div className="glass-card ork-sheen overflow-hidden rounded-3xl border-brand-100 p-2.5 shadow-lift transition focus-within:border-brand-300 focus-within:shadow-pop dark:border-brand-950/60">
-      <textarea
-        ref={taRef}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSubmit(); } }}
-        placeholder={hasMessages ? "Poser une question de suivi…" : "Écrivez votre demande à Orkestra — ou choisissez un départ ci-dessus…"}
-        rows={1}
-        className="max-h-52 min-h-[44px] w-full resize-none bg-transparent px-3 py-2.5 text-[15px] leading-relaxed outline-none placeholder:text-ink-400"
-      />
-      <div className="flex items-center justify-between gap-2 px-1 pt-1.5">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <ModePicker mode={mode} setMode={setMode} />
-          <ModelPicker modelChoice={modelChoice} setModelChoice={setModelChoice} connections={connections} />
+    <div className="relative pb-3">
+      {/* Glow doux derrière le dock (visible en light mode) */}
+      <div className="pointer-events-none absolute inset-x-6 -bottom-1 top-2 rounded-[30px] bg-brand-500/15 blur-2xl" aria-hidden />
+
+      <div className="group relative rounded-[26px] border border-brand-100 bg-[var(--glass-strong)] p-2 shadow-[0_22px_60px_-26px_rgba(36,89,230,0.5)] backdrop-blur-xl transition-all duration-300 focus-within:-translate-y-0.5 focus-within:border-brand-300 focus-within:shadow-[0_28px_70px_-24px_rgba(36,89,230,0.6)] focus-within:ring-4 focus-within:ring-[var(--ring)] dark:border-brand-950/60">
+        {/* liseré supérieur lumineux */}
+        <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-brand-300/70 to-transparent" aria-hidden />
+
+        <textarea
+          ref={taRef}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSubmit(); } }}
+          placeholder={hasMessages ? "Poser une question de suivi…" : "Écrivez votre demande à Orkestra…"}
+          rows={1}
+          className="max-h-52 min-h-[48px] w-full resize-none bg-transparent px-3 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-400"
+        />
+
+        <div className="flex items-center justify-between gap-2 px-1 pt-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            {/* + ajouter du contexte (base file-preview, activé plus tard) */}
+            <button
+              type="button"
+              title="Ajouter du contexte ou une image (bientôt)"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-ink-400 transition hover:border-brand-300 hover:text-brand-600 dark:hover:text-brand-300"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+            <ModePicker mode={mode} setMode={setMode} />
+            <ModelPicker modelChoice={modelChoice} setModelChoice={setModelChoice} connections={connections} connectHint={connectHint} />
+            {/* Raisonnement opérationnel */}
+            <button
+              type="button"
+              onClick={() => setReasoning(!reasoning)}
+              aria-pressed={reasoning}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-medium transition ${reasoning ? "border-brand-300 bg-brand-50 text-brand-700 dark:bg-brand-950/60 dark:text-brand-300" : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:border-brand-300"}`}
+            >
+              <Brain className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Raisonnement</span>
+            </button>
+          </div>
+          <button
+            onClick={onSubmit}
+            disabled={loading || !value.trim()}
+            aria-label="Envoyer"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-brand-600 text-white shadow-[0_10px_24px_-8px_rgba(36,89,230,0.75)] transition enabled:hover:bg-brand-700 enabled:hover:shadow-[0_14px_30px_-8px_rgba(36,89,230,0.85)] enabled:active:scale-95 disabled:opacity-40"
+          >
+            {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
+          </button>
         </div>
-        <button
-          onClick={onSubmit}
-          disabled={loading || !value.trim()}
-          aria-label="Envoyer"
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-brand-600 text-white shadow-[0_8px_20px_-8px_rgba(36,89,230,0.7)] transition enabled:hover:bg-brand-700 enabled:active:scale-95 disabled:opacity-40"
-        >
-          {loading ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <ArrowUp className="h-[18px] w-[18px]" />}
-        </button>
       </div>
+
+      <p className="mt-2 px-1 text-center text-[11px] text-[var(--text-muted)]">
+        Entrée pour envoyer · Maj+Entrée pour un retour à la ligne · le contexte de la conversation est conservé.
+      </p>
     </div>
   );
 }
@@ -391,11 +426,12 @@ function ModePicker({ mode, setMode }: { mode: CouncilMode; setMode: (m: Council
 }
 
 function ModelPicker({
-  modelChoice, setModelChoice, connections,
+  modelChoice, setModelChoice, connections, connectHint,
 }: {
   modelChoice: ModelChoice;
   setModelChoice: (m: ModelChoice) => void;
   connections: Record<AIProviderId, AIConnection>;
+  connectHint?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const current = MODEL_OPTIONS.find((m) => m.id === modelChoice)!;
@@ -413,10 +449,17 @@ function ModelPicker({
           <Cpu className="h-3.5 w-3.5 text-brand-600 dark:text-brand-300" />
         )}
         <span className="hidden sm:inline">{current.name}</span>
+        {connectHint && <span className="h-1.5 w-1.5 rounded-full bg-amber-500 ork-live" />}
         <ChevronDown className="h-3 w-3 text-ink-400" />
       </button>
       <Popover open={open} onClose={() => setOpen(false)}>
         <div className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400">Modèle / orchestration</div>
+        {connectHint && (
+          <Link href="/settings" onClick={() => setOpen(false)} className="mb-1 flex items-start gap-2 rounded-xl bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800 transition hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-200">
+            <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>Connectez <b>Claude</b> pour activer la synthèse multi-IA.</span>
+          </Link>
+        )}
         {MODEL_OPTIONS.map((m) => {
           const connected = m.provider ? !!connections[m.provider]?.connected : true;
           const active = m.id === modelChoice;
@@ -479,27 +522,31 @@ function StarterScreen({ providers, analysis, onStart }: { providers: AIProvider
     if (alt) scan.push({ label: `Alt text (${alt})`, mode: "seo", q: "Comment ajouter des alt text descriptifs à mes images, et où dans Shopify ?" });
   }
   return (
-    <div className="ork-rise flex flex-col items-center pt-6 text-center sm:pt-10">
-      <div className="relative">
-        <div className="ork-breathe grid h-16 w-16 place-items-center rounded-3xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-[0_18px_40px_-14px_rgba(36,89,230,0.7)]">
+    <div className="ork-rise flex flex-col items-center py-4 text-center">
+      <div className="relative mb-1">
+        {/* halo radial premium derrière l'orbe (visible en light mode) */}
+        <div className="pointer-events-none absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-500/15 blur-3xl" aria-hidden />
+        <div className="ork-breathe relative grid h-16 w-16 place-items-center rounded-3xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-[0_18px_40px_-14px_rgba(36,89,230,0.7)]">
           <MessagesSquare className="h-8 w-8" />
+          <span className="ork-aura" />
         </div>
-        <span className="ork-aura" />
       </div>
-      <h2 className="mt-5 text-2xl font-bold tracking-tight text-[var(--text)]">Bonjour, comment puis-je vous aider aujourd&apos;hui&nbsp;?</h2>
+      <h2 className="mt-4 text-[26px] font-bold tracking-tight text-[var(--text)]">Bonjour, comment puis-je vous aider aujourd&apos;hui&nbsp;?</h2>
       <p className="mt-2 max-w-lg text-sm text-[var(--text-muted)]">
-        Orkestra interroge {providers.length ? `vos ${providers.length} IA connectée${providers.length > 1 ? "s" : ""}` : "vos IA"}, compare leurs réponses et livre une synthèse orientée action. Choisissez un départ ou écrivez directement ci-dessous.
+        Orkestra interroge {providers.length ? `vos ${providers.length} IA connectée${providers.length > 1 ? "s" : ""}` : "vos IA"}, compare leurs réponses et livre une synthèse orientée action. Choisissez un départ ou écrivez votre demande.
       </p>
-      <div className="ork-stagger mt-7 grid w-full gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="ork-stagger mt-6 grid w-full gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
         {COUNCIL_START.map((c) => {
           const Icon = c.icon;
           return (
-            <button key={c.label} onClick={() => onStart(c.mode, c.q)} className="ork-interactive group flex items-start gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3.5 text-left transition hover:border-brand-300">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 transition group-hover:scale-105 dark:bg-brand-950 dark:text-brand-300"><Icon className="h-[18px] w-[18px]" /></span>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold text-[var(--text)]">{c.label}</span>
+            <button key={c.label} onClick={() => onStart(c.mode, c.q)} className="group relative flex items-start gap-3 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-lift">
+              <span className="pointer-events-none absolute inset-0 bg-gradient-to-br from-brand-50/0 to-brand-50/0 transition group-hover:from-brand-50/60 group-hover:to-transparent dark:group-hover:from-brand-950/40" aria-hidden />
+              <span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 transition-transform duration-200 group-hover:scale-110 dark:bg-brand-950 dark:text-brand-300"><Icon className="h-[18px] w-[18px]" /></span>
+              <span className="relative min-w-0 flex-1">
+                <span className="flex items-center gap-1 text-sm font-semibold text-[var(--text)]">{c.label}</span>
                 <span className="mt-0.5 block text-[11px] leading-snug text-[var(--text-muted)]">{c.desc}</span>
               </span>
+              <ArrowUp className="relative h-3.5 w-3.5 shrink-0 rotate-45 text-ink-300 opacity-0 transition group-hover:opacity-100 group-hover:text-brand-500" />
             </button>
           );
         })}
@@ -529,15 +576,27 @@ const ACTIVITY_STEPS = [
   "Synthèse de la meilleure réponse",
   "Préparation des actions recommandées",
 ];
+const ACTIVITY_STEPS_DEEP = [
+  "Analyse du contexte boutique",
+  "Lecture des données du module concerné",
+  "Identification des signaux faibles & priorités",
+  "Interrogation des IA connectées",
+  "Comparaison & arbitrage des réponses",
+  "Vérification (cohérence, Merchant, ton de marque)",
+  "Synthèse de la meilleure réponse",
+  "Préparation des actions recommandées",
+];
 
-function ActivityFeed({ providers, modelChoice }: { providers: AIProviderId[]; modelChoice: ModelChoice }) {
+function ActivityFeed({ providers, modelChoice, reasoning }: { providers: AIProviderId[]; modelChoice: ModelChoice; reasoning?: boolean }) {
+  const steps = reasoning ? ACTIVITY_STEPS_DEEP : ACTIVITY_STEPS;
   const [active, setActive] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setActive((a) => Math.min(a + 1, ACTIVITY_STEPS.length - 1)), 850);
+    setActive(0);
+    const t = setInterval(() => setActive((a) => Math.min(a + 1, steps.length - 1)), reasoning ? 700 : 850);
     return () => clearInterval(t);
-  }, []);
+  }, [reasoning, steps.length]);
   return (
-    <div className="ork-rise glass-card overflow-hidden p-4">
+    <div className="ork-rise glass-card ork-sheen overflow-hidden p-4">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--text)]">
         <span className="relative grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white">
           <Sparkles className="h-4 w-4" />
@@ -545,11 +604,12 @@ function ActivityFeed({ providers, modelChoice }: { providers: AIProviderId[]; m
         </span>
         Ce qu’Orkestra fait maintenant
         <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-normal text-[var(--text-muted)]">
+          {reasoning && <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300"><Brain className="h-2.5 w-2.5" /> Approfondi</span>}
           {modelChoice === "fusion" ? <><Layers className="h-3 w-3" /> Fusion multi-IA</> : `${providers.length || 1} IA`}
         </span>
       </div>
       <ol className="space-y-2">
-        {ACTIVITY_STEPS.map((s, i) => {
+        {steps.map((s, i) => {
           const done = i < active;
           const current = i === active;
           return (

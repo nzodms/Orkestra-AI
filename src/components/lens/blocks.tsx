@@ -166,7 +166,7 @@ export function FunnelReliabilityPanel({ funnel }: { funnel: FunnelStep[] }) {
 // ── Data Trust Score ───────────────────────────────────────────────────────
 export function DataTrustScore({ score, sources }: { score: number; sources: TrustSource[] }) {
   return (
-    <div className="card p-5">
+    <div className="card ork-sheen p-5">
       <div className="flex items-center gap-4">
         <div className="grid h-12 w-12 place-items-center rounded-2xl bg-teal-50 text-teal-600 dark:bg-teal-900/40 dark:text-teal-300">
           <ShieldCheck className="h-6 w-6" />

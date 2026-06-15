@@ -17,7 +17,7 @@ export interface SectionTab {
 export function SectionTabs({ tabs }: { tabs: SectionTab[] }) {
   const pathname = usePathname();
   return (
-    <div className="mb-5 inline-flex items-center gap-1 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/70 p-1 backdrop-blur-xl">
+    <div className="mb-5 inline-flex items-center gap-1 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/70 p-1 shadow-soft backdrop-blur-xl">
       {tabs.map((t) => {
         const active = pathname === t.href || pathname.startsWith(t.href + "/");
         return (
@@ -25,10 +25,10 @@ export function SectionTabs({ tabs }: { tabs: SectionTab[] }) {
             key={t.href}
             href={t.href}
             className={cn(
-              "rounded-xl px-3.5 py-1.5 text-sm font-medium transition",
+              "relative overflow-hidden rounded-xl px-4 py-1.5 text-sm font-medium transition-all duration-200",
               active
-                ? "bg-brand-600 text-white shadow-[0_6px_16px_-8px_rgba(36,89,230,0.7)]"
-                : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                ? "ork-sheen bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-[0_8px_18px_-8px_rgba(36,89,230,0.75)]"
+                : "text-[var(--text-muted)] hover:bg-[var(--bg)] hover:text-[var(--text)]"
             )}
           >
             {t.label}

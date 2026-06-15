@@ -58,7 +58,7 @@ export default function ProductStudio() {
       </div>
 
       {/* Potentiel cumulé */}
-      <div className="glass-card flex items-center gap-3 p-4">
+      <div className="glass-card ork-sheen ork-glow-pulse flex items-center gap-3 p-4">
         <span className="grid h-10 w-10 place-items-center rounded-xl bg-teal-50 text-teal-600 dark:bg-teal-900/40 dark:text-teal-300">
           <Sparkles className="h-5 w-5" />
         </span>
