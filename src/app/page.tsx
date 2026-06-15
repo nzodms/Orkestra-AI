@@ -11,11 +11,11 @@ import {
 } from "lucide-react";
 
 const FEATURES = [
-  { icon: Sparkles, title: "Import Factory", desc: "Importez un CSV produit (fournisseur, concurrent, export) et obtenez un catalogue Shopify propre, traduit et optimisé." },
-  { icon: Blocks, title: "Code Shopify", desc: "Sections Shopify (Liquid + CSS + schema 2.0) générées en discutant dans l'AI Council." },
-  { icon: ShieldCheck, title: "Merchant Shield", desc: "Détecte les risques fréquents avant Google Merchant Center / Ads." },
-  { icon: MessagesSquare, title: "AI Council", desc: "Plusieurs IA répondent, Orkestra fusionne la meilleure réponse finale." },
-  { icon: Brain, title: "Mémoire boutique", desc: "Niche, ton de marque et mots-clés réutilisés dans toutes les générations." },
+  { icon: Sparkles, title: "Command Center", desc: "Score santé boutique, pertes potentielles et prochaine action utile en un coup d'œil." },
+  { icon: Brain, title: "Data Lens", desc: "La vérité de votre tunnel : sessions, paniers, commandes et incohérences réconciliées." },
+  { icon: Blocks, title: "Product Studio", desc: "Fiches faibles détectées, corrigées et exportées en CSV prêt pour Shopify." },
+  { icon: MessagesSquare, title: "Growth Actions", desc: "Une file d'actions priorisées par impact réel, applicables maintenant." },
+  { icon: ShieldCheck, title: "Données fiables", desc: "Un score de confiance sur chaque source avant de décider quoi que ce soit." },
   { icon: Plug, title: "BYOK", desc: "Vos clés OpenAI, Claude, Gemini… Vos crédits, jamais les nôtres." },
 ];
 
@@ -48,16 +48,16 @@ export default function Landing() {
         <div className="absolute inset-0 bg-grid opacity-60" />
         <div className="relative mx-auto max-w-4xl px-5 py-20 text-center sm:py-28">
           <div className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 dark:border-brand-900 dark:bg-brand-950 dark:text-brand-300">
-            <Sparkles className="h-3.5 w-3.5" /> Plusieurs IA, une seule réponse premium
+            <Sparkles className="h-3.5 w-3.5" /> Données réelles + IA, une seule app premium
           </div>
           <h1 className="text-balance text-4xl font-bold leading-[1.1] tracking-tight sm:text-6xl">
-            Le copilote <span className="text-brand-600">multi-IA</span> pour optimiser
-            votre boutique Shopify
+            Le copilote e-commerce qui lit les <span className="text-gradient">vraies données</span> de
+            votre boutique
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-balance text-lg text-[var(--text-muted)]">
-            Connectez votre boutique Shopify et vos IA. Orkestra analyse votre boutique,
-            comprend votre niche, puis génère du SEO premium, des sections Shopify codées,
-            des audits Merchant Center et des recommandations personnalisées.
+            Orkestra réconcilie vos données Shopify, détecte où vous perdez de l'argent,
+            puis vous donne les actions IA prêtes à appliquer — fiches produit, SEO,
+            conversion et Merchant Center.
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
