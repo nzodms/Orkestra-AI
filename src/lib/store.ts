@@ -19,8 +19,23 @@ import type { ImportRules, ProfileCollection } from "./import-factory";
 import type { ImportStyleAnalysis } from "./import-analyze";
 import type { ProfileConfig } from "./import-profiles";
 import type { LensSavedItem } from "./lens-types";
+import type { AnalyzedProduct, ProductOverride, ProductReviewStatus } from "./shopify/types";
+import type { CatalogSummary } from "./shopify/analyze";
 import { PROVIDER_ORDER } from "./providers";
 import { DEFAULT_BRAND_MEMORY } from "./mock-data";
+
+// Connexion Shopify (Product Studio réel). BYOK : domaine + token Admin API,
+// token jamais conservé en clair dans le navigateur (seulement masqué + keyId).
+export interface ShopifyConnection {
+  connected: boolean;
+  shop: string;
+  name?: string;
+  currency?: string;
+  maskedToken: string | null;
+  keyId: string | null;
+  encrypted: boolean;
+}
+const EMPTY_SHOPIFY: ShopifyConnection = { connected: false, shop: "", maskedToken: null, keyId: null, encrypted: false };
 
 // Brouillon produit transmis par Orkestra Lens → repris tel quel par Import Factory
 // (mêmes champs que le formulaire « Produit manuel »).
@@ -215,6 +230,14 @@ interface OrkestraState {
   lensSaved: LensSavedItem[];
   /** Brouillon produit en attente d'envoi vers Import Factory (depuis Lens). */
   importDraft: ImportDraft | null;
+  // ── Product Studio réel (Shopify) ──
+  shopify: ShopifyConnection;
+  /** Produits Shopify réels analysés (vide = non synchronisé → fallback démo). */
+  products: AnalyzedProduct[];
+  productsSyncedAt: string | null;
+  productSummary: CatalogSummary | null;
+  /** Corrections IA appliquées par produit (pour l'export CSV). */
+  productOverrides: Record<string, ProductOverride>;
 
   setOnboardingComplete: (v: boolean) => void;
   setGuideHidden: (v: boolean) => void;
@@ -259,6 +282,13 @@ interface OrkestraState {
   clearLens: () => void;
   setImportDraft: (d: ImportDraft) => void;
   clearImportDraft: () => void;
+  // ── Product Studio réel ──
+  setShopify: (patch: Partial<ShopifyConnection>) => void;
+  clearShopify: () => void;
+  setProducts: (products: AnalyzedProduct[], summary: CatalogSummary, syncedAt: string) => void;
+  setProductReviewStatus: (id: string, status: ProductReviewStatus) => void;
+  setProductOverride: (id: string, override: ProductOverride | null) => void;
+  clearProducts: () => void;
 }
 
 export const useOrkestra = create<OrkestraState>()(
@@ -288,6 +318,11 @@ export const useOrkestra = create<OrkestraState>()(
       pendingCouncil: null,
       lensSaved: [],
       importDraft: null,
+      shopify: EMPTY_SHOPIFY,
+      products: [],
+      productsSyncedAt: null,
+      productSummary: null,
+      productOverrides: {},
 
       setOnboardingComplete: (v) => set({ onboardingComplete: v }),
       setGuideHidden: (v) => set({ guideHidden: v }),
@@ -434,6 +469,19 @@ export const useOrkestra = create<OrkestraState>()(
       clearLens: () => set({ lensSaved: [] }),
       setImportDraft: (d) => set({ importDraft: d }),
       clearImportDraft: () => set({ importDraft: null }),
+      setShopify: (patch) => set((s) => ({ shopify: { ...s.shopify, ...patch } })),
+      clearShopify: () => set({ shopify: EMPTY_SHOPIFY, products: [], productsSyncedAt: null, productSummary: null, productOverrides: {} }),
+      setProducts: (products, summary, syncedAt) => set({ products, productSummary: summary, productsSyncedAt: syncedAt }),
+      setProductReviewStatus: (id, status) =>
+        set((s) => ({ products: s.products.map((p) => (p.id === id ? { ...p, reviewStatus: status } : p)) })),
+      setProductOverride: (id, override) =>
+        set((s) => {
+          const next = { ...s.productOverrides };
+          if (override) next[id] = override;
+          else delete next[id];
+          return { productOverrides: next };
+        }),
+      clearProducts: () => set({ products: [], productsSyncedAt: null, productSummary: null, productOverrides: {} }),
     }),
     {
       name: "orkestra-store",
@@ -443,7 +491,8 @@ export const useOrkestra = create<OrkestraState>()(
       // v5 : Import Factory (mémoire d'import : noms brandés, handles, règles).
       // v6 : presets d'import privés + derniers imports.
       // v7 : Orkestra Lens (résultats sauvegardés + brouillon Import Factory).
-      version: 7,
+      // v8 : Product Studio réel (connexion Shopify + produits analysés).
+      version: 8,
       migrate: (persisted: unknown, version: number) => {
         const state = (persisted ?? {}) as Partial<OrkestraState>;
         if (version < 2) {
@@ -475,6 +524,9 @@ export const useOrkestra = create<OrkestraState>()(
         }
         if (version < 7) {
           return { ...state, lensSaved: [], importDraft: null } as OrkestraState;
+        }
+        if (version < 8) {
+          return { ...state, shopify: EMPTY_SHOPIFY, products: [], productsSyncedAt: null, productSummary: null, productOverrides: {} } as OrkestraState;
         }
         return state as OrkestraState;
       },
