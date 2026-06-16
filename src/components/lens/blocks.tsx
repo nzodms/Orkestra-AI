@@ -349,6 +349,8 @@ export function ProductOpportunityCard({
 
 // ── AI Fix Preview (Before / After) ────────────────────────────────────────
 export function AIFixPreview({ p }: { p: ProductOpportunity }) {
+  const seoAfter = Math.min(p.seoScore + 41, 94);
+  const convAfter = Math.min(p.convScore + 36, 90);
   return (
     <div className="card overflow-hidden">
       <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] p-4">
@@ -366,10 +368,29 @@ export function AIFixPreview({ p }: { p: ProductOpportunity }) {
         </button>
       </div>
 
+      {/* Transformation projetée */}
+      <div className="grid grid-cols-2 gap-px border-b border-[var(--border)] bg-[var(--border)]">
+        <ScoreJump label="SEO" from={p.seoScore} to={seoAfter} />
+        <ScoreJump label="Conversion" from={p.convScore} to={convAfter} />
+      </div>
+
       <div className="grid gap-px bg-[var(--border)] sm:grid-cols-2">
         <BeforeAfterColumn kind="before" title={p.before.title} meta={p.before.meta} />
         <BeforeAfterColumn kind="after" title={p.after.title} meta={p.after.meta} />
       </div>
+    </div>
+  );
+}
+
+function ScoreJump({ label, from, to }: { label: string; from: number; to: number }) {
+  return (
+    <div className="flex items-center justify-between bg-[var(--surface)] px-4 py-2.5">
+      <span className="text-[11px] font-medium text-[var(--text-muted)]">{label}</span>
+      <span className="flex items-center gap-1.5 text-sm font-semibold">
+        <span className="text-ink-400">{from}</span>
+        <ArrowRight className="h-3.5 w-3.5 text-teal-500" />
+        <span className="text-teal-600 dark:text-teal-400">{to}</span>
+      </span>
     </div>
   );
 }

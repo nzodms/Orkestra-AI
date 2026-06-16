@@ -13,18 +13,23 @@ import {
   compact,
   euro,
 } from "@/lib/lens-mock";
-import { Activity, Percent, GitCompareArrows, ShoppingBag, ArrowRight } from "lucide-react";
+import { Activity, Percent, GitCompareArrows, ShoppingBag, ArrowRight, ArrowUpRight, ArrowDownRight, RefreshCw } from "lucide-react";
 
-function Stat({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub: string }) {
+function Stat({ icon, label, value, sub, trend }: { icon: React.ReactNode; label: string; value: string; sub: string; trend?: number }) {
   return (
-    <div className="card p-4">
-      <div className="flex items-center gap-2 text-[var(--text-muted)]">
-        <span className="grid h-7 w-7 place-items-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300">
+    <div className="card p-4 transition hover:shadow-lift">
+      <div className="flex items-center justify-between">
+        <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300">
           {icon}
         </span>
-        <span className="text-xs font-medium">{label}</span>
+        {typeof trend === "number" && (
+          <span className={`inline-flex items-center gap-0.5 text-[11px] font-semibold ${trend >= 0 ? "text-teal-600 dark:text-teal-400" : "text-red-500"}`}>
+            {trend >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}{trend >= 0 ? "+" : ""}{trend}%
+          </span>
+        )}
       </div>
-      <div className="mt-2 text-2xl font-bold tracking-tight text-[var(--text)]">{value}</div>
+      <div className="mt-2.5 text-2xl font-bold tracking-tight text-[var(--text)]">{value}</div>
+      <div className="text-xs font-medium text-[var(--text)]">{label}</div>
       <div className="text-[11px] text-[var(--text-muted)]">{sub}</div>
     </div>
   );
@@ -63,18 +68,30 @@ export default function DataLens() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat icon={<Activity className="h-4 w-4" />} label="Sessions (30 j)" value={compact(sessions)} sub="fiabilisées · 16,9k" />
-        <Stat icon={<ShoppingBag className="h-4 w-4" />} label="Commandes" value={compact(orders)} sub="réconciliées Shopify" />
-        <Stat icon={<Percent className="h-4 w-4" />} label="Taux de conversion" value={`${convRate}%`} sub="sur données fiables" />
-        <Stat icon={<GitCompareArrows className="h-4 w-4" />} label="Écart brut/fiable" value="8 %" sub="à surveiller sur Meta" />
+        <Stat icon={<Activity className="h-[18px] w-[18px]" />} label="Sessions (30 j)" value={compact(sessions)} sub="fiabilisées" trend={12} />
+        <Stat icon={<ShoppingBag className="h-[18px] w-[18px]" />} label="Commandes" value={compact(orders)} sub="réconciliées Shopify" trend={8} />
+        <Stat icon={<Percent className="h-[18px] w-[18px]" />} label="Taux de conversion" value={`${convRate}%`} sub="sur données fiables" trend={-3} />
+        <Stat icon={<GitCompareArrows className="h-[18px] w-[18px]" />} label="Écart brut/fiable" value="8 %" sub="à surveiller sur Meta" trend={-2} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-12">
         <div className="lg:col-span-7">
           <FunnelReliabilityPanel funnel={FUNNEL} />
         </div>
-        <div className="lg:col-span-5">
+        <div className="space-y-4 lg:col-span-5">
           <DataTrustScore score={DATA_TRUST_SCORE} sources={TRUST_SOURCES} />
+          <div className="card flex items-center gap-3 p-4">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-teal-50 text-teal-600 dark:bg-teal-900/40 dark:text-teal-300">
+              <RefreshCw className="h-[18px] w-[18px]" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--text)]">
+                Données fraîches <span className="h-1.5 w-1.5 rounded-full bg-teal-500 ork-live" />
+              </div>
+              <p className="text-[11px] text-[var(--text-muted)]">Dernière synchronisation il y a 12 min · réconciliation continue.</p>
+            </div>
+            <span className="shrink-0 rounded-lg bg-[var(--bg)] px-2 py-1 text-[11px] font-semibold text-[var(--text-muted)]">30 j</span>
+          </div>
         </div>
       </div>
 

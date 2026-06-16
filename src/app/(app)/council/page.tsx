@@ -16,15 +16,15 @@ import {
   Loader2, Zap, ArrowUp, Plus, Brain,
 } from "lucide-react";
 
-const MODES: { id: CouncilMode; label: string; icon: React.ElementType }[] = [
-  { id: "seo", label: "SEO", icon: Search },
-  { id: "code", label: "Code Shopify", icon: Code2 },
-  { id: "merchant", label: "Merchant Center", icon: ShieldCheck },
-  { id: "email", label: "Email client", icon: Mail },
-  { id: "quote", label: "Devis", icon: FileText },
-  { id: "strategy", label: "Stratégie", icon: TrendingUp },
-  { id: "competitive", label: "Concurrence", icon: Swords },
-  { id: "free", label: "Question libre", icon: MessageCircle },
+const MODES: { id: CouncilMode; label: string; icon: React.ElementType; desc: string }[] = [
+  { id: "seo", label: "SEO", icon: Search, desc: "Titres, meta, contenu, maillage" },
+  { id: "code", label: "Code Shopify", icon: Code2, desc: "Sections Liquid + CSS + schema" },
+  { id: "merchant", label: "Merchant Center", icon: ShieldCheck, desc: "Risques avant Google Ads" },
+  { id: "email", label: "Email client", icon: Mail, desc: "Réponses pro et cadrées" },
+  { id: "quote", label: "Devis", icon: FileText, desc: "Chiffrage clair et structuré" },
+  { id: "strategy", label: "Stratégie", icon: TrendingUp, desc: "Diagnostic & priorités business" },
+  { id: "competitive", label: "Concurrence", icon: Swords, desc: "Concurrents & différenciation" },
+  { id: "free", label: "Question libre", icon: MessageCircle, desc: "Tout le reste" },
 ];
 
 // Modes qui bénéficient d'une synthèse multi-IA (OpenAI + Claude).
@@ -377,12 +377,12 @@ function Composer({
 }
 
 // ── Popover générique ───────────────────────────────────────────────────────
-function Popover({ open, onClose, children }: { open: boolean; onClose: () => void; children: React.ReactNode }) {
+function Popover({ open, onClose, children, width = "w-64" }: { open: boolean; onClose: () => void; children: React.ReactNode; width?: string }) {
   if (!open) return null;
   return (
     <>
       <button className="fixed inset-0 z-30 cursor-default" aria-hidden onClick={onClose} />
-      <div className="absolute bottom-full left-0 z-40 mb-2 w-64 origin-bottom-left animate-scale-in rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-pop">
+      <div className={`absolute bottom-full left-0 z-40 mb-2 ${width} origin-bottom-left animate-scale-in rounded-2xl border border-[var(--border)] bg-[var(--glass-strong)] p-1.5 shadow-pop backdrop-blur-xl`}>
         {children}
       </div>
     </>
@@ -397,15 +397,15 @@ function ModePicker({ mode, setMode }: { mode: CouncilMode; setMode: (m: Council
     <div className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-medium text-[var(--text)] transition hover:border-brand-300"
+        className={`inline-flex h-8 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-medium transition ${open ? "border-brand-300 bg-brand-50 text-brand-700 dark:bg-brand-950/60 dark:text-brand-300" : "border-[var(--border)] bg-[var(--surface)] text-[var(--text)] hover:border-brand-300"}`}
       >
         <Icon className="h-3.5 w-3.5 text-brand-600 dark:text-brand-300" />
         <span className="hidden sm:inline">{current.label}</span>
-        <ChevronDown className="h-3 w-3 text-ink-400" />
+        <ChevronDown className={`h-3 w-3 text-ink-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
-      <Popover open={open} onClose={() => setOpen(false)}>
-        <div className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400">Type de demande</div>
-        <div className="grid grid-cols-2 gap-1">
+      <Popover open={open} onClose={() => setOpen(false)} width="w-72">
+        <div className="px-2 pb-1.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400">Type de demande</div>
+        <div className="max-h-[19rem] space-y-0.5 overflow-y-auto">
           {MODES.map((m) => {
             const MIcon = m.icon;
             const active = m.id === mode;
@@ -413,9 +413,18 @@ function ModePicker({ mode, setMode }: { mode: CouncilMode; setMode: (m: Council
               <button
                 key={m.id}
                 onClick={() => { setMode(m.id); setOpen(false); }}
-                className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition ${active ? "bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300" : "text-[var(--text-muted)] hover:bg-[var(--bg)]"}`}
+                className={`group flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition ${active ? "bg-gradient-to-r from-brand-50 to-transparent dark:from-brand-950/60" : "hover:bg-[var(--bg)]"}`}
               >
-                <MIcon className="h-3.5 w-3.5" /> {m.label}
+                <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg transition ${active ? "bg-brand-600 text-white shadow-[0_6px_14px_-6px_rgba(36,89,230,0.7)]" : "bg-[var(--bg)] text-[var(--text-muted)] group-hover:text-brand-600 dark:group-hover:text-brand-300"}`}>
+                  <MIcon className="h-3.5 w-3.5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--text)]">
+                    {m.label}
+                    {active && <Check className="h-3.5 w-3.5 text-brand-600 dark:text-brand-300" />}
+                  </span>
+                  <span className="block truncate text-[11px] text-[var(--text-muted)]">{m.desc}</span>
+                </span>
               </button>
             );
           })}

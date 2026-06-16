@@ -40,13 +40,13 @@ export default function ProductStudio() {
           <div className="mb-1.5 flex items-center gap-2">
             <DemoBadge />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-[var(--text)]">Optimisez vos fiches produit</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-[var(--text)]">Transformez vos fiches faibles en fiches prêtes à vendre</h1>
           <p className="mt-1 text-sm text-[var(--text-muted)]">
-            Fiches faibles d’abord. Aperçu avant/après, puis export CSV prêt pour Shopify.
+            Détection des fiches faibles, réécriture IA avant/après, puis export CSV prêt pour Shopify.
           </p>
         </div>
-        <button className="btn-ghost shrink-0">
-          <Download className="h-4 w-4" /> Exporter CSV Shopify
+        <button className="btn-primary shrink-0">
+          <Download className="h-4 w-4" /> Exporter CSV Shopify <span className="rounded-md bg-white/20 px-1.5 py-0.5 text-[11px]">12</span>
         </button>
       </div>
 
