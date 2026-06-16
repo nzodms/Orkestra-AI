@@ -392,7 +392,15 @@ export interface CouncilResult {
   councilWhy?: CouncilWhy;
   /** Présent uniquement pour une demande de review/analyse de site. */
   review?: SiteReview;
+  /** Format de réponse retenu (pilote le rendu UI : conversation simple vs rapport). */
+  format?: CouncilFormat;
+  /** Suggestions de suivi contextuelles (chips « continuer la conversation »). */
+  suggestions?: { label: string; q: string }[];
+  /** Base de la réponse : démo, contexte public, ou aucune donnée réelle. */
+  dataBasis?: "demo" | "public" | "none" | "product";
 }
+
+export type CouncilFormat = "conversation" | "diagnostic" | "generation" | "plan" | "analysis";
 
 export interface CouncilWhy {
   openai: string;

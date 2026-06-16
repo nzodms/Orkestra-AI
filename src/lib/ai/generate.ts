@@ -3,6 +3,7 @@ import {
   generateProductSeo,
   generateSection,
   isTargetedQuestion,
+  isSmalltalk,
   classifyIntent,
   type CouncilContext,
   type ProductSeoInput,
@@ -233,10 +234,16 @@ export async function runCouncil(
     "RÈGLE DEMANDE INCONNUE : si tu n'as pas assez d'informations (donnée non couverte par le scan public, réglage dépendant du thème ou d'une app), ne réponds PAS de façon générique. Raisonne avec le contexte boutique, propose le(s) chemin(s) Shopify probable(s), dis clairement ce qui manque et ce qu'il faudrait connecter (API Shopify, URL, précision) pour être certain, puis termine par une prochaine action claire. N'invente jamais et ne prétends PAS avoir cherché sur internet : aucune recherche web n'est branchée. Formulation possible : « Je n'ai pas assez d'informations pour confirmer ce point avec le scan public. Voici ce que je peux vérifier maintenant, et ce qu'il faudrait connecter pour être certain. »\n" +
     `RÔLE POUR CE MODE — ${MODE_ROLE[mode]}`;
 
+  // Message social / court (salut, merci, « tu fais quoi ») → réponse naturelle,
+  // surtout PAS un audit. Le scaffold a déjà fixé format = "conversation".
+  const smalltalk = isSmalltalk(question) && !ctx.directive;
+
   // Logique de suivi COMMUNE à toutes les IA : si la question dépend du message
   // précédent, on répond précisément au point demandé sans refaire l'audit.
   const targeted = isTargetedQuestion(question, ctx);
-  const directive = targeted
+  const directive = smalltalk
+    ? `\n\n⚠️ MESSAGE CONVERSATIONNEL (salutation ou message court). Réponds de façon NATURELLE, CHALEUREUSE et BRÈVE (2-4 phrases max), comme un vrai assistant. N'écris AUCUN rapport, AUCUN audit, AUCune section markdown ## , AUCun score. Termine en proposant 4 à 6 pistes e-commerce concrètes (SEO, fiches produits, tunnel, Merchant Center, import, stratégie) sous forme de courte liste à puces.`
+    : targeted
     ? `\n\n⚠️ DEMANDE CIBLÉE (intention détectée : ${classifyIntent(question)}). La DERNIÈRE question utilisateur est PRIORITAIRE : réponds UNIQUEMENT et PRÉCISÉMENT à CETTE question. NE refais PAS d'audit complet, PAS de plan 30 jours, PAS de sections inutiles, ne recycle pas un rapport. Si la question contient « Contexte : … Réponds uniquement … », respecte-le à la lettre.\n` +
       `Appuie-toi sur les données réelles du scan pour « Ce qui est concerné » (textes anglais exacts, produits prioritaires, pages légales manquantes, meta/alt manquants…). Si une donnée n'est pas disponible, écris « donnée non disponible via scan public » — n'invente RIEN et ne prétends pas avoir cherché sur internet.\n` +
       `Format OBLIGATOIRE, court, EXACTEMENT dans cet ordre (omets une section seulement si elle n'a aucun sens pour la question) :\n` +

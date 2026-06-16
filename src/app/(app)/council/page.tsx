@@ -77,6 +77,7 @@ export default function CouncilPage() {
   const [modelChoice, setModelChoice] = useState<ModelChoice>("auto");
   const [reasoning, setReasoning] = useState(false);
   const [question, setQuestion] = useState("");
+  const [pendingQuestion, setPendingQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -120,6 +121,7 @@ export default function CouncilPage() {
 
   async function runCouncil(q: string, directive: Directive | null = null, modeOverride?: CouncilMode) {
     if (!q.trim()) return;
+    if (!directive) setPendingQuestion(q);
     const useMode = modeOverride ?? mode;
     const history = councilMessages
       .slice(-6)
@@ -262,7 +264,7 @@ export default function CouncilPage() {
               )
             )
           )}
-          {loading && <ActivityFeed providers={providersToSend()} modelChoice={modelChoice} reasoning={reasoning} />}
+          {loading && <ActivityFeed providers={providersToSend()} modelChoice={modelChoice} reasoning={reasoning} question={pendingQuestion} dataBasis={analysis ? "public" : "none"} />}
         </div>
       </div>
 
@@ -578,16 +580,18 @@ function StarterScreen({ providers, analysis, onStart }: { providers: AIProvider
 
 // ── Activity feed (« Ce qu'Orkestra fait maintenant ») ──────────────────────
 const ACTIVITY_STEPS = [
-  "Analyse du contexte boutique",
-  "Lecture des données du module concerné",
+  "Compréhension de la requête",
+  "Recherche du contexte boutique",
+  "Lecture des données disponibles",
   "Interrogation des IA connectées",
   "Comparaison des réponses",
   "Synthèse de la meilleure réponse",
   "Préparation des actions recommandées",
 ];
 const ACTIVITY_STEPS_DEEP = [
-  "Analyse du contexte boutique",
-  "Lecture des données du module concerné",
+  "Compréhension de la requête",
+  "Recherche du contexte boutique",
+  "Lecture des données disponibles",
   "Identification des signaux faibles & priorités",
   "Interrogation des IA connectées",
   "Comparaison & arbitrage des réponses",
@@ -595,15 +599,28 @@ const ACTIVITY_STEPS_DEEP = [
   "Synthèse de la meilleure réponse",
   "Préparation des actions recommandées",
 ];
+const ACTIVITY_STEPS_CHAT = [
+  "Compréhension de la requête",
+  "Préparation d’une réponse adaptée",
+];
 
-function ActivityFeed({ providers, modelChoice, reasoning }: { providers: AIProviderId[]; modelChoice: ModelChoice; reasoning?: boolean }) {
-  const steps = reasoning ? ACTIVITY_STEPS_DEEP : ACTIVITY_STEPS;
+// Détection légère côté client (miroir de isSmalltalk serveur) pour le feed.
+function looksLikeSmalltalk(q: string): boolean {
+  const t = q.trim().toLowerCase().replace(/[!?.…\s]+$/g, "");
+  if (t.length > 40) return false;
+  return /^(salut|bonjour|bonsoir|hello|hey|coucou|yo|hi|cc|merci|thanks?|ok|d'?accord|super|g[ée]nial|parfait|nickel|top|cool|ça va|ca va)\b/.test(t)
+    || /(qui es[- ]tu|tu (peux )?fais? quoi|tu sers à quoi|aide[- ]?moi|\bhelp\b)$/.test(t);
+}
+
+function ActivityFeed({ providers, modelChoice, reasoning, question, dataBasis }: { providers: AIProviderId[]; modelChoice: ModelChoice; reasoning?: boolean; question?: string; dataBasis?: "public" | "none" }) {
+  const chat = looksLikeSmalltalk(question || "");
+  const steps = chat ? ACTIVITY_STEPS_CHAT : reasoning ? ACTIVITY_STEPS_DEEP : ACTIVITY_STEPS;
   const [active, setActive] = useState(0);
   useEffect(() => {
     setActive(0);
-    const t = setInterval(() => setActive((a) => Math.min(a + 1, steps.length - 1)), reasoning ? 700 : 850);
+    const t = setInterval(() => setActive((a) => Math.min(a + 1, steps.length - 1)), chat ? 500 : reasoning ? 700 : 800);
     return () => clearInterval(t);
-  }, [reasoning, steps.length]);
+  }, [reasoning, steps.length, chat]);
   return (
     <div className="ork-rise glass-card ork-sheen overflow-hidden p-4">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--text)]">
@@ -611,9 +628,10 @@ function ActivityFeed({ providers, modelChoice, reasoning }: { providers: AIProv
           <Sparkles className="h-4 w-4" />
           <span className="ork-aura" />
         </span>
-        Ce qu’Orkestra fait maintenant
+        {chat ? "Orkestra prépare sa réponse…" : "Ce qu’Orkestra fait maintenant"}
         <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-normal text-[var(--text-muted)]">
-          {reasoning && <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300"><Brain className="h-2.5 w-2.5" /> Approfondi</span>}
+          {!chat && <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${dataBasis === "public" ? "bg-teal-50 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300" : "bg-ink-100 text-ink-500 dark:bg-ink-900 dark:text-ink-400"}`}>Données : {dataBasis === "public" ? "démo" : "aucune (Shopify non connecté)"}</span>}
+          {reasoning && !chat && <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300"><Brain className="h-2.5 w-2.5" /> Approfondi</span>}
           {modelChoice === "fusion" ? <><Layers className="h-3 w-3" /> Fusion multi-IA</> : `${providers.length || 1} IA`}
         </span>
       </div>
@@ -646,8 +664,34 @@ function UserBubble({ turn }: { turn: CouncilTurn }) {
 }
 
 // ── Carte d'un tour de réponse (synthèse finale + onglets IA) ───────────────
+// Message conversationnel simple (salutation, smalltalk) — pas de rapport.
+function ConversationMessage({ result, onFollow }: { result: CouncilResult; onFollow: (q: string) => void }) {
+  return (
+    <div className="ork-rise flex gap-3">
+      <div className="grid h-8 w-8 shrink-0 place-items-center self-start rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-[0_8px_18px_-8px_rgba(36,89,230,0.7)]">
+        <Sparkles className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="rounded-3xl rounded-tl-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 shadow-soft">
+          <div className="min-w-0 break-words text-[15px] leading-relaxed"><Markdown content={result.finalAnswer} /></div>
+        </div>
+        {result.suggestions && result.suggestions.length > 0 && (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {result.suggestions.map((s) => (
+              <button key={s.q} onClick={() => onFollow(s.q)} className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--text)] transition hover:-translate-y-0.5 hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300">
+                <Sparkles className="h-3.5 w-3.5 text-brand-500" /> {s.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: CouncilResult; meta?: GenMeta; mode: CouncilMode; onAction: (d: Directive) => void; onFollow: (q: string) => void }) {
   const [tab, setTab] = useState<"final" | "why" | string>("final");
+  if (result.format === "conversation") return <ConversationMessage result={result} onFollow={onFollow} />;
   const current = result.providerAnswers.find((p) => p.provider === tab);
   const time = meta ? new Date(meta.generatedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "";
   const fusion = !!meta?.fusion;
@@ -720,8 +764,16 @@ function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: C
             </div>
             {result.review && <ReviewBlock review={result.review} />}
 
-            {/* Bloc exécution structuré */}
-            <ExecutionFooter result={result} />
+            {/* Honnêteté simulé vs réel */}
+            {result.dataBasis === "none" && (
+              <div className="mt-4 flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-xs text-[var(--text-muted)]">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                <span>Je n’ai pas encore vos données Shopify réelles. Cette réponse est une analyse de méthode — <Link href="/settings" className="font-medium text-brand-600 hover:underline dark:text-brand-300">connectez Shopify</Link> pour une analyse précise.</span>
+              </div>
+            )}
+
+            {/* Bloc exécution structuré (pas pour les réponses sans actions) */}
+            {result.nextActions.length > 0 && <ExecutionFooter result={result} />}
 
             {/* Actions sur la réponse */}
             <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
@@ -742,18 +794,18 @@ function CouncilTurnCard({ result, meta, mode, onAction, onFollow }: { result: C
                 <CornerDownRight className="h-3.5 w-3.5" /> Continuer la conversation
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {followUps(mode).map((f) => {
-                  const Icon = f.icon;
-                  return (
-                    <button
-                      key={f.q}
-                      onClick={() => onFollow(f.q)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-medium text-[var(--text-muted)] transition hover:-translate-y-0.5 hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300"
-                    >
-                      <Icon className="h-3.5 w-3.5 text-brand-500" /> {f.label}
-                    </button>
-                  );
-                })}
+                {(result.suggestions && result.suggestions.length > 0
+                  ? result.suggestions
+                  : followUps(mode).map((f) => ({ label: f.label, q: f.q }))
+                ).map((f) => (
+                  <button
+                    key={f.q}
+                    onClick={() => onFollow(f.q)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-medium text-[var(--text-muted)] transition hover:-translate-y-0.5 hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300"
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-brand-500" /> {f.label}
+                  </button>
+                ))}
               </div>
             </div>
           </>

@@ -3,6 +3,7 @@ import type {
   SectionResult,
   MerchantAudit,
   CouncilResult,
+  CouncilFormat,
   CouncilMode,
   AIProviderId,
   SeoLevel,
@@ -1376,6 +1377,103 @@ const PROVIDER_PROFILE: Record<
   },
 };
 
+// ── Conversation naturelle (salutations, smalltalk, capacités) ──────────────
+/** Message court/social qui ne doit PAS déclencher un rapport complet. */
+export function isSmalltalk(q: string): boolean {
+  const t = q.trim().toLowerCase().replace(/[!?.…\s]+$/g, "");
+  if (t.length > 40) return false;
+  if (/^(salut|bonjour|bonsoir|hello|hey+|coucou|yo|hi|hola|cc|wesh)\b/.test(t)) return true;
+  if (/^(merci|thanks?|ok|oki|d'?accord|super|g[ée]nial|parfait|nickel|top|cool|ça marche|ca marche|bien re[çc]u)\b/.test(t)) return true;
+  if (/^(ça va|ca va|comment ça va|comment ca va|tu vas bien)\b/.test(t)) return true;
+  if (/(qui es[- ]tu|c'?est quoi orkestra|tu (peux )?fais? quoi|tu sers à quoi|que (peux|sais)[- ]tu faire|tu peux m'?aider|aide[- ]?moi|\bhelp\b)$/.test(t)) return true;
+  return false;
+}
+
+function isCapabilityQuestion(q: string): boolean {
+  const t = q.toLowerCase();
+  return /(qui es[- ]tu|tu (peux )?fais? quoi|tu sers à quoi|que (peux|sais)[- ]tu faire|c'?est quoi orkestra|tu peux m'?aider)/.test(t);
+}
+
+/** Suggestions de départ transversales (écran d'accueil / salutation). */
+function starterSuggestions(): { label: string; q: string }[] {
+  return [
+    { label: "Audit SEO rapide", q: "Fais-moi un audit SEO rapide de ma boutique." },
+    { label: "Optimiser une fiche produit", q: "Optimise une fiche produit : titre, meta, description, FAQ et alt." },
+    { label: "Comprendre mes pertes", q: "Explique-moi où ma boutique perd de l'argent et pourquoi." },
+    { label: "Mes priorités", q: "Quels problèmes dois-je corriger en premier ?" },
+    { label: "Risques Merchant Center", q: "Quels risques peuvent bloquer mes annonces Google Shopping ?" },
+    { label: "Plan d'action 7 jours", q: "Fais-moi un plan d'action concret sur 7 jours." },
+  ];
+}
+
+/** Suggestions de suivi adaptées au mode après une réponse. */
+function followupSuggestions(mode: CouncilMode): { label: string; q: string }[] {
+  const map: Partial<Record<CouncilMode, { label: string; q: string }[]>> = {
+    seo: [
+      { label: "Produits à optimiser en priorité", q: "Quels produits dois-je optimiser en priorité ?" },
+      { label: "Générer les meta manquantes", q: "Génère les meta descriptions manquantes, prêtes à copier." },
+      { label: "Réécrire les titres faibles", q: "Réécris les titres produits trop faibles." },
+      { label: "Plan 7 jours", q: "Fais-moi le plan d'action SEO sur 7 jours avec les chemins Shopify." },
+    ],
+    merchant: [
+      { label: "Risques qui bloquent les annonces", q: "Quels risques peuvent bloquer mes annonces Google Shopping ?" },
+      { label: "Réécrire les promesses risquées", q: "Réécris les promesses trop risquées de façon factuelle." },
+      { label: "Rendre une fiche conforme", q: "Rends cette fiche plus conforme Google Shopping." },
+    ],
+    strategy: [
+      { label: "3 actions les plus rentables", q: "Quelles sont les 3 actions les plus rentables à faire aujourd'hui ?" },
+      { label: "Prioriser par impact/effort", q: "Classe les actions par impact et effort." },
+      { label: "Plan 30 jours", q: "Construis un plan d'action sur 30 jours." },
+    ],
+    code: [
+      { label: "Adapter au thème", q: "Adapte cette section à mon thème Shopify et explique l'installation." },
+      { label: "Version mobile", q: "Optimise le rendu mobile de cette section." },
+    ],
+    email: [
+      { label: "Version plus courte", q: "Donne une version plus courte de cet email." },
+      { label: "Ton plus chaleureux", q: "Réécris cet email avec un ton plus chaleureux." },
+    ],
+  };
+  return map[mode] ?? [
+    { label: "Résumer en 10 actions", q: "Résume en 10 actions concrètes et priorisées." },
+    { label: "Quelles priorités ?", q: "Quelles sont les priorités à traiter en premier ?" },
+    { label: "Plan 7 jours", q: "Donne-moi un plan d'action concret sur 7 jours." },
+  ];
+}
+
+/** Base de données utilisée (transparence simulé vs réel). */
+function dataBasisFor(ctx: CouncilContext): "public" | "none" {
+  if (ctx.productsFound != null || ctx.collections?.length || ctx.priorityProducts?.length || ctx.legalFound?.length) return "public";
+  return "none";
+}
+
+function councilFormat(mode: CouncilMode, question: string): CouncilFormat {
+  if (isReviewIntent(question)) return "analysis";
+  if (/30\s*jours?|plan d'action|roadmap|sur 30|plan 7|7\s*jours?/i.test(question)) return "plan";
+  if (mode === "strategy") return "plan";
+  if (mode === "email" || mode === "quote" || mode === "code") return "generation";
+  const intent = classifyIntent(question);
+  if (intent === "generation_texte" || intent === "produit_seo" || intent === "meta_description" || intent === "collection_seo") return "generation";
+  return "diagnostic";
+}
+
+/** Réponse conversationnelle (salutation / capacités) — courte, naturelle, sans rapport. */
+function buildConversation(question: string, ctx: CouncilContext): string {
+  const store = ctx.brandName ? `**${ctx.brandName}**` : "votre boutique";
+  if (isCapabilityQuestion(question)) {
+    return (
+      `Je suis **Orkestra**, votre copilote e-commerce. Je travaille sur ${store} pour vous aider à :\n\n` +
+      `- **SEO** — titres, meta, contenu, maillage interne\n` +
+      `- **Fiches produits** — réécriture, FAQ, alt, export CSV Shopify\n` +
+      `- **Tunnel & conversion** — comprendre où vous perdez des ventes\n` +
+      `- **Merchant Center** — éviter ce qui bloque vos annonces\n` +
+      `- **Stratégie** — prioriser les actions les plus rentables\n\n` +
+      `Par quoi on commence ?`
+    );
+  }
+  return `Salut 👋 Je suis prêt. On travaille sur quoi aujourd'hui pour ${store} — SEO, fiches produits, tunnel, Merchant Center, import catalogue ou stratégie ?`;
+}
+
 export function generateCouncil(
   mode: CouncilMode,
   question: string,
@@ -1383,6 +1481,32 @@ export function generateCouncil(
   ctx: CouncilContext = {}
 ): CouncilResult {
   const active = providers.length ? providers : (["openai"] as AIProviderId[]);
+
+  // ── Conversation naturelle (salut, merci, « tu fais quoi ») → pas de rapport ──
+  if (isSmalltalk(question) && !ctx.directive && !isFollowupQuestion(question, ctx)) {
+    const text = buildConversation(question, ctx);
+    return {
+      finalAnswer: text,
+      qualityScore: 0,
+      scores: { quality: 0, clarity: 0, actionable: 0 },
+      timeSaved: "",
+      modelsUsed: active,
+      nextActions: [],
+      synthesisReasons: [],
+      providerAnswers: active.map((p) => ({
+        provider: p,
+        model: defaultModelFor(p),
+        specialty: PROVIDER_PROFILE[p].specialty,
+        answer: text,
+        qualityScore: 0,
+        strengths: [],
+        limits: [],
+      })),
+      format: "conversation",
+      suggestions: starterSuggestions(),
+      dataBasis: dataBasisFor(ctx),
+    };
+  }
 
   // Une demande de review/analyse de site déclenche une analyse complète.
   const reviewIntent = isReviewIntent(question);
@@ -1436,6 +1560,9 @@ export function generateCouncil(
     ],
     providerAnswers,
     review: sr?.review,
+    format: sr ? "analysis" : councilFormat(mode, question),
+    suggestions: followupSuggestions(mode),
+    dataBasis: dataBasisFor(ctx),
   };
 }
 
